@@ -1,0 +1,19 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "netscope",
+  "outputfilename": "netscope",
+  "frontend:install": "",
+  "frontend:build": "",
+  "frontend:dev:watcher": "",
+  "frontend:dev:serverUrl": "",
+  "author": {
+    "name": "haeje"
+  },
+  "info": {
+    "companyName": "netscope",
+    "productName": "netscope",
+    "productVersion": "0.1.0",
+    "copyright": "MIT License",
+    "comments": "Per-app network traffic monitor for macOS"
+  }
+}

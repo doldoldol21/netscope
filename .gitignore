@@ -1,0 +1,18 @@
+# build artifacts
+/bin/
+/desktop/build/bin/
+/dist/
+
+# local databases
+*.db
+*.db-wal
+*.db-shm
+
+# generated capture fixtures (regenerate with: go run tools/gensample.go)
+/testdata/*.pcap
+
+# macOS
+.DS_Store
+
+# wails auto-generated JS bindings (unused; we use plain fetch)
+/desktop/frontend/wailsjs/

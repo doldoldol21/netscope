@@ -1,0 +1,171 @@
+/* netscope dashboard — shared by the daemon web view and the Wails desktop app.
+   No build step: plain CSS with custom properties and a light/dark scheme. */
+
+:root {
+  color-scheme: dark;
+  --bg: #0d1117;
+  --bg-grad: radial-gradient(1200px 600px at 80% -10%, #16203022, transparent),
+             radial-gradient(900px 500px at -10% 0%, #1a142e22, transparent);
+  --panel: #161b22;
+  --panel-2: #1c232d;
+  --panel-3: #232c38;
+  --line: #283039;
+  --line-soft: #20262e;
+  --fg: #e6edf3;
+  --fg-dim: #9aa6b2;
+  --muted: #6e7b8a;
+  --accent: #4493f8;
+  --rx: #3fb950;
+  --rx-soft: #3fb95033;
+  --tx: #f0883e;
+  --tx-soft: #f0883e33;
+  --ai: #bc8cff;
+  --ai-bg: #2b2347;
+  --ai-line: #4d3d7a;
+  --radius: 12px;
+  --radius-sm: 8px;
+  --shadow: 0 1px 0 #ffffff08 inset, 0 8px 24px -16px #000;
+  --mono: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", Segoe UI, sans-serif;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    color-scheme: light;
+    --bg: #f6f8fa; --bg-grad: none; --panel: #ffffff; --panel-2: #f3f5f8;
+    --panel-3: #eaeef2; --line: #d8dee4; --line-soft: #e6eaef; --fg: #1f2328;
+    --fg-dim: #57606a; --muted: #818b98; --accent: #0969da; --ai-bg: #f3eeff;
+    --ai-line: #d8c7ff; --shadow: 0 1px 2px #0000000d, 0 8px 24px -18px #0003;
+  }
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0; background: var(--bg); background-image: var(--bg-grad);
+  color: var(--fg); font-family: var(--sans); font-size: 13.5px; line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  /* Native app shell: the window itself does not scroll. The header is a fixed
+     toolbar and only <main> scrolls — no web-style whole-page scrolling. */
+  height: 100vh; display: flex; flex-direction: column; overflow: hidden;
+  overscroll-behavior: none;
+}
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: var(--line); border-radius: 6px; border: 2px solid transparent; background-clip: content-box; }
+
+/* ---------- header (fixed toolbar) ---------- */
+header {
+  flex: 0 0 auto; z-index: 10;
+  display: flex; align-items: center; gap: 14px;
+  /* The frameless window's traffic-light buttons sit in the top strip; the
+     extra top padding drops all header content BELOW them, so nothing
+     overlaps the macOS window controls. This whole bar is the drag region. */
+  padding: 34px 20px 12px 20px;
+  background: color-mix(in srgb, var(--panel) 86%, transparent);
+  backdrop-filter: saturate(1.4) blur(12px);
+  border-bottom: 1px solid var(--line);
+  --wails-draggable: drag; /* Wails drag region (NOT -webkit-app-region) */
+}
+/* Keep interactive controls clickable even inside a drag region. */
+button, a, input, select, canvas, th, .tabs { --wails-draggable: no-drag; }
+header .brand { display: flex; align-items: center; gap: 9px; }
+header .logo { width: 22px; height: 22px; }
+header h1 { font-size: 15px; font-weight: 650; margin: 0; letter-spacing: .2px; }
+.status { display: flex; align-items: center; gap: 7px; color: var(--fg-dim); font-size: 12px; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); transition: .3s; }
+.dot.live { background: var(--rx); box-shadow: 0 0 0 3px var(--rx-soft); }
+.dot.warn { background: var(--tx); box-shadow: 0 0 0 3px var(--tx-soft); }
+header .spacer { flex: 1; }
+.rates { display: flex; gap: 8px; }
+.rate {
+  display: flex; align-items: baseline; gap: 7px; padding: 6px 12px;
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 999px;
+}
+.rate .arrow { font-size: 13px; font-weight: 700; }
+.rate.rx .arrow { color: var(--rx); } .rate.tx .arrow { color: var(--tx); }
+.rate .v { font: 600 15px/1 var(--mono); font-variant-numeric: tabular-nums; }
+.rate .l { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .6px; }
+
+/* ---------- layout ---------- */
+/* main is the ONLY scroll region (native toolbar + scrollable content). */
+main {
+  flex: 1 1 auto; min-height: 0; overflow-y: auto;
+  padding: 18px 20px 28px; display: grid; gap: 16px; align-content: start;
+  scrollbar-gutter: stable;
+}
+main > * { max-width: 1340px; width: 100%; margin-inline: auto; }
+.cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+.card {
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 14px 16px; box-shadow: var(--shadow); position: relative; overflow: hidden;
+}
+.card .k { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .6px; display: flex; align-items: center; gap: 6px; }
+.card .val { font: 650 23px/1.1 var(--sans); margin-top: 8px; font-variant-numeric: tabular-nums; }
+.card .sub { font-size: 11.5px; color: var(--fg-dim); margin-top: 5px; min-height: 14px; }
+.spark { position: absolute; right: 0; bottom: 0; width: 70%; height: 36px; opacity: .8; }
+
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; }
+.panel.full { grid-column: 1 / -1; }
+.panel > header { position: static; background: none; backdrop-filter: none; border-bottom: 1px solid var(--line-soft); padding: 11px 16px; }
+.panel h2 { font-size: 12px; font-weight: 600; color: var(--fg-dim); text-transform: uppercase; letter-spacing: .7px; margin: 0; }
+.panel .hint { font-size: 11px; color: var(--muted); margin-left: auto; }
+
+/* segmented range tabs */
+.tabs { display: inline-flex; gap: 2px; padding: 2px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; margin-left: auto; }
+.tabs button {
+  appearance: none; border: 0; background: transparent; color: var(--muted);
+  font: 500 11.5px/1 var(--sans); padding: 5px 10px; border-radius: 6px; cursor: pointer; transition: .15s;
+}
+.tabs button:hover { color: var(--fg); }
+.tabs button.active { background: var(--panel-3); color: var(--fg); box-shadow: 0 1px 0 #00000033; }
+
+/* ---------- chart ---------- */
+.chart-wrap { position: relative; padding: 8px 6px 4px; }
+canvas#chart { display: block; width: 100%; height: 200px; }
+.chart-legend { display: flex; gap: 16px; padding: 4px 12px 10px; font-size: 11.5px; color: var(--fg-dim); }
+.chart-legend .key { display: inline-flex; align-items: center; gap: 6px; }
+.chart-legend .swatch { width: 10px; height: 10px; border-radius: 3px; }
+.tooltip {
+  position: absolute; pointer-events: none; opacity: 0; transform: translate(-50%, -8px);
+  background: var(--panel-3); border: 1px solid var(--line); border-radius: 8px;
+  padding: 7px 10px; font-size: 11.5px; white-space: nowrap; box-shadow: 0 8px 20px -10px #000; transition: opacity .1s; z-index: 4;
+}
+.tooltip .t-time { color: var(--muted); margin-bottom: 3px; }
+.tooltip b { font: 600 12px/1 var(--mono); }
+
+/* ---------- tables ---------- */
+.tbl { width: 100%; border-collapse: collapse; }
+.tbl th, .tbl td { padding: 8px 14px; text-align: left; }
+.tbl th { font-size: 10.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; font-weight: 500; cursor: pointer; user-select: none; white-space: nowrap; }
+.tbl th.num, .tbl td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.tbl th .caret { opacity: 0; font-size: 9px; }
+.tbl th.sorted .caret { opacity: 1; }
+.tbl tbody tr { border-top: 1px solid var(--line-soft); transition: background .12s; }
+.tbl tbody tr:hover { background: var(--panel-2); }
+.tbl td.rank { color: var(--muted); font: 500 11px/1 var(--mono); width: 26px; }
+.cell-name { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.cell-name .swatch { width: 9px; height: 9px; border-radius: 3px; flex: none; }
+.cell-name .label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 280px; }
+.cell-name .label small { color: var(--muted); font-weight: 400; }
+.usebar { height: 4px; background: var(--panel-2); border-radius: 3px; margin-top: 5px; overflow: hidden; max-width: 320px; }
+.usebar > i { display: block; height: 100%; border-radius: 3px; background: linear-gradient(90deg, var(--accent), color-mix(in srgb, var(--accent) 50%, var(--ai))); }
+td.rx { color: var(--rx); } td.tx { color: var(--tx); }
+.chip { font: 500 10px/1 var(--sans); padding: 2px 7px; border-radius: 999px; background: var(--panel-2); color: var(--fg-dim); border: 1px solid var(--line); }
+
+.state { padding: 34px 16px; text-align: center; color: var(--muted); font-size: 13px; }
+.state .spin { width: 16px; height: 16px; margin: 0 auto 10px; border: 2px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: spin .7s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+footer { flex: 0 0 auto; color: var(--muted); font-size: 11px; text-align: center; padding: 8px 20px; border-top: 1px solid var(--line-soft); background: var(--panel); }
+footer kbd { font: 11px var(--mono); background: var(--panel-2); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; padding: 1px 5px; }
+
+@media (max-width: 980px) {
+  .cards { grid-template-columns: repeat(2, 1fr); }
+  .grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 560px) {
+  .cards { grid-template-columns: 1fr; }
+  header { flex-wrap: wrap; }
+  .rate .l { display: none; }
+}
