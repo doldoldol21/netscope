@@ -47,7 +47,11 @@ func main() {
 
 	// Bring the capture daemon up if it isn't already (one admin prompt on a
 	// fresh direct-download install; no-op when installed via install.sh).
-	go func() { _ = daemonctl.Ensure(ipc.Client(sock), sock) }()
+	client := ipc.Client(sock)
+	go func() { _ = daemonctl.Ensure(client, sock) }()
+
+	// Watch today's usage against the user's thresholds and notify on crossings.
+	startAlertsLoop(client)
 
 	err := wails.Run(&options.App{
 		Title: "netscope",
@@ -78,6 +82,13 @@ func main() {
 				if dashboardURL != "" {
 					openDashWindow(dashboardURL + "/dashboard.html")
 				}
+			})
+			// Alert-threshold settings, edited in the popover.
+			wruntime.EventsOn(ctx, "netscope:getalerts", func(...interface{}) {
+				wruntime.EventsEmit(ctx, "netscope:alerts", alertsConfigJSON())
+			})
+			wruntime.EventsOn(ctx, "netscope:setalerts", func(data ...interface{}) {
+				setAlertsFromEvent(data...)
 			})
 		},
 		Mac: &mac.Options{

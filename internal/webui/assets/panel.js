@@ -94,9 +94,36 @@ $("dash").onclick = () => {
 };
 $("quit").onclick = () => { const r = rt(); if (r.Quit) r.Quit(); };
 
+// ---- usage-alerts settings ----
+const GB = 1024 * 1024 * 1024;
+const gbToBytes = (v) => { const n = parseFloat(v); return n > 0 ? Math.round(n * GB) : 0; };
+const bytesToGb = (n) => { n = Number(n) || 0; return n > 0 ? +(n / GB).toFixed(n >= GB ? 1 : 2) : 0; };
+
+function openSettings() {
+  const r = rt();
+  if (r.EventsEmit) r.EventsEmit("netscope:getalerts"); // Go replies on "netscope:alerts"
+  $("settings").hidden = false;
+}
+function fillSettings(cfg) {
+  cfg = cfg || {};
+  $("set-daily").value = bytesToGb(cfg.dailyTotalBytes) || "";
+  $("set-app").value = bytesToGb(cfg.perAppBytes) || "";
+}
+$("alerts-btn").onclick = openSettings;
+$("set-close").onclick = () => { $("settings").hidden = true; };
+$("set-save").onclick = () => {
+  const r = rt();
+  if (r.EventsEmit) r.EventsEmit("netscope:setalerts", {
+    dailyTotalBytes: gbToBytes($("set-daily").value),
+    perAppBytes: gbToBytes($("set-app").value),
+  });
+  $("settings").hidden = true;
+};
+
 window.addEventListener("DOMContentLoaded", () => {
   if (window.runtime && window.runtime.EventsOn) {
     window.runtime.EventsOn("netscope:show", () => { /* already on panel */ });
+    window.runtime.EventsOn("netscope:alerts", (cfg) => fillSettings(cfg));
   }
 });
 

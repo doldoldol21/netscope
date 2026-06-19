@@ -47,9 +47,13 @@ login.)
 
 ## What you get
 
-- **Menu bar** — live ↓↑ throughput + a dropdown of the top apps (RunCat-style).
-- **Dashboard** — a native window: throughput chart, today/week rankings, and
-  per-domain breakdown with neutral categories (cloud, cdn, media, ai, …).
+- **Menu bar** — live ↓↑ throughput, today's total, and a dropdown of the top
+  apps (RunCat-style).
+- **Usage alerts** — get a macOS notification when today's traffic crosses a
+  daily total cap, or when any single app passes a per-app cap (set them from the
+  popover's ⚙ button). Catches surprise backups and cloud-sync uploads.
+- **Dashboard** — a separate native window: throughput chart, today/week
+  rankings, and per-domain breakdown with neutral categories (cloud, cdn, ai, …).
 - **CLI** — `netscope`, `netscope apps --range week`, `netscope domains` …
 - **Private by design** — HTTPS stays encrypted; netscope only counts *bytes per
   process* and maps IPs to domains by watching your own DNS replies.

@@ -43,8 +43,26 @@
 
   <footer>
     <button class="primary" id="dash">Open Dashboard <span class="ext">↗</span></button>
+    <button class="ghost" id="alerts-btn" title="Usage alerts">⚙</button>
     <button class="ghost" id="quit" title="Quit netscope">⏻</button>
   </footer>
+
+  <div class="settings" id="settings" hidden>
+    <div class="set-head">
+      <span>Usage alerts</span>
+      <button class="x" id="set-close" title="Close">✕</button>
+    </div>
+    <p class="set-hint">Notify me when today's traffic crosses a limit. Leave 0 to turn off.</p>
+    <label class="set-row">
+      <span class="set-lbl">Daily total</span>
+      <span class="set-inp"><input type="number" id="set-daily" min="0" step="0.5" placeholder="0" /><em>GB</em></span>
+    </label>
+    <label class="set-row">
+      <span class="set-lbl">Any one app</span>
+      <span class="set-inp"><input type="number" id="set-app" min="0" step="0.5" placeholder="0" /><em>GB</em></span>
+    </label>
+    <button class="primary" id="set-save">Save</button>
+  </div>
 </div>
 <script src="panel.js"></script>
 </body>
