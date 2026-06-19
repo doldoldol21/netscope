@@ -58,10 +58,9 @@ header {
   position: relative;
   flex: 0 0 auto; z-index: 10;
   display: flex; align-items: center; gap: 14px;
-  /* Extra top padding leaves a title-bar strip for our window controls (the
-     .traffic cluster, positioned top-left) so nothing overlaps them. This whole
-     bar is the drag region for moving the frameless window. */
-  padding: 34px 20px 12px 20px;
+  /* The window's native title bar (with traffic lights) sits above this content
+     view, so the header just needs normal padding. */
+  padding: 14px 20px 12px 20px;
   background: color-mix(in srgb, var(--panel) 86%, transparent);
   backdrop-filter: saturate(1.4) blur(12px);
   border-bottom: 1px solid var(--line);

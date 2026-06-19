@@ -27,17 +27,21 @@ void openDashWindow(const char *curl) {
     [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
     if (gDash == nil) {
       NSRect frame = NSMakeRect(0, 0, 1120, 760);
+      // No FullSizeContentView: that lets the WKWebView fill the title-bar strip
+      // and swallow its mouse events, so the window can't be dragged. A normal
+      // (transparent) title bar gives a real draggable strip with traffic lights.
       NSUInteger mask = NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
-                        NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable |
-                        NSWindowStyleMaskFullSizeContentView;
+                        NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable;
       gDash = [[NSWindow alloc] initWithContentRect:frame
                                           styleMask:mask
                                             backing:NSBackingStoreBuffered
                                               defer:NO];
       gDash.releasedWhenClosed = NO;                 // reuse across open/close
       gDash.title = @"netscope";
-      gDash.titlebarAppearsTransparent = YES;        // content runs under the bar
+      gDash.titlebarAppearsTransparent = YES;        // blend the bar into the UI
       gDash.titleVisibility = NSWindowTitleHidden;
+      gDash.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
+      gDash.backgroundColor = [NSColor colorWithSRGBRed:13/255.0 green:17/255.0 blue:23/255.0 alpha:1.0];
       [gDash setMinSize:NSMakeSize(760, 480)];
       gDashDelegate = [[NSDashDelegate alloc] init];
       gDash.delegate = gDashDelegate;
