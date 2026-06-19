@@ -196,10 +196,16 @@ func printer(ctx context.Context, eng *engine.Engine) {
 }
 
 func defaultDBPath() string {
+	// As root (the normal case, under launchd) there is no $HOME, so
+	// os.UserConfigDir fails — use a fixed system path. Never return a relative
+	// path: the daemon's CWD under launchd is "/", which isn't writable.
+	if os.Geteuid() == 0 {
+		return "/var/db/netscope/netscope.db"
+	}
 	if dir, err := os.UserConfigDir(); err == nil {
 		return filepath.Join(dir, "netscope", "netscope.db")
 	}
-	return "netscope.db"
+	return filepath.Join(os.TempDir(), "netscope.db")
 }
 
 func humanBytes(n uint64) string {

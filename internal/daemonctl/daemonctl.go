@@ -32,12 +32,17 @@ func IsRunning(client *http.Client) bool {
 	return resp.StatusCode == http.StatusOK
 }
 
-// Ensure makes the daemon available: returns nil immediately if it is already
-// running, otherwise installs + starts the LaunchDaemon (prompting for admin
-// once) and waits for it to come up.
+// Ensure makes the daemon available: returns nil if it is already running (or
+// comes up shortly — e.g. just installed by the installer), otherwise installs
+// and starts the LaunchDaemon (prompting for admin once) and waits for it.
 func Ensure(client *http.Client, sock string) error {
-	if IsRunning(client) {
-		return nil
+	// Give an already-installed daemon a few seconds to answer before deciding
+	// to (re)install — it may still be starting up after install/login/boot.
+	for i := 0; i < 10; i++ {
+		if IsRunning(client) {
+			return nil
+		}
+		time.Sleep(300 * time.Millisecond)
 	}
 	netscoped, err := findNetscoped()
 	if err != nil {

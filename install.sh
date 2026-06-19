@@ -69,6 +69,7 @@ cat > "$plist" <<PL
 </dict></plist>
 PL
 chmod 644 "$plist"
+launchctl bootout system "$plist" 2>/dev/null || true
 launchctl bootstrap system "$plist" 2>/dev/null || launchctl load "$plist" 2>/dev/null || true
 SUDO
 }
