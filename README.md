@@ -70,27 +70,27 @@ window, or toggle **Launch at Login**.
 │                   /api over UNIX SOCKET             │
 └───────────────────────────┬────────────────────────┘
               unix:///var/run/netscope/netscoped.sock  (0600, owned by you)
-         ┌─────────────┬─────────────┴───────────┐
-         ▼             ▼                          ▼
-  netscope-bar   netscope.app (Wails)      netscope CLI
-  menu bar       full dashboard window      terminal viewer
+         ┌───────────────────┴───────────────────┐
+         ▼                                        ▼
+  netscope.app  (one app)                   netscope CLI
+  menu bar + dashboard; installs            terminal viewer
+  and manages the daemon for you
 ```
 
-### Why a daemon + an app (not a single program)
+### Why a daemon, wrapped in one app
 
-Packet capture needs root (`/dev/bpf*`); a GUI app must run unprivileged in your
-login session. So netscope splits the two:
+Packet capture needs root (`/dev/bpf*`); a GUI must run unprivileged in your
+login session. netscope keeps these separate under the hood but ships them as a
+**single `netscope.app`**:
 
-- **`netscoped`** — runs as root under launchd, captures and aggregates, and
-  serves `/api` on a unix socket. No TCP port is opened, so no browser or other
-  user's process can reach your traffic data; access is gated by the socket
-  file's ownership (chowned to you, mode `0600`).
-- **`netscope-bar`** — the macOS menu-bar app (Go + systray). Shows the live
-  down/up rate in the menu bar and a native dropdown of the top apps; no dock
-  icon (runs as an accessory). Reads the daemon socket.
-- **`netscope.app`** — a Wails window that embeds the dashboard UI
-  (`internal/webui`, vanilla JS/CSS, no Node build) and reverse-proxies `/api`
-  (including the live SSE stream) to the daemon's socket. Opened from the menu.
+- **`netscoped`** (bundled inside the app) — runs as root under launchd,
+  captures and aggregates, and serves `/api` on a unix socket. No TCP port is
+  opened, so no browser or other user's process can reach your traffic data;
+  access is gated by the socket file's ownership (chowned to you, mode `0600`).
+- **`netscope.app`** — a menu-bar app (Go + systray, no dock icon) that shows
+  the live rate and top apps, **installs the daemon on first run**, and opens a
+  nested Wails **dashboard window** (`internal/webui`, vanilla JS/CSS, no Node
+  build) that reverse-proxies `/api` (incl. the live SSE stream) to the socket.
 - **`netscope`** — a CLI that reads the same socket for terminal views.
 
 ## Install
@@ -108,6 +108,18 @@ login session. So netscope splits the two:
 > Want a notarized, zero-step download instead? That needs an Apple Developer
 > account; the signing/notarization hooks are wired in `scripts/package.sh`
 > (`NETSCOPE_SIGN_ID` / `NETSCOPE_NOTARY_PROFILE`).
+
+### Uninstall
+
+```sh
+# stop & remove the capture daemon
+sudo launchctl bootout system/io.netscope.daemon 2>/dev/null
+sudo rm -f /Library/LaunchDaemons/io.netscope.daemon.plist
+# remove the app and its data
+rm -rf /Applications/netscope.app
+rm -f ~/Library/LaunchAgents/io.netscope.bar.plist     # "Launch at Login", if enabled
+sudo rm -rf /var/db/netscope /var/run/netscope
+```
 
 ### From source
 
@@ -213,7 +225,7 @@ make run-pcap PCAP=testdata/sample.pcap
 --demo        serve synthetic named-app traffic (no root; for UI/dev)
 --sock        unix socket to serve the API on (default /var/run/netscope/netscoped.sock,
               or $NETSCOPE_SOCK)
---db          SQLite path (default ~/Library/Application Support/netscope/netscope.db)
+--db          SQLite path (default /var/db/netscope/netscope.db as root)
 --no-store    run in memory only, no persistence
 --bucket      aggregation/flush granularity (default 10s)
 --retention   how long to keep samples (default 720h; 0 = forever)
@@ -245,7 +257,9 @@ it with `curl --unix-socket /var/run/netscope/netscoped.sock http://x/api/health
   protocol + local port + remote endpoint. Lookups rescan on demand (rate
   limited) when a brand-new connection misses the cache.
 - **IP → domain**: the decoder sniffs DNS responses and caches each answer's
-  `A`/`AAAA` IP against the queried name, so flows can be grouped by domain.
+  `A`/`AAAA` IP against the queried name. IPs seen without a prior DNS answer
+  (connections older than netscope, or encrypted DNS) get a background reverse-DNS
+  (PTR) lookup so they still show a hostname where one exists.
 - **category**: domains are matched (by registrable suffix) into neutral
   groups (cloud / cdn / media / social / ai / tracking) shown as a chip.
 

@@ -12,10 +12,18 @@ SVG=assets/app-icon.svg
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 
+SRC="$WORK/icon-1024.png"
 echo "rasterizing $SVG → 1024px…"
-qlmanage -t -s 1024 -o "$WORK" "$SVG" >/dev/null 2>&1
-SRC="$WORK/$(basename "$SVG").png"
-[ -f "$SRC" ] || { echo "error: qlmanage produced no PNG" >&2; exit 1; }
+if command -v rsvg-convert >/dev/null 2>&1; then
+  # rsvg-convert preserves transparency (the rounded-corner cut-outs).
+  rsvg-convert -w 1024 -h 1024 "$SVG" -o "$SRC"
+else
+  # Fallback: qlmanage bakes a white background — install librsvg for clean icons.
+  echo "  (rsvg-convert not found; falling back to qlmanage — corners may be white)" >&2
+  qlmanage -t -s 1024 -o "$WORK" "$SVG" >/dev/null 2>&1
+  SRC="$WORK/$(basename "$SVG").png"
+fi
+[ -f "$SRC" ] || { echo "error: could not rasterize $SVG" >&2; exit 1; }
 
 # Wails reads this 1024px PNG and generates its own iconfile.icns at build.
 mkdir -p desktop/build
