@@ -1,19 +1,54 @@
+<div align="center">
+
+<img src="assets/icon.png" width="120" alt="netscope" />
+
 # netscope
 
-A per-app network traffic monitor for macOS — see which apps, and which
-domains, are using your bandwidth in real time. A lightweight menu-bar-style
-companion in the spirit of RunCat/iStat: always-on, glanceable, useful for
-everyone (not just power users).
+**See which apps are using your network — live, right from the menu bar.**
 
-Everything runs locally. No traffic contents are inspected (HTTPS stays
-encrypted); netscope only counts bytes per process and maps remote IPs back to
-domains by watching your DNS replies. Domains are grouped into neutral
-categories (cloud, cdn, media, social, ai, …) for quick scanning.
+A per-app network traffic monitor for macOS, in the spirit of RunCat / iStat:
+always-on, glanceable, and useful for everyone. Everything runs locally — no
+traffic contents are read, no data leaves your Mac, no open network port.
 
-netscope is a **native macOS app**. The UI is not a website — there is no
-browser dashboard and no open network port. A privileged daemon does the capture
-and exposes data only over a **Unix domain socket**; the app and CLI connect to
-that socket.
+[![release](https://img.shields.io/github/v/release/doldoldol21/netscope?color=4493f8)](https://github.com/doldoldol21/netscope/releases)
+[![license](https://img.shields.io/badge/license-MIT-bc8cff)](LICENSE)
+![platform](https://img.shields.io/badge/macOS-11%2B-555)
+![lang](https://img.shields.io/badge/built%20with-Go-00ADD8)
+
+<img src="assets/shot-menubar.png" alt="netscope in the menu bar" />
+
+*live download / upload, always in your menu bar*
+
+</div>
+
+## ⚡ Quick Start
+
+```sh
+brew tap doldoldol21/netscope
+brew install netscope
+
+sudo brew services start netscope   # start the capture daemon (runs at boot)
+netscope-bar                        # launch the menu-bar app
+```
+
+That's it. The menu bar now shows your live **↓ down / ↑ up** rate; click it for
+the top apps, or **Open Dashboard…** for the full window. Turn on **Launch at
+Login** from the menu to keep it always on.
+
+> Capture needs root (`/dev/bpf*`), so the daemon runs as root via `brew
+> services`. The menu-bar app and CLI are unprivileged and talk to it over a
+> local Unix socket — **no TCP port is ever opened.**
+
+## What you get
+
+- **Menu bar** — live ↓↑ throughput + a dropdown of the top apps (RunCat-style).
+- **Dashboard** — a native window: throughput chart, today/week rankings, and
+  per-domain breakdown with neutral categories (cloud, cdn, media, ai, …).
+- **CLI** — `netscope`, `netscope apps --range week`, `netscope domains` …
+- **Private by design** — HTTPS stays encrypted; netscope only counts *bytes per
+  process* and maps IPs to domains by watching your own DNS replies.
+
+## How it works
 
 ```
 ┌── netscoped (root, launchd) ──────────────────────┐
@@ -21,7 +56,7 @@ that socket.
 │        │                    │                       │
 │        ▼                    ▼                       │
 │  resolver (libproc)    dnscache (IP→domain)        │
-│   socket→PID→app                                    │
+│   socket→PID→app       + reverse DNS               │
 │        │                    │                       │
 │        └──────► engine (attribute + aggregate)      │
 │                     │            │                  │
@@ -35,22 +70,8 @@ that socket.
          ┌─────────────┬─────────────┴───────────┐
          ▼             ▼                          ▼
   netscope-bar   netscope.app (Wails)      netscope CLI
-  menu bar:      full dashboard window      terminal viewer
-  live ↓↑ + menu (opened from the menu)
+  menu bar       full dashboard window      terminal viewer
 ```
-
-The **menu-bar app is the primary face**: an always-on item showing the live
-down/up rate (RunCat-style), with a dropdown of the top apps and an "Open
-Dashboard…" entry for the full window.
-
-## Status
-
-| Milestone | Scope | State |
-|---|---|---|
-| M1 PoC | gopacket capture + libproc PID→app, CLI output | done |
-| M2 pipeline | DNS map, SQLite aggregation, API | done |
-| M3 GUI | live throughput, app/domain ranking, category grouping (native app) | done |
-| M4 packaging | launchd daemon, install script, native `.app` bundle | done (brew tap TBD) |
 
 ### Why a daemon + an app (not a single program)
 
@@ -71,19 +92,10 @@ login session. So netscope splits the two:
 
 ## Install
 
-### Homebrew (recommended)
-
-```sh
-brew tap doldoldol21/netscope
-brew install netscope
-
-sudo brew services start netscope    # root capture daemon (launchd)
-netscope-bar                         # menu-bar app (enable "Launch at Login")
-```
-
-This installs `netscoped`, `netscope` (CLI) and `netscope-bar` (menu-bar app),
-built from source — no code-signing/Gatekeeper hurdles. The full dashboard
-window (`netscope.app`) ships in the [release zip](https://github.com/doldoldol21/netscope/releases).
+**Homebrew** is the recommended path — see [Quick Start](#-quick-start) above.
+`brew install` builds from source, so there are no code-signing / Gatekeeper
+hurdles. The full dashboard window (`netscope.app`) ships in the
+[release zip](https://github.com/doldoldol21/netscope/releases).
 
 ### From source
 
