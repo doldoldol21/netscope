@@ -56,11 +56,17 @@ func Ensure(client *http.Client, sock string) error {
 	return fmt.Errorf("daemon did not start")
 }
 
-// findNetscoped locates the netscoped binary: PATH first (a stable symlink that
-// survives upgrades), then a sibling of this executable.
+// findNetscoped locates the netscoped binary. It prefers stable paths (Homebrew
+// symlinks that survive upgrades, so the installed LaunchDaemon keeps working)
+// before falling back to a sibling of this executable inside the .app bundle.
 func findNetscoped() (string, error) {
 	if p, err := exec.LookPath("netscoped"); err == nil {
 		return p, nil
+	}
+	for _, p := range []string{"/opt/homebrew/bin/netscoped", "/usr/local/bin/netscoped"} {
+		if st, err := os.Stat(p); err == nil && !st.IsDir() {
+			return p, nil
+		}
 	}
 	if exe, err := os.Executable(); err == nil {
 		sib := filepath.Join(filepath.Dir(exe), "netscoped")
