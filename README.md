@@ -24,23 +24,23 @@ traffic contents are read, no data leaves your Mac, no open network port.
 ## ⚡ Quick Start
 
 ```sh
-brew install --cask doldoldol21/netscope/netscope
+curl -fsSL https://raw.githubusercontent.com/doldoldol21/netscope/main/install.sh | bash
 ```
 
-That's it — `netscope.app` lands in **/Applications**. Launch it (first time:
-right-click → **Open**, since it isn't notarized yet). It installs its capture
-helper with **one admin prompt**, then lives in your menu bar showing the live
-**↓ down / ↑ up** rate. Click it for the top apps, **Open Dashboard…** for the
-full window, or toggle **Launch at Login**.
+That's it — `netscope.app` lands in **/Applications** and launches. **No
+Gatekeeper warning** (curl-fetched apps aren't quarantined), no Homebrew, no
+Apple account. The first launch asks for your admin password **once** to install
+the capture helper; after that it just works — live in your menu bar, starting
+at boot.
 
-After that first launch, everything is automatic — the capture daemon starts at
-boot and the app just works.
+Click the menu-bar item for the top apps, **Open Dashboard…** for the full
+window, or toggle **Launch at Login**.
 
-> **One app, fully self-managing.** Under the hood, capture needs root
-> (`/dev/bpf*`), so the app installs a small root daemon (the admin prompt) that
-> serves data over a local **Unix socket** — no TCP port is ever opened. Prefer
-> the terminal? `brew install doldoldol21/netscope/netscope-cli` gives you the
-> `netscope`/`netscoped` binaries instead.
+> **One app, fully self-managing.** Capture needs root (`/dev/bpf*`), so the app
+> installs a small root daemon (the one admin prompt) that serves data over a
+> local **Unix socket** — no TCP port is ever opened. Prefer the terminal?
+> `brew install doldoldol21/netscope/netscope-cli` builds the `netscope` /
+> `netscoped` / `netscope-bar` binaries from source.
 
 ## What you get
 
@@ -95,13 +95,19 @@ login session. So netscope splits the two:
 
 ## Install
 
-- **App (recommended):** `brew install --cask doldoldol21/netscope/netscope` —
-  see [Quick Start](#-quick-start). Installs `netscope.app` to /Applications.
-- **CLI only:** `brew install doldoldol21/netscope/netscope-cli` — builds the
-  `netscoped`/`netscope`/`netscope-bar` binaries from source (no Gatekeeper
-  prompt; manage the daemon with `sudo brew services start netscope-cli`).
+- **App (recommended):** the [Quick Start](#-quick-start) one-liner. Installs
+  `netscope.app` to /Applications with no Gatekeeper prompt.
+- **CLI / Homebrew:** `brew install doldoldol21/netscope/netscope-cli` — builds
+  the `netscoped`/`netscope`/`netscope-bar` binaries from source (also no
+  Gatekeeper, since it's compiled locally).
 - **Direct download:** grab `netscope.app` from the
-  [latest release](https://github.com/doldoldol21/netscope/releases).
+  [latest release](https://github.com/doldoldol21/netscope/releases). If you
+  download it in a browser, clear the quarantine flag once:
+  `xattr -dr com.apple.quarantine /Applications/netscope.app`.
+
+> Want a notarized, zero-step download instead? That needs an Apple Developer
+> account; the signing/notarization hooks are wired in `scripts/package.sh`
+> (`NETSCOPE_SIGN_ID` / `NETSCOPE_NOTARY_PROFILE`).
 
 ### From source
 
