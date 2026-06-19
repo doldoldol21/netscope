@@ -47,4 +47,7 @@ func popoverDidHideGo() {
 	winMu.Lock()
 	winVisible = false
 	winMu.Unlock()
+	// Called on the Cocoa main thread; the Wails runtime calls in resetToPanel
+	// must run off it, so hop to a goroutine.
+	go resetToPanel()
 }

@@ -88,6 +88,7 @@ func onStatusItemClick() {
 	if winVisible {
 		wruntime.WindowHide(appCtx)
 		winVisible = false
+		resetToPanel() // restore the panel while hidden, ready for next show
 		return
 	}
 	wruntime.WindowSetSize(appCtx, popoverWidth, popoverHeight)
@@ -96,8 +97,21 @@ func onStatusItemClick() {
 	wruntime.WindowShow(appCtx)
 	focusPopover() // make it key so clicking away dismisses it
 	winVisible = true
-	// Tell the page to show the compact panel (in case the dashboard was open).
-	wruntime.EventsEmit(appCtx, "netscope:show")
+}
+
+// resetToPanel returns the (now hidden) window to the compact popover: it shrinks
+// it back to popover size and tells the page to navigate to the panel ("/"). We
+// do this on HIDE — while the window is off-screen — so the next click always
+// shows the small panel, never the large dashboard crammed into the popover.
+// Must run off the Cocoa main thread (it calls into the Wails runtime).
+func resetToPanel() {
+	if appCtx == nil {
+		return
+	}
+	wruntime.WindowSetSize(appCtx, popoverWidth, popoverHeight)
+	// Force the page back to the panel directly (don't depend on the loaded
+	// page having a "netscope:show" listener — the dashboard's may not have run).
+	wruntime.WindowExecJS(appCtx, "if(location.pathname!=='/')location.replace('/')")
 }
 
 func envOr(key, def string) string {
