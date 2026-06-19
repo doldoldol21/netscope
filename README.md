@@ -29,9 +29,9 @@ curl -fsSL https://raw.githubusercontent.com/doldoldol21/netscope/main/install.s
 
 That's it — `netscope.app` lands in **/Applications** and launches. **No
 Gatekeeper warning** (curl-fetched apps aren't quarantined), no Homebrew, no
-Apple account. The first launch asks for your admin password **once** to install
-the capture helper; after that it just works — live in your menu bar, starting
-at boot.
+Apple account. The installer asks for your admin password **once, right there in
+the terminal**, to set up the capture helper — so the app itself opens with no
+pop-up dialogs, live in your menu bar and starting at boot.
 
 Click the menu-bar item for the top apps, **Open Dashboard…** for the full
 window, or toggle **Launch at Login**.

@@ -43,7 +43,37 @@ else
   sudo rm -rf "$APPDIR"; sudo mv "$APP" "$APPDIR"
 fi
 
+# Install the capture helper now, with a single terminal sudo prompt — so the
+# app launches without any GUI password dialog. (If this is skipped, the app
+# falls back to prompting on first launch.)
+install_helper() {
+  local label="io.netscope.daemon"
+  local plist="/Library/LaunchDaemons/${label}.plist"
+  local exe="${APPDIR}/Contents/MacOS/netscoped"
+  local sock="/var/run/netscope/netscoped.sock"
+  say "installing the capture helper (needs admin once)"
+  sudo bash -s "$label" "$plist" "$exe" "$sock" <<'SUDO'
+set -e
+label="$1"; plist="$2"; exe="$3"; sock="$4"
+mkdir -p /var/run/netscope
+cat > "$plist" <<PL
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>${label}</string>
+  <key>ProgramArguments</key><array><string>${exe}</string><string>--sock</string><string>${sock}</string></array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardErrorPath</key><string>/var/log/netscope.log</string>
+  <key>StandardOutPath</key><string>/var/log/netscope.log</string>
+</dict></plist>
+PL
+chmod 644 "$plist"
+launchctl bootstrap system "$plist" 2>/dev/null || launchctl load "$plist" 2>/dev/null || true
+SUDO
+}
+install_helper || echo "    (skipped — the app will set this up on first launch)"
+
 say "done — launching netscope"
-echo "    netscope lives in your menu bar. The first launch asks for your admin"
-echo "    password once to install the capture helper; after that it just works."
+echo "    netscope is now in your menu bar. Click it for live traffic."
 open "$APPDIR" || true
