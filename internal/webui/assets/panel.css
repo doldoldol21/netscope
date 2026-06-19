@@ -45,6 +45,13 @@ header {
 .rate .lbl { font-size: 10px; color: var(--muted); text-transform: uppercase;
   letter-spacing: .6px; margin-top: 3px; }
 
+/* ---- today's total ---- */
+.today { display: flex; align-items: baseline; gap: 7px; padding: 3px 13px 2px; }
+.today .t-cap { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .6px; }
+.today .t-total { font: 650 13px/1 var(--sans); color: var(--fg); font-variant-numeric: tabular-nums; }
+.today .t-split { margin-left: auto; font: 500 11px/1 var(--mono); color: var(--dim);
+  font-variant-numeric: tabular-nums; }
+
 canvas#spark { display: block; width: calc(100% - 26px); height: 36px; margin: 2px 13px 6px; }
 
 /* ---- top apps ---- */

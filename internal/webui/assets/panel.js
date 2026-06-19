@@ -64,6 +64,20 @@ function render(s) {
 
 function setDisconnected() { $("dot").classList.remove("live"); $("meta").textContent = "reconnecting…"; }
 
+// ---- today's total (polled; the live snapshot only carries per-second rates) ----
+async function loadToday() {
+  try {
+    const r = await fetch("/api/summary?range=today");
+    if (!r.ok) return;
+    const s = await r.json();
+    const rx = Number(s.totalRx) || 0, tx = Number(s.totalTx) || 0;
+    $("t-total").textContent = fmtBytes(rx + tx);
+    $("t-split").innerHTML =
+      `<span style="color:var(--rx)">▼ ${fmtBytes(rx)}</span> ` +
+      `<span style="color:var(--tx)">▲ ${fmtBytes(tx)}</span>`;
+  } catch (_) { /* daemon not ready */ }
+}
+
 let es = null;
 function connect() {
   es = new EventSource("/api/live");
@@ -87,5 +101,7 @@ window.addEventListener("DOMContentLoaded", () => {
 });
 
 connect();
+loadToday();
+setInterval(loadToday, 15000);
 drawSpark();
 window.addEventListener("resize", drawSpark);
