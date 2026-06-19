@@ -71,12 +71,28 @@ login session. So netscope splits the two:
 
 ## Install
 
+### Homebrew (recommended)
+
+```sh
+brew tap doldoldol21/netscope
+brew install netscope
+
+sudo brew services start netscope    # root capture daemon (launchd)
+netscope-bar                         # menu-bar app (enable "Launch at Login")
+```
+
+This installs `netscoped`, `netscope` (CLI) and `netscope-bar` (menu-bar app),
+built from source — no code-signing/Gatekeeper hurdles. The full dashboard
+window (`netscope.app`) ships in the [release zip](https://github.com/doldoldol21/netscope/releases).
+
+### From source
+
 Requires Go 1.24+ and macOS (Xcode Command Line Tools for the C toolchain).
 
 ```sh
 git clone https://github.com/doldoldol21/netscope
 cd netscope
-make build          # produces bin/netscoped and bin/netscope
+make build          # bin/netscoped, bin/netscope, bin/netscope-bar
 ```
 
 Build the binaries (daemon, CLI, menu-bar app) and the dashboard window:
