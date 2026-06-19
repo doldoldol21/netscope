@@ -24,20 +24,23 @@ traffic contents are read, no data leaves your Mac, no open network port.
 ## ⚡ Quick Start
 
 ```sh
-brew tap doldoldol21/netscope
-brew install netscope
-
-sudo brew services start netscope   # start the capture daemon (runs at boot)
-netscope-bar                        # launch the menu-bar app
+brew install --cask doldoldol21/netscope/netscope
 ```
 
-That's it. The menu bar now shows your live **↓ down / ↑ up** rate; click it for
-the top apps, or **Open Dashboard…** for the full window. Turn on **Launch at
-Login** from the menu to keep it always on.
+That's it — `netscope.app` lands in **/Applications**. Launch it (first time:
+right-click → **Open**, since it isn't notarized yet). It installs its capture
+helper with **one admin prompt**, then lives in your menu bar showing the live
+**↓ down / ↑ up** rate. Click it for the top apps, **Open Dashboard…** for the
+full window, or toggle **Launch at Login**.
 
-> Capture needs root (`/dev/bpf*`), so the daemon runs as root via `brew
-> services`. The menu-bar app and CLI are unprivileged and talk to it over a
-> local Unix socket — **no TCP port is ever opened.**
+After that first launch, everything is automatic — the capture daemon starts at
+boot and the app just works.
+
+> **One app, fully self-managing.** Under the hood, capture needs root
+> (`/dev/bpf*`), so the app installs a small root daemon (the admin prompt) that
+> serves data over a local **Unix socket** — no TCP port is ever opened. Prefer
+> the terminal? `brew install doldoldol21/netscope/netscope-cli` gives you the
+> `netscope`/`netscoped` binaries instead.
 
 ## What you get
 
@@ -92,10 +95,13 @@ login session. So netscope splits the two:
 
 ## Install
 
-**Homebrew** is the recommended path — see [Quick Start](#-quick-start) above.
-`brew install` builds from source, so there are no code-signing / Gatekeeper
-hurdles. The full dashboard window (`netscope.app`) ships in the
-[release zip](https://github.com/doldoldol21/netscope/releases).
+- **App (recommended):** `brew install --cask doldoldol21/netscope/netscope` —
+  see [Quick Start](#-quick-start). Installs `netscope.app` to /Applications.
+- **CLI only:** `brew install doldoldol21/netscope/netscope-cli` — builds the
+  `netscoped`/`netscope`/`netscope-bar` binaries from source (no Gatekeeper
+  prompt; manage the daemon with `sudo brew services start netscope-cli`).
+- **Direct download:** grab `netscope.app` from the
+  [latest release](https://github.com/doldoldol21/netscope/releases).
 
 ### From source
 
