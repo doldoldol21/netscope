@@ -4,7 +4,6 @@
 BIN_DIR   := bin
 DAEMON    := $(BIN_DIR)/netscoped
 CLI       := $(BIN_DIR)/netscope
-BAR       := $(BIN_DIR)/netscope-bar
 PREFIX    ?= /usr/local
 VERSION   := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS   := -s -w -X github.com/doldoldol21/netscope/internal/buildinfo.Version=$(VERSION)
@@ -20,7 +19,7 @@ WAILS := $(shell command -v wails 2>/dev/null || echo $(GOBIN_DIR)/wails)
 .DEFAULT_GOAL := build
 
 .PHONY: build
-build: $(DAEMON) $(CLI) $(BAR) ## Build daemon, CLI and menu-bar app
+build: $(DAEMON) $(CLI) ## Build daemon and CLI
 
 $(DAEMON): $(shell find . -name '*.go') go.mod
 	@mkdir -p $(BIN_DIR)
@@ -30,40 +29,13 @@ $(CLI): $(shell find . -name '*.go') go.mod
 	@mkdir -p $(BIN_DIR)
 	go build -ldflags "$(LDFLAGS)" -o $(CLI) ./cmd/netscope
 
-$(BAR): $(shell find . -name '*.go') go.mod
-	@mkdir -p $(BIN_DIR)
-	CGO_ENABLED=1 go build -ldflags "$(LDFLAGS)" -o $(BAR) ./cmd/netscope-bar
-
 .PHONY: icons
 icons: ## Regenerate app icons from assets/app-icon.svg
 	./scripts/gen-icons.sh
 
-.PHONY: bar-app
-bar-app: $(BAR) ## Bundle the menu-bar app (netscope-bar.app, no dock icon)
-	@rm -rf $(BIN_DIR)/netscope-bar.app
-	@mkdir -p $(BIN_DIR)/netscope-bar.app/Contents/MacOS $(BIN_DIR)/netscope-bar.app/Contents/Resources
-	@cp $(BAR) $(BIN_DIR)/netscope-bar.app/Contents/MacOS/netscope-bar
-	@test -f assets/AppIcon.icns && cp assets/AppIcon.icns $(BIN_DIR)/netscope-bar.app/Contents/Resources/AppIcon.icns || true
-	@printf '%s\n' \
-	  '<?xml version="1.0" encoding="UTF-8"?>' \
-	  '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' \
-	  '<plist version="1.0"><dict>' \
-	  '  <key>CFBundleName</key><string>netscope</string>' \
-	  '  <key>CFBundleIdentifier</key><string>io.netscope.bar</string>' \
-	  '  <key>CFBundleExecutable</key><string>netscope-bar</string>' \
-	  '  <key>CFBundleIconFile</key><string>AppIcon</string>' \
-	  '  <key>CFBundlePackageType</key><string>APPL</string>' \
-	  '  <key>CFBundleShortVersionString</key><string>0.1.0</string>' \
-	  '  <key>LSUIElement</key><true/>' \
-	  '  <key>LSMinimumSystemVersion</key><string>10.15</string>' \
-	  '</dict></plist>' > $(BIN_DIR)/netscope-bar.app/Contents/Info.plist
-	@echo "built $(BIN_DIR)/netscope-bar.app"
-
 .PHONY: app
-app: ## Build the native macOS .app (installs the wails CLI if missing)
-	@test -x "$(WAILS)" || { echo "wails not found — installing…"; go install github.com/wailsapp/wails/v2/cmd/wails@latest; }
-	cd desktop && "$(WAILS)" build -clean
-	@echo "built desktop/build/bin/netscope.app"
+app: ## Build the menu-bar app (netscope.app) — daemon bundled, dashboard inside
+	./scripts/build-app.sh
 
 # Dev socket: a user-writable path so the demo + the app work without sudo
 # (the production default /var/run/netscope/... needs root to create).
@@ -77,7 +49,7 @@ demo: build ## One command: synthetic daemon + menu-bar app (no root, Ctrl-C to 
 	@$(DAEMON) --demo --no-store --sock $(DEV_SOCK) & \
 	 DPID=$$!; trap 'kill $$DPID 2>/dev/null; rm -f $(DEV_SOCK)' EXIT INT TERM; \
 	 sleep 1; \
-	 NETSCOPE_SOCK=$(DEV_SOCK) NETSCOPE_APP=$$PWD/desktop/build/bin/netscope.app $(BAR) --sock $(DEV_SOCK)
+	 NETSCOPE_SOCK=$(DEV_SOCK) desktop/build/bin/netscope.app/Contents/MacOS/netscope
 
 .PHONY: demo-daemon
 demo-daemon: build ## Just the synthetic daemon (pair with `make app-dev` for UI hot-reload)
@@ -118,20 +90,15 @@ fmt: ## gofmt all sources
 	gofmt -w $(shell find . -name '*.go' -not -path './vendor/*')
 
 .PHONY: install
-install: build ## Install binaries into $(PREFIX)/bin and the launchd daemon
+install: build ## Install CLI/daemon binaries into $(PREFIX)/bin and the launchd daemon
 	sudo install -m 0755 $(DAEMON) $(PREFIX)/bin/netscoped
 	sudo install -m 0755 $(CLI) $(PREFIX)/bin/netscope
-	sudo install -m 0755 $(BAR) $(PREFIX)/bin/netscope-bar
 	sudo ./scripts/install.sh
 
 .PHONY: uninstall
 uninstall: ## Remove binaries and the launchd daemon
 	sudo ./scripts/install.sh --uninstall
-	sudo rm -f $(PREFIX)/bin/netscoped $(PREFIX)/bin/netscope $(PREFIX)/bin/netscope-bar
-
-.PHONY: app-bundle
-app-bundle: ## Build the single distributable netscope.app (menu bar + daemon + dashboard)
-	./scripts/build-app.sh
+	sudo rm -f $(PREFIX)/bin/netscoped $(PREFIX)/bin/netscope
 
 .PHONY: package
 package: ## Build + bundle + sign everything into dist/ (ad-hoc; see scripts/package.sh)

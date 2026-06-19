@@ -349,6 +349,11 @@ async function loadVersion() {
   } catch (e) { /* daemon not ready */ }
 }
 
+// In the menu-bar popover, clicking the status item returns to the compact panel.
+if (window.runtime && window.runtime.EventsOn) {
+  window.runtime.EventsOn("netscope:show", () => { window.location.href = "/"; });
+}
+
 // boot
 connect();
 loadSummary();

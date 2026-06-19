@@ -75,6 +75,25 @@ SUDO
 }
 install_helper || echo "    (skipped — the app will set this up on first launch)"
 
+# Start netscope at login (per-user LaunchAgent; no admin needed).
+install_login_item() {
+  local plist="$HOME/Library/LaunchAgents/io.netscope.app.plist"
+  mkdir -p "$HOME/Library/LaunchAgents"
+  cat > "$plist" <<PL
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>io.netscope.app</string>
+  <key>ProgramArguments</key><array><string>${APPDIR}/Contents/MacOS/netscope</string></array>
+  <key>RunAtLoad</key><true/>
+  <key>ProcessType</key><string>Interactive</string>
+</dict></plist>
+PL
+  launchctl bootout "gui/$(id -u)" "$plist" 2>/dev/null || true
+  launchctl bootstrap "gui/$(id -u)" "$plist" 2>/dev/null || true
+}
+install_login_item || true
+
 say "done — launching netscope"
 echo "    netscope is now in your menu bar. Click it for live traffic."
 open "$APPDIR" || true

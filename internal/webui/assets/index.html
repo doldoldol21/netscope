@@ -2,99 +2,44 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>netscope</title>
 <link rel="icon" href="favicon.svg" type="image/svg+xml" />
-<link rel="stylesheet" href="styles.css" />
+<link rel="stylesheet" href="panel.css" />
 </head>
 <body>
-<header>
-  <div class="brand">
+<div class="panel">
+  <header class="drag">
     <img class="logo" src="favicon.svg" alt="" />
-    <h1>netscope</h1>
-  </div>
-  <div class="status">
+    <span class="brand">netscope</span>
+    <span class="spacer"></span>
     <span class="dot" id="dot"></span>
-    <span id="status-text">connecting…</span>
+    <span class="meta" id="meta">connecting…</span>
+  </header>
+
+  <section class="rates">
+    <div class="rate down">
+      <div class="line"><span class="arrow">▼</span><span class="v" id="rx">0</span></div>
+      <div class="lbl">download</div>
+    </div>
+    <div class="rate up">
+      <div class="line"><span class="arrow">▲</span><span class="v" id="tx">0</span></div>
+      <div class="lbl">upload</div>
+    </div>
+  </section>
+
+  <canvas id="spark"></canvas>
+
+  <div class="section-head">
+    <span>Top apps</span><span class="hint" id="active"></span>
   </div>
-  <span class="spacer"></span>
-  <div class="rates">
-    <div class="rate rx"><span class="arrow">▼</span><span class="v" id="rxps">0</span><span class="l">down</span></div>
-    <div class="rate tx"><span class="arrow">▲</span><span class="v" id="txps">0</span><span class="l">up</span></div>
-  </div>
-</header>
+  <ul class="apps" id="apps"></ul>
 
-<main>
-  <!-- summary cards -->
-  <section class="cards">
-    <div class="card">
-      <div class="k">Today · total</div>
-      <div class="val" id="c-total">—</div>
-      <div class="sub" id="c-total-sub">↓ — &nbsp; ↑ —</div>
-      <canvas class="spark" id="spark-total"></canvas>
-    </div>
-    <div class="card">
-      <div class="k">Active now</div>
-      <div class="val" id="c-active">—</div>
-      <div class="sub" id="c-active-sub">apps active in last 8s</div>
-    </div>
-    <div class="card">
-      <div class="k">Top app · today</div>
-      <div class="val" id="c-top" style="font-size:18px">—</div>
-      <div class="sub" id="c-top-sub">—</div>
-    </div>
-    <div class="card">
-      <div class="k">Top domain · today</div>
-      <div class="val" id="c-topdomain" style="font-size:18px">—</div>
-      <div class="sub" id="c-topdomain-sub">—</div>
-    </div>
-  </section>
-
-  <!-- throughput chart -->
-  <section class="panel full">
-    <header><h2>Throughput</h2><span class="hint" id="chart-hint">live · last 2 min</span></header>
-    <div class="chart-wrap">
-      <canvas id="chart"></canvas>
-      <div class="tooltip" id="chart-tip"></div>
-    </div>
-    <div class="chart-legend">
-      <span class="key"><span class="swatch" style="background:var(--rx)"></span>download</span>
-      <span class="key"><span class="swatch" style="background:var(--tx)"></span>upload</span>
-      <span class="key" style="margin-left:auto;color:var(--muted)" id="chart-peak"></span>
-    </div>
-  </section>
-
-  <!-- apps + domains -->
-  <section class="grid">
-    <div class="panel">
-      <header>
-        <h2>Apps</h2>
-        <div class="tabs" data-target="apps">
-          <button data-range="session" class="active">session</button>
-          <button data-range="today">today</button>
-          <button data-range="week">week</button>
-        </div>
-      </header>
-      <div id="apps"></div>
-    </div>
-    <div class="panel">
-      <header>
-        <h2>Domains</h2>
-        <div class="tabs" data-target="domains">
-          <button data-range="session" class="active">session</button>
-          <button data-range="today">today</button>
-          <button data-range="week">week</button>
-        </div>
-      </header>
-      <div id="domains"></div>
-    </div>
-  </section>
-</main>
-
-<footer>
-  <span id="version">netscope</span> · all data stays on this machine · <kbd>R</kbd> refresh history · <kbd>L</kbd> jump to session
-</footer>
-
-<script src="app.js"></script>
+  <footer>
+    <button class="primary" id="dash">Open Dashboard <span class="ext">↗</span></button>
+    <button class="ghost" id="quit" title="Quit netscope">⏻</button>
+  </footer>
+</div>
+<script src="panel.js"></script>
 </body>
 </html>

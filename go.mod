@@ -3,7 +3,6 @@ module github.com/doldoldol21/netscope
 go 1.25.0
 
 require (
-	fyne.io/systray v1.12.2
 	github.com/google/gopacket v1.1.19
 	github.com/wailsapp/wails/v2 v2.12.0
 	modernc.org/sqlite v1.52.0

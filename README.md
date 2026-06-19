@@ -33,14 +33,15 @@ Apple account. The installer asks for your admin password **once, right there in
 the terminal**, to set up the capture helper — so the app itself opens with no
 pop-up dialogs, live in your menu bar and starting at boot.
 
-Click the menu-bar item for the top apps, **Open Dashboard…** for the full
-window, or toggle **Launch at Login**.
+Click the menu-bar icon for the popover — live rate, top apps, and an **Open
+Dashboard** button for the full window. (The installer also sets it to start at
+login.)
 
 > **One app, fully self-managing.** Capture needs root (`/dev/bpf*`), so the app
 > installs a small root daemon (the one admin prompt) that serves data over a
 > local **Unix socket** — no TCP port is ever opened. Prefer the terminal?
-> `brew install doldoldol21/netscope/netscope-cli` builds the `netscope` /
-> `netscoped` / `netscope-bar` binaries from source.
+> `brew install doldoldol21/netscope/netscope-cli` builds the `netscoped` and
+> `netscope` binaries from source.
 
 ## What you get
 
@@ -87,10 +88,12 @@ login session. netscope keeps these separate under the hood but ships them as a
   captures and aggregates, and serves `/api` on a unix socket. No TCP port is
   opened, so no browser or other user's process can reach your traffic data;
   access is gated by the socket file's ownership (chowned to you, mode `0600`).
-- **`netscope.app`** — a menu-bar app (Go + systray, no dock icon) that shows
-  the live rate and top apps, **installs the daemon on first run**, and opens a
-  nested Wails **dashboard window** (`internal/webui`, vanilla JS/CSS, no Node
-  build) that reverse-proxies `/api` (incl. the live SSE stream) to the socket.
+- **`netscope.app`** — a menu-bar app (no dock icon): a native `NSStatusItem`
+  (cgo) with a frameless **Wails popover** that drops down from it showing the
+  live rate, sparkline and top apps. It **installs the daemon on first run** and
+  its "Open Dashboard" button expands the same window into the full dashboard
+  (`internal/webui`, vanilla JS/CSS, no Node build), reverse-proxying `/api`
+  (incl. the live SSE stream) to the socket.
 - **`netscope`** — a CLI that reads the same socket for terminal views.
 
 ## Install
@@ -98,8 +101,8 @@ login session. netscope keeps these separate under the hood but ships them as a
 - **App (recommended):** the [Quick Start](#-quick-start) one-liner. Installs
   `netscope.app` to /Applications with no Gatekeeper prompt.
 - **CLI / Homebrew:** `brew install doldoldol21/netscope/netscope-cli` — builds
-  the `netscoped`/`netscope`/`netscope-bar` binaries from source (also no
-  Gatekeeper, since it's compiled locally).
+  the `netscoped` and `netscope` binaries from source (also no Gatekeeper, since
+  compiled locally).
 - **Direct download:** grab `netscope.app` from the
   [latest release](https://github.com/doldoldol21/netscope/releases). If you
   download it in a browser, clear the quarantine flag once:
@@ -117,7 +120,8 @@ sudo launchctl bootout system/io.netscope.daemon 2>/dev/null
 sudo rm -f /Library/LaunchDaemons/io.netscope.daemon.plist
 # remove the app and its data
 rm -rf /Applications/netscope.app
-rm -f ~/Library/LaunchAgents/io.netscope.bar.plist     # "Launch at Login", if enabled
+launchctl bootout gui/$(id -u)/io.netscope.app 2>/dev/null  # stop the login item
+rm -f ~/Library/LaunchAgents/io.netscope.app.plist          # "start at login", if set
 sudo rm -rf /var/db/netscope /var/run/netscope
 ```
 
@@ -128,43 +132,27 @@ Requires Go 1.24+ and macOS (Xcode Command Line Tools for the C toolchain).
 ```sh
 git clone https://github.com/doldoldol21/netscope
 cd netscope
-make build          # bin/netscoped, bin/netscope, bin/netscope-bar
+make build          # bin/netscoped, bin/netscope
 ```
 
-Build the binaries (daemon, CLI, menu-bar app) and the dashboard window:
+Build the menu-bar app (`netscope.app`, with the daemon bundled inside):
 
 ```sh
-make build                            # bin/netscoped, bin/netscope, bin/netscope-bar
-go install github.com/wailsapp/wails/v2/cmd/wails@latest   # once (make app auto-installs if missing)
-make app                              # desktop/build/bin/netscope.app (dashboard window)
-make bar-app                          # bin/netscope-bar.app (menu-bar app, no dock icon)
+go install github.com/wailsapp/wails/v2/cmd/wails@latest   # once (build-app.sh auto-installs)
+make app                              # dist/netscope.app  (cgo NSStatusItem + Wails popover)
+make build                            # bin/netscoped, bin/netscope (CLI/daemon only)
 ```
-
-Install the always-on capture daemon (launchd, runs as root) and the binaries:
-
-```sh
-make install        # copies to /usr/local/bin + loads the LaunchDaemon
-make uninstall      # remove daemon + binaries
-```
-
-The menu-bar app has a **Launch at Login** toggle (a per-user LaunchAgent — no
-admin needed). Use it to keep netscope always on.
 
 ### Packaging a release
 
 ```sh
-make package        # builds + bundles both .app + binaries into dist/, ad-hoc signed
+make package        # build-app.sh + CLI + installer into dist/, ad-hoc signed
 ```
 
-`dist/` gets `netscope.app`, `netscope-bar.app`, the `netscoped`/`netscope`
-binaries, an installer and a zip. For distribution to other Macs, set
-`NETSCOPE_SIGN_ID` (Developer ID) and `NETSCOPE_NOTARY_PROFILE` to sign +
-notarize — otherwise Gatekeeper warns (right-click → Open works). Icons are
-generated from `assets/app-icon.svg` via `make icons`.
-
-The app needs `netscoped` running. After `make install` the daemon listens on
-`/var/run/netscope/netscoped.sock`; the app connects there automatically.
-Override the socket path with the `NETSCOPE_SOCK` env var.
+`dist/` gets `netscope.app`, a `netscope-<version>-app.zip`, the `netscope` CLI
+and `install.sh`. Icons are generated from `assets/app-icon.svg` via `make
+icons`. For a notarized build (no manual quarantine clear on downloaded copies),
+set `NETSCOPE_SIGN_ID` (Developer ID) and `NETSCOPE_NOTARY_PROFILE`.
 
 ## Usage
 

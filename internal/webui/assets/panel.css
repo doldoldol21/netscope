@@ -1,0 +1,80 @@
+/* netscope menu-bar popover panel. The window is frameless + transparent, so
+   the rounded card below IS the visible popover. */
+:root {
+  --bg: #161b22; --bg2: #1c232d; --line: #283039; --line-soft: #20262e;
+  --fg: #e6edf3; --dim: #9aa6b2; --muted: #6e7b8a;
+  --accent: #4493f8; --rx: #3fb950; --tx: #f0883e; --ai: #bc8cff;
+  --mono: "SF Mono", ui-monospace, Menlo, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+}
+* { box-sizing: border-box; margin: 0; }
+html, body { height: 100%; background: transparent; }
+body {
+  font-family: var(--sans); color: var(--fg); font-size: 13px;
+  -webkit-font-smoothing: antialiased; padding: 6px; overflow: hidden;
+}
+
+.panel {
+  height: 100%; display: flex; flex-direction: column;
+  background: var(--bg); border: 1px solid var(--line); border-radius: 13px;
+  box-shadow: 0 12px 32px -10px #000a, 0 0 0 1px #ffffff08 inset;
+  overflow: hidden;
+}
+
+/* ---- header (drag region) ---- */
+/* No drag region: the popover is anchored under the menu bar and does not move. */
+header {
+  display: flex; align-items: center; gap: 8px; padding: 11px 13px 9px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.logo { width: 17px; height: 17px; }
+.brand { font-weight: 650; letter-spacing: .2px; }
+.spacer { flex: 1; }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+.dot.live { background: var(--rx); box-shadow: 0 0 0 3px #3fb95033; }
+.meta { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis; max-width: 150px; }
+
+/* ---- rates ---- */
+.rates { display: flex; padding: 12px 13px 4px; gap: 10px; }
+.rate { flex: 1; }
+.rate .line { display: flex; align-items: baseline; gap: 5px; }
+.rate .arrow { font-size: 12px; }
+.rate.down .arrow { color: var(--rx); } .rate.up .arrow { color: var(--tx); }
+.rate .v { font: 650 21px/1 var(--sans); font-variant-numeric: tabular-nums; }
+.rate .lbl { font-size: 10px; color: var(--muted); text-transform: uppercase;
+  letter-spacing: .6px; margin-top: 3px; }
+
+canvas#spark { display: block; width: calc(100% - 26px); height: 36px; margin: 2px 13px 6px; }
+
+/* ---- top apps ---- */
+.section-head {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 6px 14px 4px; font-size: 10px; color: var(--muted);
+  text-transform: uppercase; letter-spacing: .6px;
+}
+.section-head .hint { text-transform: none; letter-spacing: 0; }
+.apps { list-style: none; flex: 1; overflow-y: auto; padding: 0 6px 4px; }
+.apps li {
+  display: flex; align-items: center; gap: 8px; padding: 6px 8px;
+  border-radius: 8px;
+}
+.apps li:hover { background: var(--bg2); }
+.apps .sw { width: 8px; height: 8px; border-radius: 3px; flex: none; }
+.apps .nm { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.apps .by { font: 500 12px/1 var(--mono); color: var(--dim); font-variant-numeric: tabular-nums; }
+.apps .empty { color: var(--muted); text-align: center; padding: 18px; font-size: 12px; }
+
+/* ---- footer ---- */
+footer { display: flex; gap: 7px; padding: 9px 11px; border-top: 1px solid var(--line-soft); }
+button { font-family: var(--sans); font-size: 12.5px; border-radius: 9px; cursor: pointer;
+  border: 1px solid var(--line); transition: .12s; }
+.primary { flex: 1; height: 32px; font-weight: 600; color: #fff;
+  background: linear-gradient(180deg, #4f9bff, #3b82f6); border-color: #2f6fd6; }
+.primary:hover { filter: brightness(1.08); }
+.primary .ext { opacity: .8; }
+.ghost { width: 32px; height: 32px; color: var(--dim); background: var(--bg2); font-size: 14px; }
+.ghost:hover { color: var(--fg); border-color: var(--tx); }
+
+::-webkit-scrollbar { width: 7px; }
+::-webkit-scrollbar-thumb { background: var(--line); border-radius: 5px; }

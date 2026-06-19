@@ -8,9 +8,9 @@
         <key>CFBundleExecutable</key>
         <string>{{.OutputFilename}}</string>
         <key>CFBundleIdentifier</key>
-        <string>io.netscope.dashboard</string>
+        <string>io.netscope.app</string>
         <key>LSUIElement</key>
-        <false/>
+        <true/>
         <key>CFBundleVersion</key>
         <string>{{.Info.ProductVersion}}</string>
         <key>CFBundleGetInfoString</key>
