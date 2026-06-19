@@ -26,10 +26,13 @@ const (
 	popoverHeight = 500
 )
 
+const dashboardWidth, dashboardHeight = 1120, 760
+
 var (
 	appCtx     context.Context
 	winMu      sync.Mutex
 	winVisible bool
+	dashMode   bool // the shared window is showing the full dashboard
 )
 
 func main() {
@@ -64,6 +67,9 @@ func main() {
 			appCtx = ctx
 			installStatusItem(statusIcon())
 			enablePopoverDismiss()
+			// The page asks to open/close the full dashboard window via events.
+			wruntime.EventsOn(ctx, "netscope:opendash", func(...interface{}) { go openDashboard() })
+			wruntime.EventsOn(ctx, "netscope:closedash", func(...interface{}) { go closeDashboard() })
 		},
 		Mac: &mac.Options{
 			Appearance:           mac.NSAppearanceNameDarkAqua,
@@ -85,6 +91,11 @@ func onStatusItemClick() {
 	if appCtx == nil {
 		return
 	}
+	if dashMode {
+		// The dashboard is a real window; just bring it to the front.
+		focusPopover()
+		return
+	}
 	if winVisible {
 		wruntime.WindowHide(appCtx)
 		winVisible = false
@@ -97,6 +108,43 @@ func onStatusItemClick() {
 	wruntime.WindowShow(appCtx)
 	focusPopover() // make it key so clicking away dismisses it
 	winVisible = true
+}
+
+// openDashboard promotes the shared window into a standalone dashboard window:
+// a regular app window (Dock + Cmd-Tab), centred, not pinned on top, showing the
+// full dashboard page. Triggered by the panel's "Open Dashboard" button.
+func openDashboard() {
+	winMu.Lock()
+	defer winMu.Unlock()
+	if appCtx == nil {
+		return
+	}
+	dashMode = true
+	winVisible = true
+	enterDashboardChrome()
+	wruntime.WindowSetAlwaysOnTop(appCtx, false)
+	wruntime.WindowSetSize(appCtx, dashboardWidth, dashboardHeight)
+	wruntime.WindowCenter(appCtx)
+	wruntime.WindowExecJS(appCtx, "if(location.pathname!=='/dashboard.html')location.replace('/dashboard.html')")
+	wruntime.WindowShow(appCtx)
+	focusPopover()
+}
+
+// closeDashboard demotes the window back to the menu-bar popover (hidden, panel
+// page, anchored + always-on-top), ready for the next status-item click.
+// Triggered by the dashboard's in-page close button.
+func closeDashboard() {
+	winMu.Lock()
+	defer winMu.Unlock()
+	if appCtx == nil {
+		return
+	}
+	dashMode = false
+	winVisible = false
+	exitDashboardChrome()
+	wruntime.WindowHide(appCtx)
+	wruntime.WindowSetAlwaysOnTop(appCtx, true)
+	resetToPanel()
 }
 
 // resetToPanel returns the (now hidden) window to the compact popover: it shrinks

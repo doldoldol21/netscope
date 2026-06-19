@@ -74,11 +74,9 @@ function connect() {
 // ---- actions (Wails runtime) ----
 const rt = () => window.runtime || {};
 $("dash").onclick = () => {
+  // Go promotes the window into a standalone dashboard window and navigates.
   const r = rt();
-  if (r.WindowSetSize) r.WindowSetSize(1120, 760);
-  if (r.WindowCenter) r.WindowCenter();
-  if (r.WindowSetAlwaysOnTop) r.WindowSetAlwaysOnTop(false);
-  window.location.href = "/dashboard.html";
+  if (r.EventsEmit) r.EventsEmit("netscope:opendash");
 };
 $("quit").onclick = () => { const r = rt(); if (r.Quit) r.Quit(); };
 

@@ -13,6 +13,7 @@ void popoverDidHideGo(void);
 
 static NSStatusItem *gItem = nil;
 static NSStatusTarget *gTarget = nil;
+static BOOL gDashMode = NO;   // YES while the dashboard window is up
 
 // installStatusItem creates the menu-bar status item with a template image.
 void installStatusItem(const void *png, int len) {
@@ -55,9 +56,32 @@ void enablePopoverDismiss(void) {
       object:nil
       queue:[NSOperationQueue mainQueue]
       usingBlock:^(NSNotification *n) {
+        if (gDashMode) return;   // the dashboard is a real window, not a popover
         NSWindow *w = (NSWindow *)n.object;
         if (w && w.isVisible) { [w orderOut:nil]; popoverDidHideGo(); }
       }];
+  });
+}
+
+// enterDashboardChrome promotes the shared window into a regular app window: the
+// app gains a Dock icon and Cmd-Tab presence, so the dashboard behaves like a
+// normal window rather than a menu-bar popover. Click-away dismiss is suppressed
+// via gDashMode. (The window stays frameless; it is moved by a draggable header
+// and closed by an in-page button — a native title bar's red button would call
+// [NSApp hide:] without telling us, desyncing this state.)
+void enterDashboardChrome(void) {
+  dispatch_async(dispatch_get_main_queue(), ^{
+    gDashMode = YES;
+    [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
+    [NSApp activateIgnoringOtherApps:YES];
+  });
+}
+
+// exitDashboardChrome demotes the window back to a menu-bar accessory popover.
+void exitDashboardChrome(void) {
+  dispatch_async(dispatch_get_main_queue(), ^{
+    gDashMode = NO;
+    [NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
   });
 }
 
