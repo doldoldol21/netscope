@@ -2,12 +2,16 @@
 
 // Command netscope-app is netscope's menu-bar application. It owns a native
 // status-bar item (cgo) and a frameless Wails window that drops down from the
-// item as a popover panel, rendering the embedded UI and reverse-proxying /api
-// to the netscoped daemon over its unix socket.
+// item as a popover panel. "Open Dashboard" opens a separate native window (an
+// NSWindow hosting a WKWebView) showing the full dashboard — independent of the
+// popover, freely movable, with native window controls. Both render the embedded
+// UI and reach the netscoped daemon's /api over its unix socket.
 package main
 
 import (
 	"context"
+	"net"
+	"net/http"
 	"os"
 	"sync"
 
@@ -26,18 +30,20 @@ const (
 	popoverHeight = 500
 )
 
-const dashboardWidth, dashboardHeight = 1120, 760
-
 var (
-	appCtx     context.Context
-	winMu      sync.Mutex
-	winVisible bool
-	dashMode   bool // the shared window is showing the full dashboard
+	appCtx       context.Context
+	winMu        sync.Mutex
+	winVisible   bool
+	dashboardURL string // loopback URL for the dashboard window's webview
 )
 
 func main() {
 	sock := envOr("NETSCOPE_SOCK", ipc.DefaultSocketPath())
 	proxy := ipc.NewReverseProxy(sock)
+
+	// A loopback-only HTTP server feeds the standalone dashboard window's webview
+	// (static UI + /api proxied to the unix socket). Bound to 127.0.0.1 only.
+	dashboardURL = startLoopbackUI(proxy)
 
 	// Bring the capture daemon up if it isn't already (one admin prompt on a
 	// fresh direct-download install; no-op when installed via install.sh).
@@ -67,9 +73,12 @@ func main() {
 			appCtx = ctx
 			installStatusItem(statusIcon())
 			enablePopoverDismiss()
-			// The page asks to open/close the full dashboard window via events.
-			wruntime.EventsOn(ctx, "netscope:opendash", func(...interface{}) { go openDashboard() })
-			wruntime.EventsOn(ctx, "netscope:closedash", func(...interface{}) { go closeDashboard() })
+			// The panel's "Open Dashboard" button asks to open the dashboard window.
+			wruntime.EventsOn(ctx, "netscope:opendash", func(...interface{}) {
+				if dashboardURL != "" {
+					openDashWindow(dashboardURL + "/dashboard.html")
+				}
+			})
 		},
 		Mac: &mac.Options{
 			Appearance:           mac.NSAppearanceNameDarkAqua,
@@ -83,23 +92,33 @@ func main() {
 	}
 }
 
+// startLoopbackUI serves the embedded dashboard UI and proxies /api to the unix
+// socket on a random 127.0.0.1 port, returning its base URL. The dashboard
+// window's WKWebView loads this; the capture daemon itself still opens no port.
+func startLoopbackUI(proxy http.Handler) string {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return ""
+	}
+	mux := http.NewServeMux()
+	mux.Handle("/api/", proxy)
+	mux.Handle("/", http.FileServer(http.FS(webui.FS())))
+	go func() { _ = http.Serve(ln, mux) }()
+	return "http://" + ln.Addr().String()
+}
+
 // onStatusItemClick toggles the popover window beneath the status item. Runs on
 // a goroutine (not the Cocoa main thread) so the Wails runtime calls are safe.
+// The dashboard is a separate window, so this only ever drives the popover.
 func onStatusItemClick() {
 	winMu.Lock()
 	defer winMu.Unlock()
 	if appCtx == nil {
 		return
 	}
-	if dashMode {
-		// The dashboard is a real window; just bring it to the front.
-		focusPopover()
-		return
-	}
 	if winVisible {
 		wruntime.WindowHide(appCtx)
 		winVisible = false
-		resetToPanel() // restore the panel while hidden, ready for next show
 		return
 	}
 	wruntime.WindowSetSize(appCtx, popoverWidth, popoverHeight)
@@ -108,58 +127,6 @@ func onStatusItemClick() {
 	wruntime.WindowShow(appCtx)
 	focusPopover() // make it key so clicking away dismisses it
 	winVisible = true
-}
-
-// openDashboard promotes the shared window into a standalone dashboard window:
-// a regular app window (Dock + Cmd-Tab), centred, not pinned on top, showing the
-// full dashboard page. Triggered by the panel's "Open Dashboard" button.
-func openDashboard() {
-	winMu.Lock()
-	defer winMu.Unlock()
-	if appCtx == nil {
-		return
-	}
-	dashMode = true
-	winVisible = true
-	enterDashboardChrome()
-	wruntime.WindowSetAlwaysOnTop(appCtx, false)
-	wruntime.WindowSetSize(appCtx, dashboardWidth, dashboardHeight)
-	wruntime.WindowCenter(appCtx)
-	wruntime.WindowExecJS(appCtx, "if(location.pathname!=='/dashboard.html')location.replace('/dashboard.html')")
-	wruntime.WindowShow(appCtx)
-	focusPopover()
-}
-
-// closeDashboard demotes the window back to the menu-bar popover (hidden, panel
-// page, anchored + always-on-top), ready for the next status-item click.
-// Triggered by the dashboard's in-page close button.
-func closeDashboard() {
-	winMu.Lock()
-	defer winMu.Unlock()
-	if appCtx == nil {
-		return
-	}
-	dashMode = false
-	winVisible = false
-	exitDashboardChrome()
-	wruntime.WindowHide(appCtx)
-	wruntime.WindowSetAlwaysOnTop(appCtx, true)
-	resetToPanel()
-}
-
-// resetToPanel returns the (now hidden) window to the compact popover: it shrinks
-// it back to popover size and tells the page to navigate to the panel ("/"). We
-// do this on HIDE — while the window is off-screen — so the next click always
-// shows the small panel, never the large dashboard crammed into the popover.
-// Must run off the Cocoa main thread (it calls into the Wails runtime).
-func resetToPanel() {
-	if appCtx == nil {
-		return
-	}
-	wruntime.WindowSetSize(appCtx, popoverWidth, popoverHeight)
-	// Force the page back to the panel directly (don't depend on the loaded
-	// page having a "netscope:show" listener — the dashboard's may not have run).
-	wruntime.WindowExecJS(appCtx, "if(location.pathname!=='/')location.replace('/')")
 }
 
 func envOr(key, def string) string {

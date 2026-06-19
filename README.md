@@ -8,7 +8,9 @@
 
 A per-app network traffic monitor for macOS, in the spirit of RunCat / iStat:
 always-on, glanceable, and useful for everyone. Everything runs locally — no
-traffic contents are read, no data leaves your Mac, no open network port.
+traffic contents are read and no data leaves your Mac. The capture daemon opens
+no network port (it serves over a unix socket); only the dashboard window is fed
+by a loopback-only (127.0.0.1) address.
 
 [![release](https://img.shields.io/github/v/release/doldoldol21/netscope?color=4493f8)](https://github.com/doldoldol21/netscope/releases)
 [![license](https://img.shields.io/badge/license-MIT-bc8cff)](LICENSE)
@@ -39,7 +41,7 @@ login.)
 
 > **One app, fully self-managing.** Capture needs root (`/dev/bpf*`), so the app
 > installs a small root daemon (the one admin prompt) that serves data over a
-> local **Unix socket** — no TCP port is ever opened. Prefer the terminal?
+> local **Unix socket** — the daemon opens no network port. Prefer the terminal?
 > `brew install doldoldol21/netscope/netscope-cli` builds the `netscoped` and
 > `netscope` binaries from source.
 
@@ -85,15 +87,18 @@ login session. netscope keeps these separate under the hood but ships them as a
 **single `netscope.app`**:
 
 - **`netscoped`** (bundled inside the app) — runs as root under launchd,
-  captures and aggregates, and serves `/api` on a unix socket. No TCP port is
-  opened, so no browser or other user's process can reach your traffic data;
-  access is gated by the socket file's ownership (chowned to you, mode `0600`).
+  captures and aggregates, and serves `/api` on a unix socket. The daemon opens
+  no network port, so no remote host can reach your traffic data; access is
+  gated by the socket file's ownership (chowned to you, mode `0600`).
 - **`netscope.app`** — a menu-bar app (no dock icon): a native `NSStatusItem`
   (cgo) with a frameless **Wails popover** that drops down from it showing the
-  live rate, sparkline and top apps. It **installs the daemon on first run** and
-  its "Open Dashboard" button expands the same window into the full dashboard
-  (`internal/webui`, vanilla JS/CSS, no Node build), reverse-proxying `/api`
-  (incl. the live SSE stream) to the socket.
+  live rate, sparkline and top apps. It **installs the daemon on first run**.
+  Its "Open Dashboard" button opens a **separate native window** (an `NSWindow`
+  hosting a `WKWebView`) with the full dashboard (`internal/webui`, vanilla
+  JS/CSS, no Node build) — a real, movable window with native controls,
+  independent of the popover. That window is fed by a loopback-only (127.0.0.1)
+  server which serves the UI and reverse-proxies `/api` (incl. the live SSE
+  stream) to the socket.
 - **`netscope`** — a CLI that reads the same socket for terminal views.
 
 ## Install

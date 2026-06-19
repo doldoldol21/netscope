@@ -69,26 +69,6 @@ header {
 }
 /* Keep interactive controls clickable even inside a drag region. */
 button, a, input, select, canvas, th, .tabs { --wails-draggable: no-drag; }
-
-/* macOS-style window controls (this is a frameless window, so we draw our own). */
-.traffic { position: absolute; top: 13px; left: 16px; display: flex; gap: 8px; }
-.traffic .tl {
-  width: 12px; height: 12px; border-radius: 50%; padding: 0; border: none;
-  cursor: default; position: relative; line-height: 0;
-  box-shadow: inset 0 0 0 .5px rgba(0,0,0,.18);
-}
-.traffic .tl.close { background: #ff5f57; }
-.traffic .tl.min   { background: #febc2e; }
-.traffic .tl.zoom  { background: #28c840; }
-/* glyphs appear when hovering the cluster, like real traffic lights */
-.traffic .tl::after {
-  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
-  font-size: 9px; font-weight: 700; color: rgba(0,0,0,.55); opacity: 0; transition: opacity .12s;
-}
-.traffic:hover .tl::after { opacity: 1; }
-.traffic .tl.close::after { content: "\00d7"; }   /* × */
-.traffic .tl.min::after   { content: "\2212"; }   /* − */
-.traffic .tl.zoom::after  { content: "\002b"; font-size: 8px; } /* + */
 header .brand { display: flex; align-items: center; gap: 9px; }
 header .logo { width: 22px; height: 22px; }
 header h1 { font-size: 15px; font-weight: 650; margin: 0; letter-spacing: .2px; }

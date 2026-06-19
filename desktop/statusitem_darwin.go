@@ -8,8 +8,6 @@ extern void installStatusItem(const void *png, int len);
 extern void statusItemAnchor(int winWidth, int *outX, int *outY);
 extern void enablePopoverDismiss(void);
 extern void focusPopover(void);
-extern void enterDashboardChrome(void);
-extern void exitDashboardChrome(void);
 */
 import "C"
 
@@ -37,13 +35,6 @@ func enablePopoverDismiss() { C.enablePopoverDismiss() }
 // focusPopover makes the popover the key window so it can dismiss on blur.
 func focusPopover() { C.focusPopover() }
 
-// enterDashboardChrome promotes the window to a regular app window (Dock +
-// Cmd-Tab) and suppresses click-away dismiss.
-func enterDashboardChrome() { C.enterDashboardChrome() }
-
-// exitDashboardChrome demotes the window back to a menu-bar accessory popover.
-func exitDashboardChrome() { C.exitDashboardChrome() }
-
 //export statusItemClickedGo
 func statusItemClickedGo() {
 	// Called on the Cocoa main thread. Wails runtime calls must NOT run on the
@@ -56,7 +47,4 @@ func popoverDidHideGo() {
 	winMu.Lock()
 	winVisible = false
 	winMu.Unlock()
-	// Called on the Cocoa main thread; the Wails runtime calls in resetToPanel
-	// must run off it, so hop to a goroutine.
-	go resetToPanel()
 }

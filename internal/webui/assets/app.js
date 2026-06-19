@@ -349,20 +349,6 @@ async function loadVersion() {
   } catch (e) { /* daemon not ready */ }
 }
 
-// In the menu-bar popover, clicking the status item returns to the compact panel.
-if (window.runtime && window.runtime.EventsOn) {
-  window.runtime.EventsOn("netscope:show", () => { window.location.href = "/"; });
-}
-
-// Window controls (frameless window — we draw our own macOS traffic lights).
-(() => {
-  const r = window.runtime || {};
-  const close = $("tl-close"), min = $("tl-min"), zoom = $("tl-zoom");
-  // Close demotes the window back to the menu-bar popover (handled in Go).
-  if (close) close.onclick = () => { if (r.EventsEmit) r.EventsEmit("netscope:closedash"); };
-  if (min) min.onclick = () => { if (r.WindowMinimise) r.WindowMinimise(); };
-  if (zoom) zoom.onclick = () => { if (r.WindowToggleMaximise) r.WindowToggleMaximise(); };
-})();
 
 // boot
 connect();
