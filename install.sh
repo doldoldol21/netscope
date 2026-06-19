@@ -89,8 +89,11 @@ install_login_item() {
   <key>ProcessType</key><string>Interactive</string>
 </dict></plist>
 PL
+  # Stop any agent-managed instance from a previous install, then leave the
+  # plist in place: launchd auto-loads it at the next login. We deliberately do
+  # NOT bootstrap (RunAtLoad) here — that would start the app a second time
+  # alongside the `open` below, giving two menu-bar icons.
   launchctl bootout "gui/$(id -u)" "$plist" 2>/dev/null || true
-  launchctl bootstrap "gui/$(id -u)" "$plist" 2>/dev/null || true
 }
 install_login_item || true
 

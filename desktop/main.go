@@ -41,7 +41,13 @@ func main() {
 	go func() { _ = daemonctl.Ensure(ipc.Client(sock), sock) }()
 
 	err := wails.Run(&options.App{
-		Title:             "netscope",
+		Title: "netscope",
+		// Only one menu-bar app at a time: a second launch (login agent +
+		// installer's open, or the user re-opening) exits and pings the first.
+		SingleInstanceLock: &options.SingleInstanceLock{
+			UniqueId:               "io.netscope.app",
+			OnSecondInstanceLaunch: func(options.SecondInstanceData) { go onStatusItemClick() },
+		},
 		Width:             popoverWidth,
 		Height:            popoverHeight,
 		DisableResize:     true,
