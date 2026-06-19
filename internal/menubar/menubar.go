@@ -15,10 +15,12 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"time"
 
 	"fyne.io/systray"
 
+	"github.com/doldoldol21/netscope/internal/daemonctl"
 	"github.com/doldoldol21/netscope/internal/ipc"
 	"github.com/doldoldol21/netscope/pkg/types"
 )
@@ -39,6 +41,7 @@ type app struct {
 	sock   string
 
 	rate   *systray.MenuItem
+	startD *systray.MenuItem
 	apps   []*systray.MenuItem
 	dash   *systray.MenuItem
 	login  *systray.MenuItem
@@ -55,6 +58,8 @@ func (a *app) onReady() {
 
 	a.rate = systray.AddMenuItem("Connecting…", "")
 	a.rate.Disable()
+	a.startD = systray.AddMenuItem("Start Capture Daemon…", "Install and start the capture helper")
+	a.startD.Hide()
 	systray.AddSeparator()
 
 	header := systray.AddMenuItem("TOP APPS", "")
@@ -73,14 +78,25 @@ func (a *app) onReady() {
 	a.update.Disable()
 	a.quitI = systray.AddMenuItem("Quit netscope", "")
 
+	go a.bootstrapDaemon() // bring the capture daemon up if it isn't already
 	go a.loop()
 	go a.updateLoop()
 	go a.handleClicks()
 }
 
+// bootstrapDaemon ensures the capture daemon is running, installing it (one
+// admin prompt) on first launch. No prompt if it's already up.
+func (a *app) bootstrapDaemon() {
+	if err := daemonctl.Ensure(a.client, a.sock); err != nil {
+		a.startD.Show() // let the user retry from the menu
+	}
+}
+
 func (a *app) handleClicks() {
 	for {
 		select {
+		case <-a.startD.ClickedCh:
+			go a.bootstrapDaemon()
 		case <-a.dash.ClickedCh:
 			openDashboard()
 		case <-a.login.ClickedCh:
@@ -156,12 +172,14 @@ func (a *app) refresh() {
 	snap, err := a.snapshot()
 	if err != nil {
 		systray.SetTitle(" ⏸")
-		a.rate.SetTitle("netscope daemon not running")
+		a.rate.SetTitle("Capture daemon not running")
+		a.startD.Show()
 		for _, m := range a.apps {
 			m.Hide()
 		}
 		return
 	}
+	a.startD.Hide()
 	systray.SetTitle(fmt.Sprintf(" ↓%s ↑%s", short(snap.RxPerSec), short(snap.TxPerSec)))
 	a.rate.SetTitle(fmt.Sprintf("↓ %s/s    ↑ %s/s", human(snap.RxPerSec), human(snap.TxPerSec)))
 
@@ -225,20 +243,30 @@ func trunc(s string, n int) string {
 	return string(r[:n-1]) + "…"
 }
 
-// openDashboard launches the native dashboard window. Prefers a path from
-// $NETSCOPE_APP (dev), then a local build, then the installed/registered app.
+// openDashboard launches the dashboard window. In a packaged build it lives at
+// netscope.app/Contents/Resources/Dashboard.app (next to this executable);
+// $NETSCOPE_APP and a local dev build are used as fallbacks.
 func openDashboard() {
-	if p := os.Getenv("NETSCOPE_APP"); p != "" {
-		_ = exec.Command("open", p).Run()
-		return
-	}
-	for _, p := range []string{"desktop/build/bin/netscope.app", "/Applications/netscope.app"} {
+	for _, p := range dashboardCandidates() {
 		if _, err := os.Stat(p); err == nil {
 			_ = exec.Command("open", p).Run()
 			return
 		}
 	}
-	_ = exec.Command("open", "-b", "io.netscope.app").Run()
+	_ = exec.Command("open", "-b", "io.netscope.dashboard").Run()
+}
+
+func dashboardCandidates() []string {
+	var c []string
+	if exe, err := os.Executable(); err == nil {
+		// .../netscope.app/Contents/MacOS/<exe> -> .../Resources/Dashboard.app
+		c = append(c, filepath.Join(filepath.Dir(exe), "..", "Resources", "Dashboard.app"))
+	}
+	if p := os.Getenv("NETSCOPE_APP"); p != "" {
+		c = append(c, p)
+	}
+	c = append(c, "desktop/build/bin/netscope.app", "/Applications/netscope.app/Contents/Resources/Dashboard.app")
+	return c
 }
 
 // icon draws a tiny down/up triangle glyph as a template PNG; macOS renders a

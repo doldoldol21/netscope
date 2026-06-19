@@ -129,6 +129,10 @@ uninstall: ## Remove binaries and the launchd daemon
 	sudo ./scripts/install.sh --uninstall
 	sudo rm -f $(PREFIX)/bin/netscoped $(PREFIX)/bin/netscope $(PREFIX)/bin/netscope-bar
 
+.PHONY: app-bundle
+app-bundle: ## Build the single distributable netscope.app (menu bar + daemon + dashboard)
+	./scripts/build-app.sh
+
 .PHONY: package
 package: ## Build + bundle + sign everything into dist/ (ad-hoc; see scripts/package.sh)
 	./scripts/package.sh
