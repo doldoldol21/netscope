@@ -9,6 +9,7 @@ package main
 import (
 	"context"
 	"os"
+	"sync"
 
 	"github.com/doldoldol21/netscope/internal/daemonctl"
 	"github.com/doldoldol21/netscope/internal/ipc"
@@ -27,6 +28,7 @@ const (
 
 var (
 	appCtx     context.Context
+	winMu      sync.Mutex
 	winVisible bool
 )
 
@@ -69,8 +71,11 @@ func main() {
 	}
 }
 
-// onStatusItemClick toggles the popover window beneath the status item.
+// onStatusItemClick toggles the popover window beneath the status item. Runs on
+// a goroutine (not the Cocoa main thread) so the Wails runtime calls are safe.
 func onStatusItemClick() {
+	winMu.Lock()
+	defer winMu.Unlock()
 	if appCtx == nil {
 		return
 	}

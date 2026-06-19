@@ -37,10 +37,14 @@ func focusPopover() { C.focusPopover() }
 
 //export statusItemClickedGo
 func statusItemClickedGo() {
-	onStatusItemClick()
+	// Called on the Cocoa main thread. Wails runtime calls must NOT run on the
+	// main thread (they would block the event loop), so hop to a goroutine.
+	go onStatusItemClick()
 }
 
 //export popoverDidHideGo
 func popoverDidHideGo() {
+	winMu.Lock()
 	winVisible = false
+	winMu.Unlock()
 }
