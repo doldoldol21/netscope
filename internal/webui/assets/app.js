@@ -84,19 +84,56 @@ function sortVal(x, key) {
   return Number(x.rxBytes) + Number(x.txBytes);
 }
 
+// liveSig remembers the row identity+order so we can patch values in place when
+// nothing structural changed — avoiding a full innerHTML rebuild every second
+// (which thrashed layout, dropped hover, and made the live view feel choppy).
+const liveSig = { apps: "", domains: "" };
 function renderPanel(target) {
   if (rangeState[target] !== "session") return; // history handled by loadHistory
-  $(target).innerHTML = tableHTML(target === "apps" ? liveApps : liveDomains, target);
+  const isApps = target === "apps";
+  const items = isApps ? liveApps : liveDomains;
+  const s = sortState[target];
+  const sorted = [...items].sort((a, b) => {
+    const av = sortVal(a, s.key), bv = sortVal(b, s.key);
+    return (av < bv ? -1 : av > bv ? 1 : 0) * s.dir;
+  }).slice(0, 50);
+  const sig = sorted.map((x) => (isApps ? (x.name || "unknown") : x.domain)).join("|") + "#" + s.key + s.dir;
+  const el = $(target);
+  const tbody = el.querySelector("tbody");
+  if (tbody && liveSig[target] === sig && tbody.children.length === sorted.length) {
+    patchRows(tbody, sorted); // same rows: just update numbers + bar widths
+    return;
+  }
+  el.innerHTML = tableHTML(items, target); // structure changed: rebuild
   wireSort(target);
+  liveSig[target] = sig;
+}
+
+// patchRows updates the numeric cells and bar widths of existing rows in place.
+function patchRows(tbody, sorted) {
+  const max = Math.max(1, ...sorted.map((x) => Number(x.rxBytes) + Number(x.txBytes)));
+  for (let i = 0; i < sorted.length; i++) {
+    const it = sorted[i], tr = tbody.children[i];
+    if (!tr) continue;
+    const total = Number(it.rxBytes) + Number(it.txBytes);
+    const nums = tr.querySelectorAll("td.num");
+    if (nums[0]) nums[0].textContent = fmtBytes(it.rxBytes).str;
+    if (nums[1]) nums[1].textContent = fmtBytes(it.txBytes).str;
+    if (nums[2]) nums[2].textContent = fmtBytes(total).str;
+    const bar = tr.querySelector(".usebar i");
+    if (bar) bar.style.width = (100 * total / max).toFixed(1) + "%";
+  }
 }
 
 async function loadHistory(target, range) {
   const el = $(target);
+  liveSig[target] = ""; // force a clean rebuild when returning to the live tab
   el.innerHTML = `<div class="state"><div class="spin"></div>loading ${range}…</div>`;
   try {
     const data = await fetchJSON(`${API}/api/${target}?range=${range}`);
     el.dataset.cache = JSON.stringify(data || []);
     el.innerHTML = tableHTML(data || [], target);
+    el.firstElementChild && el.firstElementChild.classList.add("fade-in");
     wireSort(target);
   } catch (e) {
     el.innerHTML = `<div class="state">failed to load — is netscoped running?</div>`;
@@ -421,7 +458,7 @@ function connect() {
 
 // keyboard shortcuts
 window.addEventListener("keydown", (e) => {
-  if (e.key === "Escape" && !$("drill").hidden) { closeDrill(); return; }
+  if (e.key === "Escape" && $("drill").classList.contains("show")) { closeDrill(); return; }
   if (e.target.tagName === "INPUT") return;
   if (e.key === "l" || e.key === "L") {
     document.querySelectorAll('.tabs').forEach((t) => t.querySelector('[data-range="session"]').click());
@@ -458,10 +495,10 @@ function openDrill(app) {
   $("drill-swatch").style.background = swatchColor(app);
   document.querySelectorAll("#drill-tabs button").forEach((b) =>
     b.classList.toggle("active", b.dataset.range === "today"));
-  $("drill").hidden = false;
+  $("drill").classList.add("show");
   loadDrill();
 }
-function closeDrill() { $("drill").hidden = true; drillState.app = null; }
+function closeDrill() { $("drill").classList.remove("show"); drillState.app = null; }
 
 async function loadDrill() {
   const app = drillState.app, range = drillState.range;
@@ -484,7 +521,9 @@ async function loadDrill() {
       `<span style="color:var(--tx)">↑ ${fmtBytes(tx).str}</span>` +
       `<span class="dt-cap">${range}</span>`;
     drawDrillChart(ts || []);
-    $("drill-domains").innerHTML = drillDomainsHTML(doms || []);
+    const dd = $("drill-domains");
+    dd.innerHTML = drillDomainsHTML(doms || []);
+    dd.firstElementChild && dd.firstElementChild.classList.add("fade-in");
   } catch (e) {
     $("drill-domains").innerHTML = `<div class="state">failed to load — is netscoped running?</div>`;
   }
@@ -573,7 +612,7 @@ document.querySelectorAll("#drill-tabs button").forEach((btn) => {
 });
 $("drill-close").onclick = closeDrill;
 $("drill").addEventListener("click", (e) => { if (e.target === $("drill")) closeDrill(); });
-window.addEventListener("resize", () => { if (!$("drill").hidden) drawDrillChart(drillCache); });
+window.addEventListener("resize", () => { if ($("drill").classList.contains("show")) drawDrillChart(drillCache); });
 
 // boot
 connect();

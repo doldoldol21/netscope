@@ -128,7 +128,7 @@ function openSettings() {
     r.EventsEmit("netscope:getupdate");  // Go replies on "netscope:update"
     r.EventsEmit("netscope:getmenubar"); // Go replies on "netscope:menubar"
   }
-  $("settings").hidden = false;
+  $("settings").classList.add("show");
 }
 
 // ---- menu-bar readout style ----
@@ -165,7 +165,7 @@ function saveAlerts() {
 $("set-daily").onchange = saveAlerts;
 $("set-app").onchange = saveAlerts;
 $("alerts-btn").onclick = openSettings;
-$("set-close").onclick = () => { $("settings").hidden = true; };
+$("set-close").onclick = () => { $("settings").classList.remove("show"); };
 
 // ---- software updates ----
 function renderUpdate(st) {

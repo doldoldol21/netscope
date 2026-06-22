@@ -87,8 +87,10 @@ button { font-family: var(--sans); font-size: 12.5px; border-radius: 9px; cursor
 .settings {
   position: absolute; inset: 0; z-index: 5; background: var(--bg);
   display: flex; flex-direction: column;       /* sticky head + scrolling body */
+  opacity: 0; visibility: hidden; transform: translateY(5px); pointer-events: none;
+  transition: opacity .16s ease, visibility .16s ease, transform .16s ease;
 }
-.settings[hidden] { display: none; }
+.settings.show { opacity: 1; visibility: visible; transform: none; pointer-events: auto; }
 /* fixed header; does not scroll with the body */
 .set-head { flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between;
   font-weight: 650; letter-spacing: .2px; padding: 13px 13px 9px;
@@ -158,3 +160,9 @@ button { font-family: var(--sans); font-size: 12.5px; border-radius: 9px; cursor
 
 ::-webkit-scrollbar { width: 7px; }
 ::-webkit-scrollbar-thumb { background: var(--line); border-radius: 5px; }
+
+/* glide usage bars + respect reduced-motion */
+.usebar i { transition: width .4s cubic-bezier(.2, .8, .2, 1); }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+}

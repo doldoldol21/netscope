@@ -176,11 +176,16 @@ tr.clickable:hover td { background: var(--panel-2); }
 
 .drill { position: fixed; inset: 0; z-index: 50; display: flex;
   align-items: center; justify-content: center; padding: 24px;
-  background: #00000066; backdrop-filter: blur(3px); }
-.drill[hidden] { display: none; }
+  background: #00000066; backdrop-filter: blur(3px);
+  opacity: 0; visibility: hidden; pointer-events: none;
+  transition: opacity .18s ease, visibility .18s ease; }
+.drill.show { opacity: 1; visibility: visible; pointer-events: auto; }
 .drill-card { width: min(760px, 100%); max-height: 88vh; display: flex; flex-direction: column;
   background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
-  box-shadow: 0 24px 64px -24px #000, var(--shadow); overflow: hidden; }
+  box-shadow: 0 24px 64px -24px #000, var(--shadow); overflow: hidden;
+  transform: translateY(8px) scale(.985);
+  transition: transform .2s cubic-bezier(.2, .8, .2, 1); }
+.drill.show .drill-card { transform: none; }
 .drill-head { flex: 0 0 auto; display: flex; align-items: center; gap: 10px;
   padding: 13px 16px; border-bottom: 1px solid var(--line-soft); }
 .drill-head h2 { font-size: 15px; margin: 0; max-width: 280px; overflow: hidden;
@@ -203,3 +208,19 @@ tr.clickable:hover td { background: var(--panel-2); }
 
 /* throughput range tabs sit next to the title (not pushed to the right) */
 #chart-tabs { margin-left: 12px; }
+
+/* ---- motion polish ---- */
+@keyframes ns-fade-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+.fade-in { animation: ns-fade-in .22s ease both; }
+/* usebars glide when patched in place (live tables update values, not the DOM) */
+.usebar i { transition: width .45s cubic-bezier(.2, .8, .2, 1); }
+/* numeric cells ease color/opacity changes */
+.tbl td.num { transition: color .2s ease; }
+/* range tab active state */
+.tabs button { transition: background-color .15s ease, color .15s ease; }
+/* the standalone dashboard window fades in on load to avoid a hard pop */
+body { animation: ns-fade-in .2s ease both; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+}
