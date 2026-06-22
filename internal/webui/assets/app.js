@@ -239,7 +239,101 @@ function drawChart() {
   $("chart-peak").textContent = "peak " + fmtRate(peak);
 }
 
+// ---- throughput range (live vs day/week/month history) ----
+let chartMode = "live", histPoints = [];
+const RANGE_LABEL = { day: "last 24 hours", week: "last 7 days", month: "last 30 days" };
+
+document.querySelectorAll("#chart-tabs button").forEach((btn) => {
+  btn.onclick = () => {
+    document.querySelectorAll("#chart-tabs button").forEach((b) => b.classList.remove("active"));
+    btn.classList.add("active");
+    chartMode = btn.dataset.mode;
+    if (chartMode === "live") {
+      $("chart-hint").textContent = "live · last 2 min";
+      drawChart();
+    } else {
+      loadHistChart(chartMode);
+    }
+  };
+});
+
+async function loadHistChart(range) {
+  $("chart-hint").textContent = "loading " + (RANGE_LABEL[range] || range) + "…";
+  try {
+    const pts = await fetchJSON(`${API}/api/timeseries?range=${range}`);
+    if (chartMode !== range) return; // user switched away
+    histPoints = pts || [];
+    let rx = 0, tx = 0;
+    histPoints.forEach((p) => { rx += Number(p.rxBytes) || 0; tx += Number(p.txBytes) || 0; });
+    $("chart-hint").textContent =
+      `${RANGE_LABEL[range] || range} · ${fmtBytes(rx + tx).str} total`;
+    drawHistChart();
+  } catch (e) {
+    $("chart-hint").textContent = "failed to load history";
+  }
+}
+
+// drawHistChart renders per-bucket download/upload bytes over time as stacked
+// area, with date/time ticks suited to the range.
+function drawHistChart() {
+  const { w, h, g } = sizeCanvas(chart);
+  g.clearRect(0, 0, w, h);
+  const css = getComputedStyle(document.body);
+  const cLine = css.getPropertyValue("--line").trim();
+  const cMuted = css.getPropertyValue("--muted").trim();
+  const cRx = css.getPropertyValue("--rx").trim();
+  const cTx = css.getPropertyValue("--tx").trim();
+  const padL = 56, padB = 18, padT = 8, padR = 6;
+  const plotW = w - padL - padR, plotH = h - padT - padB;
+  if (!histPoints.length) {
+    g.fillStyle = cMuted; g.font = "12px " + css.getPropertyValue("--sans");
+    g.textAlign = "center"; g.textBaseline = "middle";
+    g.fillText("no traffic in this range", w / 2, h / 2);
+    return;
+  }
+  const peak = Math.max(1, ...histPoints.map((p) => Math.max(Number(p.rxBytes), Number(p.txBytes))));
+  const top = niceMax(peak);
+  g.font = "10px " + css.getPropertyValue("--mono"); g.textBaseline = "middle";
+  for (let i = 0; i <= 4; i++) {
+    const y = padT + (plotH * i) / 4;
+    g.strokeStyle = cLine; g.globalAlpha = 0.5; g.beginPath();
+    g.moveTo(padL, y); g.lineTo(w - padR, y); g.stroke(); g.globalAlpha = 1;
+    g.fillStyle = cMuted; g.textAlign = "right";
+    g.fillText(fmtBytes(top * (1 - i / 4)).str, padL - 8, y);
+  }
+  const n = histPoints.length;
+  const x = (i) => padL + (n === 1 ? plotW / 2 : (plotW * i) / (n - 1));
+  const y = (v) => padT + plotH * (1 - v / top);
+  const series = (key, color, soft) => {
+    g.beginPath();
+    histPoints.forEach((p, i) => { const px = x(i), py = y(Number(p[key])); i ? g.lineTo(px, py) : g.moveTo(px, py); });
+    g.lineTo(x(n - 1), y(0)); g.lineTo(x(0), y(0)); g.closePath();
+    const grad = g.createLinearGradient(0, padT, 0, padT + plotH);
+    grad.addColorStop(0, soft); grad.addColorStop(1, "transparent");
+    g.fillStyle = grad; g.fill();
+    g.beginPath();
+    histPoints.forEach((p, i) => { const px = x(i), py = y(Number(p[key])); i ? g.lineTo(px, py) : g.moveTo(px, py); });
+    g.strokeStyle = color; g.lineWidth = 1.6; g.lineJoin = "round"; g.stroke();
+  };
+  series("rxBytes", cRx, "rgba(63,185,80,.28)");
+  series("txBytes", cTx, "rgba(240,136,62,.28)");
+  // x time/date ticks
+  g.fillStyle = cMuted; g.textAlign = "center"; g.textBaseline = "top";
+  const day = chartMode === "day";
+  for (let k = 0; k <= 4; k++) {
+    const idx = Math.round(((n - 1) * k) / 4);
+    const p = histPoints[idx]; if (!p) continue;
+    const d = new Date(p.time);
+    const label = day
+      ? d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+      : `${d.getMonth() + 1}/${d.getDate()}`;
+    g.fillText(label, x(idx), padT + plotH + 5);
+  }
+  $("chart-peak").textContent = "peak " + fmtBytes(peak).str + "/bucket";
+}
+
 chart.addEventListener("mousemove", (e) => {
+  if (chartMode !== "live") return; // hover crosshair is for the live view only
   const r = chart.getBoundingClientRect();
   const padL = 52, padR = 6, plotW = r.width - padL - padR;
   const n = rateHist.length;
@@ -258,8 +352,8 @@ chart.addEventListener("mousemove", (e) => {
   }
   drawChart();
 });
-chart.addEventListener("mouseleave", () => { hoverIdx = -1; tip.style.opacity = 0; drawChart(); });
-window.addEventListener("resize", drawChart);
+chart.addEventListener("mouseleave", () => { hoverIdx = -1; tip.style.opacity = 0; if (chartMode === "live") drawChart(); });
+window.addEventListener("resize", () => { chartMode === "live" ? drawChart() : drawHistChart(); });
 
 // mini sparklines on cards
 function drawSpark(id, color) {
@@ -290,7 +384,7 @@ function onSnapshot(s) {
 
   rateHist.push({ t: new Date(s.time).getTime() || Date.now(), rx: Number(s.rxPerSec) || 0, tx: Number(s.txPerSec) || 0 });
   while (rateHist.length > MAXP) rateHist.shift();
-  drawChart();
+  if (chartMode === "live") drawChart(); // don't clobber a history view
   drawSpark("spark-total", getComputedStyle(document.body).getPropertyValue("--accent").trim());
 }
 

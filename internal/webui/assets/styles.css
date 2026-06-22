@@ -200,3 +200,6 @@ tr.clickable:hover td { background: var(--panel-2); }
 .drill-chart-wrap canvas { width: 100%; height: 100%; }
 .drill-h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .4px;
   color: var(--muted); margin: 10px 0 6px; }
+
+/* throughput range tabs sit next to the title (not pushed to the right) */
+#chart-tabs { margin-left: 12px; }

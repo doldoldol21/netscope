@@ -226,6 +226,8 @@ func parseRange(r *http.Request) (since, until time.Time) {
 		since = now.Add(-24 * time.Hour)
 	case "week":
 		since = now.Add(-7 * 24 * time.Hour)
+	case "month":
+		since = now.Add(-30 * 24 * time.Hour)
 	case "today", "":
 		y, m, d := now.Date()
 		since = time.Date(y, m, d, 0, 0, 0, 0, now.Location())

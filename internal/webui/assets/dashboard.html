@@ -52,7 +52,16 @@
 
   <!-- throughput chart -->
   <section class="panel full">
-    <header><h2>Throughput</h2><span class="hint" id="chart-hint">live · last 2 min</span></header>
+    <header>
+      <h2>Throughput</h2>
+      <div class="tabs" id="chart-tabs">
+        <button data-mode="live" class="active">live</button>
+        <button data-mode="day">day</button>
+        <button data-mode="week">week</button>
+        <button data-mode="month">month</button>
+      </div>
+      <span class="hint" id="chart-hint">live · last 2 min</span>
+    </header>
     <div class="chart-wrap">
       <canvas id="chart"></canvas>
       <div class="tooltip" id="chart-tip"></div>
