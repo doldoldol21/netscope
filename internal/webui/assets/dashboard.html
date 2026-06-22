@@ -91,6 +91,28 @@
   </section>
 </main>
 
+<!-- per-app drill-down overlay -->
+<div class="drill" id="drill" hidden>
+  <div class="drill-card">
+    <header class="drill-head">
+      <span class="swatch" id="drill-swatch"></span>
+      <h2 id="drill-name">app</h2>
+      <div class="tabs" id="drill-tabs">
+        <button data-range="today" class="active">today</button>
+        <button data-range="week">week</button>
+      </div>
+      <span class="spacer"></span>
+      <button class="drill-x" id="drill-close" title="Close (Esc)">✕</button>
+    </header>
+    <div class="drill-body">
+      <div class="drill-totals" id="drill-totals"></div>
+      <div class="drill-chart-wrap"><canvas id="drill-chart"></canvas></div>
+      <h3 class="drill-h3">Domains</h3>
+      <div id="drill-domains"></div>
+    </div>
+  </div>
+</div>
+
 <footer>
   <span id="version">netscope</span> · all data stays on this machine · <kbd>R</kbd> refresh history · <kbd>L</kbd> jump to session
 </footer>

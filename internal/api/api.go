@@ -115,7 +115,15 @@ func (s *Server) handleDomains(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	since, until := parseRange(r)
-	domains, err := s.store.Domains(since, until)
+	var (
+		domains []types.DomainStat
+		err     error
+	)
+	if app := r.URL.Query().Get("app"); app != "" {
+		domains, err = s.store.DomainsForApp(app, since, until) // per-app drill-down
+	} else {
+		domains, err = s.store.Domains(since, until)
+	}
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -130,7 +138,15 @@ func (s *Server) handleTimeSeries(w http.ResponseWriter, r *http.Request) {
 	}
 	since, until := parseRange(r)
 	step := parseStep(r, until.Sub(since))
-	points, err := s.store.TimeSeries(since, until, step)
+	var (
+		points []types.TimePoint
+		err    error
+	)
+	if app := r.URL.Query().Get("app"); app != "" {
+		points, err = s.store.AppTimeSeries(app, since, until, step) // per-app drill-down
+	} else {
+		points, err = s.store.TimeSeries(since, until, step)
+	}
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

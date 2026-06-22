@@ -62,7 +62,8 @@ function tableHTML(items, target) {
     const name = isApps ? (it.name || "unknown") : it.domain;
     const sub = isApps ? "" : (it.appName && it.appName !== "unknown" ? ` <small>· ${esc(it.appName)}</small>` : "");
     const cat = (!isApps && it.category) ? ` <span class="chip">${esc(it.category)}</span>` : "";
-    rows += `<tr>
+    const rowAttr = isApps ? ` data-app="${esc(name)}" class="clickable"` : "";
+    rows += `<tr${rowAttr}>
       <td class="rank">${i + 1}</td>
       <td><div class="cell-name">
         <span class="swatch" style="background:${swatchColor(name)}"></span>
@@ -326,6 +327,7 @@ function connect() {
 
 // keyboard shortcuts
 window.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !$("drill").hidden) { closeDrill(); return; }
   if (e.target.tagName === "INPUT") return;
   if (e.key === "l" || e.key === "L") {
     document.querySelectorAll('.tabs').forEach((t) => t.querySelector('[data-range="session"]').click());
@@ -349,6 +351,135 @@ async function loadVersion() {
   } catch (e) { /* daemon not ready */ }
 }
 
+
+// ============================================================ per-app drill-down
+const drillState = { app: null, range: "today" };
+let drillCache = [];
+
+function openDrill(app) {
+  drillState.app = app;
+  drillState.range = "today";
+  $("drill-name").textContent = app;
+  $("drill-name").title = app;
+  $("drill-swatch").style.background = swatchColor(app);
+  document.querySelectorAll("#drill-tabs button").forEach((b) =>
+    b.classList.toggle("active", b.dataset.range === "today"));
+  $("drill").hidden = false;
+  loadDrill();
+}
+function closeDrill() { $("drill").hidden = true; drillState.app = null; }
+
+async function loadDrill() {
+  const app = drillState.app, range = drillState.range;
+  if (!app) return;
+  const enc = encodeURIComponent(app);
+  $("drill-domains").innerHTML = `<div class="state"><div class="spin"></div>loading…</div>`;
+  $("drill-totals").textContent = "";
+  try {
+    const [ts, doms] = await Promise.all([
+      fetchJSON(`${API}/api/timeseries?range=${range}&app=${enc}`),
+      fetchJSON(`${API}/api/domains?range=${range}&app=${enc}`),
+    ]);
+    if (drillState.app !== app) return; // user switched away while loading
+    drillCache = ts || [];
+    let rx = 0, tx = 0;
+    (ts || []).forEach((p) => { rx += Number(p.rxBytes) || 0; tx += Number(p.txBytes) || 0; });
+    $("drill-totals").innerHTML =
+      `<span class="dt-total">${fmtBytes(rx + tx).str}</span>` +
+      `<span style="color:var(--rx)">↓ ${fmtBytes(rx).str}</span>` +
+      `<span style="color:var(--tx)">↑ ${fmtBytes(tx).str}</span>` +
+      `<span class="dt-cap">${range}</span>`;
+    drawDrillChart(ts || []);
+    $("drill-domains").innerHTML = drillDomainsHTML(doms || []);
+  } catch (e) {
+    $("drill-domains").innerHTML = `<div class="state">failed to load — is netscoped running?</div>`;
+  }
+}
+
+function drillDomainsHTML(items) {
+  if (!items.length) return `<div class="state">no domains in this range</div>`;
+  const max = Math.max(1, ...items.map((x) => Number(x.rxBytes) + Number(x.txBytes)));
+  const rows = items.slice(0, 40).map((d, i) => {
+    const total = Number(d.rxBytes) + Number(d.txBytes);
+    const cat = d.category ? ` <span class="chip">${esc(d.category)}</span>` : "";
+    return `<tr>
+      <td class="rank">${i + 1}</td>
+      <td><div class="cell-name">
+        <span class="swatch" style="background:${swatchColor(d.domain)}"></span>
+        <span class="label" title="${esc(d.domain)}">${esc(d.domain)}${cat}</span>
+      </div><div class="usebar"><i style="width:${(100 * total / max).toFixed(1)}%"></i></div></td>
+      <td class="num rx">${fmtBytes(d.rxBytes).str}</td>
+      <td class="num tx">${fmtBytes(d.txBytes).str}</td>
+      <td class="num">${fmtBytes(total).str}</td>
+    </tr>`;
+  }).join("");
+  return `<table class="tbl"><thead><tr><th></th><th>Domain</th>
+    <th class="num">↓ Down</th><th class="num">↑ Up</th><th class="num">Total</th></tr></thead>
+    <tbody>${rows}</tbody></table>`;
+}
+
+// drawDrillChart plots per-bucket download/upload bytes for the selected app.
+function drawDrillChart(points) {
+  const c = $("drill-chart");
+  const { w, h, g } = sizeCanvas(c);
+  g.clearRect(0, 0, w, h);
+  const css = getComputedStyle(document.body);
+  const cLine = css.getPropertyValue("--line").trim();
+  const cMuted = css.getPropertyValue("--muted").trim();
+  const cRx = css.getPropertyValue("--rx").trim();
+  const cTx = css.getPropertyValue("--tx").trim();
+  if (!points.length) {
+    g.fillStyle = cMuted; g.font = "12px " + css.getPropertyValue("--sans");
+    g.textAlign = "center"; g.textBaseline = "middle";
+    g.fillText("no traffic in this range", w / 2, h / 2);
+    return;
+  }
+  const padL = 52, padB = 4, padT = 8, padR = 6;
+  const plotW = w - padL - padR, plotH = h - padT - padB;
+  const peak = Math.max(1, ...points.map((p) => Math.max(Number(p.rxBytes), Number(p.txBytes))));
+  const top = niceMax(peak);
+  g.font = "10px " + css.getPropertyValue("--mono"); g.textBaseline = "middle";
+  for (let i = 0; i <= 4; i++) {
+    const y = padT + (plotH * i) / 4;
+    g.strokeStyle = cLine; g.globalAlpha = 0.5; g.beginPath();
+    g.moveTo(padL, y); g.lineTo(w - padR, y); g.stroke(); g.globalAlpha = 1;
+    g.fillStyle = cMuted; g.textAlign = "right";
+    g.fillText(fmtBytes(top * (1 - i / 4)).str, padL - 8, y);
+  }
+  const n = points.length;
+  const x = (i) => padL + (n === 1 ? plotW / 2 : (plotW * i) / (n - 1));
+  const y = (v) => padT + plotH * (1 - v / top);
+  const series = (key, color, soft) => {
+    g.beginPath();
+    points.forEach((p, i) => { const px = x(i), py = y(Number(p[key])); i ? g.lineTo(px, py) : g.moveTo(px, py); });
+    g.lineTo(x(n - 1), y(0)); g.lineTo(x(0), y(0)); g.closePath();
+    const grad = g.createLinearGradient(0, padT, 0, padT + plotH);
+    grad.addColorStop(0, soft); grad.addColorStop(1, "transparent");
+    g.fillStyle = grad; g.fill();
+    g.beginPath();
+    points.forEach((p, i) => { const px = x(i), py = y(Number(p[key])); i ? g.lineTo(px, py) : g.moveTo(px, py); });
+    g.strokeStyle = color; g.lineWidth = 1.6; g.lineJoin = "round"; g.stroke();
+  };
+  series("rxBytes", cRx, "rgba(63,185,80,.28)");
+  series("txBytes", cTx, "rgba(240,136,62,.28)");
+}
+
+// wiring: click an app row to drill in; tabs/close/Esc/backdrop to navigate out
+$("apps").addEventListener("click", (e) => {
+  const tr = e.target.closest("tr[data-app]");
+  if (tr) openDrill(tr.dataset.app);
+});
+document.querySelectorAll("#drill-tabs button").forEach((btn) => {
+  btn.onclick = () => {
+    document.querySelectorAll("#drill-tabs button").forEach((b) => b.classList.remove("active"));
+    btn.classList.add("active");
+    drillState.range = btn.dataset.range;
+    loadDrill();
+  };
+});
+$("drill-close").onclick = closeDrill;
+$("drill").addEventListener("click", (e) => { if (e.target === $("drill")) closeDrill(); });
+window.addEventListener("resize", () => { if (!$("drill").hidden) drawDrillChart(drillCache); });
 
 // boot
 connect();

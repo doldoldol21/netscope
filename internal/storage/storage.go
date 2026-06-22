@@ -169,6 +169,31 @@ func (s *Store) Domains(since, until time.Time) ([]types.DomainStat, error) {
 	return out, rows.Err()
 }
 
+// DomainsForApp returns per-domain totals for a single app over [since, until),
+// ranked by total bytes — backs the dashboard's per-app drill-down.
+func (s *Store) DomainsForApp(app string, since, until time.Time) ([]types.DomainStat, error) {
+	rows, err := s.db.Query(`
+		SELECT domain, MAX(app), SUM(rx), SUM(tx), MAX(category)
+		FROM domain_samples
+		WHERE bucket >= ? AND bucket < ? AND app = ?
+		GROUP BY domain
+		ORDER BY SUM(rx) + SUM(tx) DESC`,
+		since.Unix(), until.Unix(), app)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []types.DomainStat
+	for rows.Next() {
+		var d types.DomainStat
+		if err := rows.Scan(&d.Domain, &d.AppName, &d.RxBytes, &d.TxBytes, &d.Category); err != nil {
+			return nil, err
+		}
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}
+
 // TimeSeries returns rx/tx totals bucketed into intervals of step over
 // [since, until). Empty intervals are omitted.
 func (s *Store) TimeSeries(since, until time.Time, step time.Duration) ([]types.TimePoint, error) {
@@ -183,6 +208,37 @@ func (s *Store) TimeSeries(since, until time.Time, step time.Duration) ([]types.
 		GROUP BY slot
 		ORDER BY slot`,
 		stepSec, stepSec, since.Unix(), until.Unix())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []types.TimePoint
+	for rows.Next() {
+		var slot int64
+		var p types.TimePoint
+		if err := rows.Scan(&slot, &p.RxBytes, &p.TxBytes); err != nil {
+			return nil, err
+		}
+		p.Time = time.Unix(slot, 0)
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
+// AppTimeSeries returns one app's rx/tx bucketed into intervals of step over
+// [since, until). Empty intervals are omitted.
+func (s *Store) AppTimeSeries(app string, since, until time.Time, step time.Duration) ([]types.TimePoint, error) {
+	stepSec := int64(step.Seconds())
+	if stepSec <= 0 {
+		stepSec = 60
+	}
+	rows, err := s.db.Query(`
+		SELECT (bucket / ?) * ? AS slot, SUM(rx), SUM(tx)
+		FROM app_samples
+		WHERE bucket >= ? AND bucket < ? AND app = ?
+		GROUP BY slot
+		ORDER BY slot`,
+		stepSec, stepSec, since.Unix(), until.Unix(), app)
 	if err != nil {
 		return nil, err
 	}
