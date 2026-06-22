@@ -4,6 +4,8 @@
 package dnscache
 
 import (
+	"encoding/json"
+	"os"
 	"sync"
 	"time"
 )
@@ -79,6 +81,63 @@ func (c *Cache) Len() int {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return len(c.byIP)
+}
+
+// record is the on-disk form of one mapping.
+type record struct {
+	IP   string    `json:"ip"`
+	Host string    `json:"host"`
+	Seen time.Time `json:"seen"`
+}
+
+// SaveTo writes the cache to path as JSON (atomically via a temp file + rename),
+// so learned IP→host mappings survive a daemon restart.
+func (c *Cache) SaveTo(path string) error {
+	c.mu.RLock()
+	recs := make([]record, 0, len(c.byIP))
+	for ip, e := range c.byIP {
+		recs = append(recs, record{IP: ip, Host: e.host, Seen: e.seen})
+	}
+	c.mu.RUnlock()
+	b, err := json.Marshal(recs)
+	if err != nil {
+		return err
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, b, 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
+}
+
+// LoadFrom merges mappings from a file written by SaveTo, preserving each
+// entry's original "seen" time (so the TTL still applies) and dropping any that
+// have already expired. A missing file is not an error.
+func (c *Cache) LoadFrom(path string) error {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	var recs []record
+	if err := json.Unmarshal(b, &recs); err != nil {
+		return err
+	}
+	now := c.nowFn()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for _, r := range recs {
+		if r.IP == "" || r.Host == "" || now.Sub(r.Seen) > c.ttl {
+			continue
+		}
+		if len(c.byIP) >= c.max {
+			c.evictOldestLocked()
+		}
+		c.byIP[r.IP] = entry{host: r.Host, seen: r.Seen}
+	}
+	return nil
 }
 
 // evictOldestLocked removes the least-recently-seen entry. Caller holds mu.

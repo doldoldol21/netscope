@@ -67,6 +67,12 @@ func run(iface, pcapFile string, demoMode bool, sock, dbPath string, noStore boo
 	// 20k IP→host entries is ample for a personal machine and bounds the
 	// daemon's idle footprint (entries also expire after the TTL).
 	dns := dnscache.New(time.Hour, 20000)
+	// Persist learned IP→host mappings so domains survive a daemon restart.
+	dnsCachePath := ""
+	if dbPath != "" {
+		dnsCachePath = filepath.Join(filepath.Dir(dbPath), "dnscache.json")
+		_ = dns.LoadFrom(dnsCachePath)
+	}
 	rev := revdns.New(dns, 4) // reverse-DNS fallback for unresolved IPs
 	res := resolver.New(300 * time.Millisecond)
 
@@ -160,6 +166,25 @@ func run(iface, pcapFile string, demoMode bool, sock, dbPath string, noStore boo
 	updater := update.NewChecker(buildinfo.Repo, buildinfo.Version, 6*time.Hour)
 	wg.Add(1)
 	go func() { defer wg.Done(); updater.Run(ctx) }()
+
+	// Periodically persist the DNS cache, and once more on shutdown.
+	if dnsCachePath != "" {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			t := time.NewTicker(5 * time.Minute)
+			defer t.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					_ = dns.SaveTo(dnsCachePath)
+					return
+				case <-t.C:
+					_ = dns.SaveTo(dnsCachePath)
+				}
+			}
+		}()
+	}
 
 	// API over a unix domain socket — no open TCP port. The native app and the
 	// CLI connect here; there is no browser-facing dashboard.
