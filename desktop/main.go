@@ -162,8 +162,9 @@ func onStatusItemClick() {
 		return
 	}
 	wruntime.WindowSetSize(appCtx, popoverWidth, popoverHeight)
-	x, y := statusItemAnchor(popoverWidth)
-	wruntime.WindowSetPosition(appCtx, x, y)
+	// Place the window directly (global coords) before showing it, so it lands
+	// under the status item on whichever monitor the menu bar is on.
+	positionPopover(popoverWidth, popoverHeight)
 	wruntime.WindowShow(appCtx)
 	focusPopover() // make it key so clicking away dismisses it
 	winVisible = true

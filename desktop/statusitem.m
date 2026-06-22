@@ -30,18 +30,41 @@ void installStatusItem(const void *png, int len) {
   });
 }
 
-// statusItemAnchor returns the position to pass to Wails' WindowSetPosition so
-// the popover hangs flush under the status item. Wails' SetPosition measures y
-// downward from the top of [screen visibleFrame] — which already excludes the
-// menu bar — and offsets x by visibleFrame.origin. So y≈0 is flush under the
-// menu bar; adding the menu-bar height here (as we used to) double-counts it and
-// drops the panel well below the bar.
-void statusItemAnchor(int winWidth, int *outX, int *outY) {
-  NSRect f = gItem.button.window.frame;                 // status item, bottom-left origin
-  NSRect vis = [[NSScreen mainScreen] visibleFrame];
-  int cx = (int)(f.origin.x + f.size.width / 2.0);      // status item centre
-  *outX = cx - (int)vis.origin.x - winWidth / 2;        // centred under the item
-  *outY = 2;                                            // a hair below the menu bar
+// positionPopover places the Wails popover flush under the status item, on
+// whichever display the menu bar (and the item) currently lives.
+//
+// We set the NSWindow frame directly in global screen coordinates rather than
+// going through Wails' WindowSetPosition. Wails positions relative to the
+// window's *current* screen (and we previously anchored off [NSScreen
+// mainScreen]), so on multi-display setups the popover landed on the wrong
+// monitor or at the wrong offset. The status item's own window frame is already
+// in the global coordinate space spanning all displays, so anchoring to it is
+// correct everywhere.
+void positionPopover(int winW, int winH) {
+  dispatch_sync(dispatch_get_main_queue(), ^{
+    if (!gItem) return;
+    NSWindow *btnWin = gItem.button.window;
+    NSScreen *screen = btnWin.screen ?: [NSScreen mainScreen];
+    NSRect f = btnWin.frame;                       // global coords, bottom-left origin
+    CGFloat cx = f.origin.x + f.size.width / 2.0;  // status item centre (global x)
+    NSRect vis = screen.visibleFrame;
+
+    CGFloat left = cx - winW / 2.0;
+    // Keep the panel fully on its display.
+    CGFloat minX = vis.origin.x + 4;
+    CGFloat maxX = vis.origin.x + vis.size.width - winW - 4;
+    if (left < minX) left = minX;
+    if (left > maxX) left = maxX;
+    CGFloat top = f.origin.y - 2;                  // a hair below the status item
+    NSRect frame = NSMakeRect(left, top - winH, winW, winH);
+
+    for (NSWindow *w in [NSApp windows]) {
+      if ([w isKindOfClass:NSClassFromString(@"WailsWindow")]) {
+        [w setFrame:frame display:YES];
+        break;
+      }
+    }
+  });
 }
 
 // enablePopoverDismiss hides the popover window when it loses key focus (the
