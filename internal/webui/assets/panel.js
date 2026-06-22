@@ -138,10 +138,15 @@ function fillMenuBar(cfg) {
   sel.innerHTML = (cfg.options || [])
     .map((o) => `<option value="${esc(o.id)}">${esc(o.label)}</option>`).join("");
   if (cfg.current) sel.value = cfg.current;
+  $("set-menubar-color").checked = !!cfg.color;
 }
 $("set-menubar").onchange = (e) => {
   const r = rt();
   if (r.EventsEmit) r.EventsEmit("netscope:setmenubar", e.currentTarget.value);
+};
+$("set-menubar-color").onchange = (e) => {
+  const r = rt();
+  if (r.EventsEmit) r.EventsEmit("netscope:setmenubarcolor", e.currentTarget.checked);
 };
 function fillSettings(cfg) {
   cfg = cfg || {};

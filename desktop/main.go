@@ -116,6 +116,15 @@ func main() {
 					}
 				}
 			})
+			wruntime.EventsOn(ctx, "netscope:setmenubarcolor", func(data ...interface{}) {
+				on := false
+				if len(data) > 0 {
+					if b, ok := data[0].(bool); ok {
+						on = b
+					}
+				}
+				setMenuBarColor(on)
+			})
 			// Software-update controls, surfaced in the popover.
 			wruntime.EventsOn(ctx, "netscope:getupdate", func(...interface{}) {
 				wruntime.EventsEmit(ctx, "netscope:update", updateStatusJSON())

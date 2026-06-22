@@ -31,9 +31,10 @@ void installStatusItem(const void *png, int len) {
   });
 }
 
-// setStatusText sets the live-rate text shown next to the menu-bar icon. An
-// empty string clears it (icon only). Uses monospaced digits so the width
-// doesn't jitter as the numbers change.
+// setStatusText sets the live-rate text shown next to the menu-bar icon. The
+// input is a colored-segment protocol: segments joined by US (0x1f), each
+// "<tag>:<text>" where tag is d=download, u=upload, n=neutral. An empty string
+// clears it (icon only). Monospaced digits keep the width from jittering.
 void setStatusText(const char *utf8) {
   NSString *s = utf8 ? [NSString stringWithUTF8String:utf8] : @"";
   dispatch_async(dispatch_get_main_queue(), ^{
@@ -42,18 +43,31 @@ void setStatusText(const char *utf8) {
       gItem.button.attributedTitle = [[NSAttributedString alloc] initWithString:@""];
       return;
     }
-    // Match the native menu-bar text size (≈14pt) but with monospaced digits.
-    CGFloat size = [NSFont menuBarFontOfSize:0].pointSize;
-    NSFont *font = [NSFont monospacedDigitSystemFontOfSize:size
-                                                    weight:NSFontWeightRegular];
-    NSDictionary *attrs = @{
-      NSFontAttributeName : font,
-      NSForegroundColorAttributeName : [NSColor controlTextColor],
-    };
+    CGFloat size = [NSFont menuBarFontOfSize:0].pointSize; // native menu-bar size
+    NSFont *font = [NSFont monospacedDigitSystemFontOfSize:size weight:NSFontWeightRegular];
+    NSColor *dl = [NSColor systemGreenColor];
+    NSColor *ul = [NSColor systemOrangeColor];
+    NSColor *neutral = [NSColor controlTextColor];
+
+    NSMutableAttributedString *out = [[NSMutableAttributedString alloc] init];
     // Leading space separates the text from the icon.
-    NSString *padded = [@"  " stringByAppendingString:s];
-    gItem.button.attributedTitle =
-      [[NSAttributedString alloc] initWithString:padded attributes:attrs];
+    [out appendAttributedString:[[NSAttributedString alloc] initWithString:@"  "
+                                  attributes:@{NSFontAttributeName : font}]];
+    for (NSString *seg in [s componentsSeparatedByString:@"\x1f"]) {
+      if (seg.length == 0) continue;
+      NSColor *color = neutral;
+      NSString *text = seg;
+      if (seg.length >= 2 && [seg characterAtIndex:1] == ':') {
+        unichar tag = [seg characterAtIndex:0];
+        if (tag == 'd') color = dl;
+        else if (tag == 'u') color = ul;
+        text = [seg substringFromIndex:2];
+      }
+      [out appendAttributedString:[[NSAttributedString alloc] initWithString:text
+                                    attributes:@{NSFontAttributeName : font,
+                                                 NSForegroundColorAttributeName : color}]];
+    }
+    gItem.button.attributedTitle = out;
   });
 }
 

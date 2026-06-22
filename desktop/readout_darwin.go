@@ -19,28 +19,46 @@ import (
 // which pauses when hidden) — but 2s is light and keeps the numbers steady.
 const readoutInterval = 2 * time.Second
 
+// seg is a colored run of the menu-bar text. tag: 'd' download, 'u' upload,
+// 'n' neutral (used for separators and when color is off).
+type seg struct {
+	tag  byte
+	text string
+}
+
 // menuBarStyle controls how the live rate renders next to the icon. Users pick a
-// style in settings; format() turns a (rx,tx) pair into the displayed string.
+// style in settings; segs() turns a (rx,tx) pair into colored runs.
 type menuBarStyle struct {
-	ID     string `json:"id"`
-	Label  string `json:"label"`
-	format func(rx, tx string) string
+	ID    string `json:"id"`
+	Label string `json:"label"`
+	segs  func(rx, tx string) []seg
 }
 
 // menuBarStyles are the selectable readout styles (symbol variants). The first
 // is the default.
 var menuBarStyles = []menuBarStyle{
-	{ID: "arrows", Label: "Arrows  ↓1.2M ↑30K", format: func(rx, tx string) string { return "↓" + rx + " ↑" + tx }},
-	{ID: "triangles", Label: "Triangles  ▼1.2M ▲30K", format: func(rx, tx string) string { return "▼" + rx + " ▲" + tx }},
-	{ID: "caret", Label: "Carets  ⇣1.2M ⇡30K", format: func(rx, tx string) string { return "⇣" + rx + " ⇡" + tx }},
-	{ID: "suffix", Label: "Suffix  1.2M↓ 30K↑", format: func(rx, tx string) string { return rx + "↓ " + tx + "↑" }},
-	{ID: "downonly", Label: "Download only  ↓1.2M", format: func(rx, tx string) string { return "↓" + rx }},
-	{ID: "icononly", Label: "Icon only", format: func(rx, tx string) string { return "" }},
+	{ID: "arrows", Label: "Arrows  ↓1.2M ↑30K", segs: func(rx, tx string) []seg {
+		return []seg{{'d', "↓" + rx}, {'n', " "}, {'u', "↑" + tx}}
+	}},
+	{ID: "triangles", Label: "Triangles  ▼1.2M ▲30K", segs: func(rx, tx string) []seg {
+		return []seg{{'d', "▼" + rx}, {'n', " "}, {'u', "▲" + tx}}
+	}},
+	{ID: "caret", Label: "Carets  ⇣1.2M ⇡30K", segs: func(rx, tx string) []seg {
+		return []seg{{'d', "⇣" + rx}, {'n', " "}, {'u', "⇡" + tx}}
+	}},
+	{ID: "suffix", Label: "Suffix  1.2M↓ 30K↑", segs: func(rx, tx string) []seg {
+		return []seg{{'d', rx + "↓"}, {'n', " "}, {'u', tx + "↑"}}
+	}},
+	{ID: "downonly", Label: "Download only  ↓1.2M", segs: func(rx, tx string) []seg {
+		return []seg{{'d', "↓" + rx}}
+	}},
+	{ID: "icononly", Label: "Icon only", segs: func(rx, tx string) []seg { return nil }},
 }
 
 var (
 	readoutMu    sync.Mutex
 	readoutStyle = "arrows"
+	readoutColor = false
 	readoutPath  string
 	lastRx       string
 	lastTx       string
@@ -70,16 +88,33 @@ func startMenuBarReadout(client *http.Client) {
 	}()
 }
 
-// renderReadout formats the last-seen rates with the current style and pushes
-// the text to the menu bar.
+// renderReadout formats the last-seen rates with the current style + color and
+// pushes the colored-segment string to the menu bar.
 func renderReadout() {
 	readoutMu.Lock()
-	style, rx, tx := readoutStyle, lastRx, lastTx
+	style, color, rx, tx := readoutStyle, readoutColor, lastRx, lastTx
 	readoutMu.Unlock()
 	if rx == "" && tx == "" {
 		return
 	}
-	setStatusText(styleByID(style).format(rx, tx))
+	setStatusText(encodeSegs(styleByID(style).segs(rx, tx), color))
+}
+
+// encodeSegs serializes colored runs into the cgo protocol: "<tag>:<text>"
+// joined by US (0x1f). With color off every run is neutral.
+func encodeSegs(segs []seg, color bool) string {
+	out := ""
+	for i, s := range segs {
+		if i > 0 {
+			out += "\x1f"
+		}
+		tag := s.tag
+		if !color {
+			tag = 'n'
+		}
+		out += string(tag) + ":" + s.text
+	}
+	return out
 }
 
 func styleByID(id string) menuBarStyle {
@@ -91,17 +126,17 @@ func styleByID(id string) menuBarStyle {
 	return menuBarStyles[0]
 }
 
-// menuBarStylesJSON returns the available styles and the current selection for
-// the settings UI.
+// menuBarStylesJSON returns the available styles and the current selection +
+// color preference for the settings UI.
 func menuBarStylesJSON() map[string]any {
 	readoutMu.Lock()
-	cur := readoutStyle
+	cur, color := readoutStyle, readoutColor
 	readoutMu.Unlock()
 	opts := make([]map[string]string, 0, len(menuBarStyles))
 	for _, s := range menuBarStyles {
 		opts = append(opts, map[string]string{"id": s.ID, "label": s.Label})
 	}
-	return map[string]any{"current": cur, "options": opts}
+	return map[string]any{"current": cur, "color": color, "options": opts}
 }
 
 // setMenuBarStyle applies and persists a style, refreshing the menu bar at once.
@@ -113,17 +148,32 @@ func setMenuBarStyle(id string) {
 	renderReadout()
 }
 
+// setMenuBarColor toggles per-direction coloring (green ↓ / orange ↑).
+func setMenuBarColor(on bool) {
+	readoutMu.Lock()
+	readoutColor = on
+	readoutMu.Unlock()
+	saveReadoutStyle()
+	renderReadout()
+}
+
+type readoutPrefs struct {
+	Style string `json:"style"`
+	Color bool   `json:"color"`
+}
+
 func loadReadoutStyle() {
 	b, err := os.ReadFile(readoutPath)
 	if err != nil {
 		return
 	}
-	var p struct {
-		Style string `json:"style"`
-	}
-	if json.Unmarshal(b, &p) == nil && p.Style != "" {
+	var p readoutPrefs
+	if json.Unmarshal(b, &p) == nil {
 		readoutMu.Lock()
-		readoutStyle = styleByID(p.Style).ID
+		if p.Style != "" {
+			readoutStyle = styleByID(p.Style).ID
+		}
+		readoutColor = p.Color
 		readoutMu.Unlock()
 	}
 }
@@ -133,10 +183,10 @@ func saveReadoutStyle() {
 		return
 	}
 	readoutMu.Lock()
-	style := readoutStyle
+	p := readoutPrefs{Style: readoutStyle, Color: readoutColor}
 	readoutMu.Unlock()
 	_ = os.MkdirAll(filepath.Dir(readoutPath), 0o755)
-	if b, err := json.MarshalIndent(map[string]string{"style": style}, "", "  "); err == nil {
+	if b, err := json.MarshalIndent(p, "", "  "); err == nil {
 		_ = os.WriteFile(readoutPath, b, 0o644)
 	}
 }
