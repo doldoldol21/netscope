@@ -492,13 +492,19 @@ window.addEventListener("keydown", (e) => {
 // version / update banner in the footer
 async function loadVersion() {
   try {
-    const v = await fetchJSON(`${API}/api/version`);
+    const v = await fetchJSON(`${API}/api/version`); // daemon build + update status
+    const app = await fetchJSON(`${API}/appinfo`).catch(() => null); // GUI build
     const el = $("version");
     if (!el) return;
+    const daemon = v.current || "—";
+    const appVer = (app && app.version) || daemon;
+    // Show the app version, and the daemon version too when they differ.
+    let base = "netscope " + appVer;
+    if (daemon !== appVer) base += ` · daemon ${daemon}`;
     if (v.updateAvailable) {
-      el.innerHTML = `netscope ${esc(v.current)} · <b style="color:var(--accent)">⬆ ${esc(v.latest)} available — see the menu bar</b>`;
+      el.innerHTML = `${esc(base)} · <b style="color:var(--accent)">⬆ ${esc(v.latest)} available — see the menu bar</b>`;
     } else {
-      el.textContent = "netscope " + (v.current || "");
+      el.textContent = base;
     }
   } catch (e) { /* daemon not ready */ }
 }

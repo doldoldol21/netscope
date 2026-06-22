@@ -10,11 +10,13 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"net"
 	"net/http"
 	"os"
 	"sync"
 
+	"github.com/doldoldol21/netscope/internal/buildinfo"
 	"github.com/doldoldol21/netscope/internal/daemonctl"
 	"github.com/doldoldol21/netscope/internal/ipc"
 	"github.com/doldoldol21/netscope/internal/webui"
@@ -174,6 +176,12 @@ func startLoopbackUI(proxy http.Handler) string {
 	}
 	mux := http.NewServeMux()
 	mux.Handle("/api/", proxy)
+	// The GUI process serves its own version so the dashboard can show the app
+	// version next to the daemon's (/api/version, which is the daemon's build).
+	mux.HandleFunc("/appinfo", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{"version": buildinfo.Version})
+	})
 	mux.Handle("/", http.FileServer(http.FS(webui.FS())))
 	go func() { _ = http.Serve(ln, mux) }()
 	return "http://" + ln.Addr().String()
