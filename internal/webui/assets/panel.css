@@ -83,19 +83,25 @@ button { font-family: var(--sans); font-size: 12.5px; border-radius: 9px; cursor
 .ghost { width: 32px; height: 32px; color: var(--dim); background: var(--bg2); font-size: 14px; }
 .ghost:hover { color: var(--fg); border-color: var(--tx); }
 
-/* ---- usage-alerts settings overlay ---- */
+/* ---- settings overlay ---- */
 .settings {
   position: absolute; inset: 0; z-index: 5; background: var(--bg);
-  display: flex; flex-direction: column; gap: 10px; padding: 13px;
+  display: flex; flex-direction: column;       /* sticky head + scrolling body */
 }
 .settings[hidden] { display: none; }
-.set-head { display: flex; align-items: center; justify-content: space-between;
-  font-weight: 650; letter-spacing: .2px; }
+/* fixed header; does not scroll with the body */
+.set-head { flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between;
+  font-weight: 650; letter-spacing: .2px; padding: 13px 13px 9px;
+  border-bottom: 1px solid var(--line-soft); }
 .set-head .x { width: 24px; height: 24px; color: var(--dim); background: var(--bg2);
   border: 1px solid var(--line); border-radius: 7px; font-size: 12px; }
 .set-head .x:hover { color: var(--fg); border-color: var(--tx); }
-.set-hint { font-size: 11.5px; color: var(--muted); line-height: 1.45; margin: -2px 0 2px; }
-.set-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+/* the only scrolling region when content overflows the popover */
+.set-body { flex: 1; min-height: 0; overflow-y: auto; scrollbar-gutter: stable;
+  display: flex; flex-direction: column; gap: 9px; padding: 11px 13px 13px; }
+.set-hint { font-size: 11.5px; color: var(--muted); line-height: 1.45; margin: -2px 0 0; }
+.set-row { display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; min-height: 26px; }
 .set-lbl { font-size: 13px; color: var(--fg); }
 .set-inp { display: inline-flex; align-items: center; gap: 6px; }
 .set-inp input {
@@ -105,14 +111,12 @@ button { font-family: var(--sans); font-size: 12.5px; border-radius: 9px; cursor
 }
 .set-inp input:focus { outline: none; border-color: var(--accent); }
 .set-inp em { font-style: normal; font-size: 11px; color: var(--muted); width: 18px; }
-/* Reset the footer's flex:1 — in this vertical column it would stretch the
-   button to fill all remaining height. */
 .settings .primary { flex: 0 0 auto; height: 34px; }
-#set-save { margin-top: auto; }
 
-/* section sub-headers inside settings */
+/* section sub-headers: a divider above each group for visual rhythm */
 .set-sub { font-size: 11px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase;
-  color: var(--muted); margin: 4px 0 -2px; }
+  color: var(--muted); margin: 8px 0 0; padding-top: 9px; border-top: 1px solid var(--line-soft); }
+.set-sub:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
 .set-sub:first-of-type { margin-top: 0; }
 
 /* menu-bar style selector */

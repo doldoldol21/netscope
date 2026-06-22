@@ -153,16 +153,19 @@ function fillSettings(cfg) {
   $("set-daily").value = bytesToGb(cfg.dailyTotalBytes) || "";
   $("set-app").value = bytesToGb(cfg.perAppBytes) || "";
 }
-$("alerts-btn").onclick = openSettings;
-$("set-close").onclick = () => { $("settings").hidden = true; };
-$("set-save").onclick = () => {
+// Alerts save instantly on edit (on blur / Enter) — no separate Save button, so
+// every setting in this panel applies the moment it changes.
+function saveAlerts() {
   const r = rt();
   if (r.EventsEmit) r.EventsEmit("netscope:setalerts", {
     dailyTotalBytes: gbToBytes($("set-daily").value),
     perAppBytes: gbToBytes($("set-app").value),
   });
-  $("settings").hidden = true;
-};
+}
+$("set-daily").onchange = saveAlerts;
+$("set-app").onchange = saveAlerts;
+$("alerts-btn").onclick = openSettings;
+$("set-close").onclick = () => { $("settings").hidden = true; };
 
 // ---- software updates ----
 function renderUpdate(st) {

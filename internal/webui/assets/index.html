@@ -58,39 +58,39 @@
       <button class="x" id="set-close" title="Close">✕</button>
     </div>
 
-    <div class="set-sub">Usage alerts</div>
-    <p class="set-hint">Notify me when today's traffic crosses a limit. Leave 0 to turn off.</p>
-    <label class="set-row">
-      <span class="set-lbl">Daily total</span>
-      <span class="set-inp"><input type="number" id="set-daily" min="0" step="0.5" placeholder="0" /><em>GB</em></span>
-    </label>
-    <label class="set-row">
-      <span class="set-lbl">Any one app</span>
-      <span class="set-inp"><input type="number" id="set-app" min="0" step="0.5" placeholder="0" /><em>GB</em></span>
-    </label>
+    <div class="set-body">
+      <div class="set-sub">Usage alerts</div>
+      <p class="set-hint">Notify me when today's traffic crosses a limit. Leave 0 to turn off.</p>
+      <label class="set-row">
+        <span class="set-lbl">Daily total</span>
+        <span class="set-inp"><input type="number" id="set-daily" min="0" step="0.5" placeholder="0" /><em>GB</em></span>
+      </label>
+      <label class="set-row">
+        <span class="set-lbl">Any one app</span>
+        <span class="set-inp"><input type="number" id="set-app" min="0" step="0.5" placeholder="0" /><em>GB</em></span>
+      </label>
 
-    <div class="set-sub">Menu bar</div>
-    <label class="set-row">
-      <span class="set-lbl">Rate display</span>
-      <select id="set-menubar" class="set-sel"></select>
-    </label>
-    <label class="set-row">
-      <span class="set-lbl">Color ↓ / ↑</span>
-      <input type="checkbox" id="set-menubar-color" class="set-chk" />
-    </label>
+      <div class="set-sub">Menu bar</div>
+      <label class="set-row">
+        <span class="set-lbl">Rate display</span>
+        <select id="set-menubar" class="set-sel"></select>
+      </label>
+      <label class="set-row">
+        <span class="set-lbl">Color ↓ / ↑</span>
+        <input type="checkbox" id="set-menubar-color" class="set-chk" />
+      </label>
 
-    <div class="set-sub">Updates</div>
-    <label class="set-row">
-      <span class="set-lbl">Check automatically</span>
-      <input type="checkbox" id="set-autocheck" class="set-chk" />
-    </label>
-    <div class="set-row">
-      <span class="set-lbl upd-status" id="upd-status">—</span>
-      <button class="mini" id="upd-check">Check now</button>
+      <div class="set-sub">Updates</div>
+      <label class="set-row">
+        <span class="set-lbl">Check automatically</span>
+        <input type="checkbox" id="set-autocheck" class="set-chk" />
+      </label>
+      <div class="set-row">
+        <span class="set-lbl upd-status" id="upd-status">—</span>
+        <button class="mini" id="upd-check">Check now</button>
+      </div>
+      <button class="primary upd-now" id="upd-now" hidden>Update &amp; Restart</button>
     </div>
-    <button class="primary upd-now" id="upd-now" hidden>Update &amp; Restart</button>
-
-    <button class="primary" id="set-save">Save</button>
   </div>
 </div>
 <script src="panel.js"></script>

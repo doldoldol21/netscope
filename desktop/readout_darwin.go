@@ -37,19 +37,19 @@ type menuBarStyle struct {
 // menuBarStyles are the selectable readout styles (symbol variants). The first
 // is the default.
 var menuBarStyles = []menuBarStyle{
-	{ID: "arrows", Label: "Arrows  ↓1.2M ↑30K", segs: func(rx, tx string) []seg {
+	{ID: "arrows", Label: "Arrows", segs: func(rx, tx string) []seg {
 		return []seg{{'d', "↓" + rx}, {'n', " "}, {'u', "↑" + tx}}
 	}},
-	{ID: "triangles", Label: "Triangles  ▼1.2M ▲30K", segs: func(rx, tx string) []seg {
+	{ID: "triangles", Label: "Triangles", segs: func(rx, tx string) []seg {
 		return []seg{{'d', "▼" + rx}, {'n', " "}, {'u', "▲" + tx}}
 	}},
-	{ID: "caret", Label: "Carets  ⇣1.2M ⇡30K", segs: func(rx, tx string) []seg {
+	{ID: "caret", Label: "Carets", segs: func(rx, tx string) []seg {
 		return []seg{{'d', "⇣" + rx}, {'n', " "}, {'u', "⇡" + tx}}
 	}},
-	{ID: "suffix", Label: "Suffix  1.2M↓ 30K↑", segs: func(rx, tx string) []seg {
+	{ID: "suffix", Label: "Suffix", segs: func(rx, tx string) []seg {
 		return []seg{{'d', rx + "↓"}, {'n', " "}, {'u', tx + "↑"}}
 	}},
-	{ID: "downonly", Label: "Download only  ↓1.2M", segs: func(rx, tx string) []seg {
+	{ID: "downonly", Label: "Download only", segs: func(rx, tx string) []seg {
 		return []seg{{'d', "↓" + rx}}
 	}},
 	{ID: "icononly", Label: "Icon only", segs: func(rx, tx string) []seg { return nil }},
