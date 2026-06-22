@@ -29,10 +29,45 @@ static id gDashKeyMonitor = nil;
 }
 @end
 
+// installAppMenu gives the app a real main menu once. As a menu-bar accessory
+// app we otherwise have none, so standard shortcuts (Cmd-W close, Cmd-Q quit,
+// Cmd-C copy, Cmd-A select-all) don't work. Menu key equivalents are handled by
+// AppKit before the focused WKWebView, so Cmd-W reliably closes the dashboard —
+// unlike a local key monitor, which the web content can intercept.
+static BOOL gMenuInstalled = NO;
+static void installAppMenu(void) {
+  if (gMenuInstalled) return;
+  gMenuInstalled = YES;
+  NSMenu *bar = [[NSMenu alloc] init];
+
+  NSMenuItem *appItem = [[NSMenuItem alloc] init];
+  [bar addItem:appItem];
+  NSMenu *appMenu = [[NSMenu alloc] init];
+  [appMenu addItemWithTitle:@"Quit netscope" action:@selector(terminate:) keyEquivalent:@"q"];
+  [appItem setSubmenu:appMenu];
+
+  NSMenuItem *editItem = [[NSMenuItem alloc] init];
+  [bar addItem:editItem];
+  NSMenu *editMenu = [[NSMenu alloc] initWithTitle:@"Edit"];
+  [editMenu addItemWithTitle:@"Copy" action:@selector(copy:) keyEquivalent:@"c"];
+  [editMenu addItemWithTitle:@"Select All" action:@selector(selectAll:) keyEquivalent:@"a"];
+  [editItem setSubmenu:editMenu];
+
+  NSMenuItem *winItem = [[NSMenuItem alloc] init];
+  [bar addItem:winItem];
+  NSMenu *winMenu = [[NSMenu alloc] initWithTitle:@"Window"];
+  [winMenu addItemWithTitle:@"Minimize" action:@selector(performMiniaturize:) keyEquivalent:@"m"];
+  [winMenu addItemWithTitle:@"Close" action:@selector(performClose:) keyEquivalent:@"w"];
+  [winItem setSubmenu:winMenu];
+
+  [NSApp setMainMenu:bar];
+}
+
 // openDashWindow creates (or re-focuses) the dashboard window and loads url.
 void openDashWindow(const char *curl) {
   NSString *urlStr = [NSString stringWithUTF8String:curl];
   dispatch_async(dispatch_get_main_queue(), ^{
+    installAppMenu();
     // Become a regular app so the window gains focus, Cmd-Tab and a Dock icon.
     [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
     if (gDash == nil) {

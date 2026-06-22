@@ -210,17 +210,23 @@ tr.clickable:hover td { background: var(--panel-2); }
 #chart-tabs { margin-left: 12px; }
 
 /* ---- motion polish ---- */
-@keyframes ns-fade-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
-.fade-in { animation: ns-fade-in .22s ease both; }
+@keyframes ns-fade-in { from { opacity: 0; } to { opacity: 1; } }
+.fade-in { animation: ns-fade-in .18s ease both; }
 /* usebars glide when patched in place (live tables update values, not the DOM) */
 .usebar i { transition: width .45s cubic-bezier(.2, .8, .2, 1); }
 /* numeric cells ease color/opacity changes */
 .tbl td.num { transition: color .2s ease; }
 /* range tab active state */
 .tabs button { transition: background-color .15s ease, color .15s ease; }
-/* the standalone dashboard window fades in on load to avoid a hard pop */
-body { animation: ns-fade-in .2s ease both; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
 }
+
+/* ---- skeleton loading ---- */
+@keyframes ns-shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+.skel { background: linear-gradient(90deg, var(--panel-2) 25%, var(--panel-3) 50%, var(--panel-2) 75%);
+  background-size: 200% 100%; animation: ns-shimmer 1.3s linear infinite; border-radius: 5px; display: inline-block; }
+@media (prefers-reduced-motion: reduce) { .skel { animation: none; } }
+.skel-line { height: 11px; }
+.tbl.skel-tbl td { vertical-align: middle; }

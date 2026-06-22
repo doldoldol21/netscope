@@ -125,10 +125,31 @@ function patchRows(tbody, sorted) {
   }
 }
 
+// skeletonTable returns shimmer placeholder rows mirroring the table layout,
+// shown while a range loads so the panel doesn't jump from spinner to data.
+function skeletonTable(n) {
+  let r = "";
+  for (let i = 0; i < (n || 7); i++) {
+    const nameW = 38 + ((i * 53) % 46); // varied widths read as real labels
+    r += `<tr>
+      <td class="rank"><span class="skel" style="width:13px;height:9px"></span></td>
+      <td><div class="cell-name"><span class="skel" style="width:9px;height:9px;border-radius:3px"></span>
+        <span class="skel skel-line" style="width:${nameW}%"></span></div></td>
+      <td class="num"><span class="skel skel-line" style="width:46px"></span></td>
+      <td class="num"><span class="skel skel-line" style="width:42px"></span></td>
+      <td class="num"><span class="skel skel-line" style="width:52px"></span></td>
+    </tr>`;
+  }
+  return `<table class="tbl skel-tbl"><tbody>${r}</tbody></table>`;
+}
+
 async function loadHistory(target, range) {
   const el = $(target);
   liveSig[target] = ""; // force a clean rebuild when returning to the live tab
-  el.innerHTML = `<div class="state"><div class="spin"></div>loading ${range}…</div>`;
+  // Stale-while-revalidate: keep the current table visible during the (near
+  // instant) fetch so the panel height doesn't collapse to a short skeleton and
+  // bounce back. Only show a skeleton when there's nothing to keep.
+  if (!el.querySelector(".tbl")) el.innerHTML = skeletonTable();
   try {
     const data = await fetchJSON(`${API}/api/${target}?range=${range}`);
     el.dataset.cache = JSON.stringify(data || []);
@@ -298,7 +319,7 @@ async function loadHistChart(range) {
   $("chart-hint").textContent = "loading " + (RANGE_LABEL[range] || range) + "…";
   try {
     const pts = await fetchJSON(`${API}/api/timeseries?range=${range}`);
-    if (chartMode !== range) return; // user switched away
+    if (chartMode !== range) return; // switched away
     histPoints = pts || [];
     let rx = 0, tx = 0;
     histPoints.forEach((p) => { rx += Number(p.rxBytes) || 0; tx += Number(p.txBytes) || 0; });
@@ -495,6 +516,9 @@ function openDrill(app) {
   $("drill-swatch").style.background = swatchColor(app);
   document.querySelectorAll("#drill-tabs button").forEach((b) =>
     b.classList.toggle("active", b.dataset.range === "today"));
+  // Fresh open: clear prior content so skeletons show (range switches keep it).
+  $("drill-totals").textContent = "";
+  $("drill-domains").innerHTML = "";
   $("drill").classList.add("show");
   loadDrill();
 }
@@ -504,14 +528,16 @@ async function loadDrill() {
   const app = drillState.app, range = drillState.range;
   if (!app) return;
   const enc = encodeURIComponent(app);
-  $("drill-domains").innerHTML = `<div class="state"><div class="spin"></div>loading…</div>`;
-  $("drill-totals").textContent = "";
+  const dd0 = $("drill-domains");
+  if (!dd0.querySelector(".tbl")) dd0.innerHTML = skeletonTable(8); // keep prior on range switch
+  if (!$("drill-totals").textContent.trim())
+    $("drill-totals").innerHTML = `<span class="skel skel-line" style="width:120px;height:18px"></span>`;
   try {
     const [ts, doms] = await Promise.all([
       fetchJSON(`${API}/api/timeseries?range=${range}&app=${enc}`),
       fetchJSON(`${API}/api/domains?range=${range}&app=${enc}`),
     ]);
-    if (drillState.app !== app) return; // user switched away while loading
+    if (drillState.app !== app) return; // switched away
     drillCache = ts || [];
     let rx = 0, tx = 0;
     (ts || []).forEach((p) => { rx += Number(p.rxBytes) || 0; tx += Number(p.txBytes) || 0; });
