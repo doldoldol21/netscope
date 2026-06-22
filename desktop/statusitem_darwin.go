@@ -4,7 +4,9 @@ package main
 
 /*
 #cgo LDFLAGS: -framework Cocoa
+#include <stdlib.h>
 extern void installStatusItem(const void *png, int len);
+extern void setStatusText(const char *utf8);
 extern void positionPopover(int winW, int winH);
 extern void enablePopoverDismiss(void);
 extern void focusPopover(void);
@@ -26,6 +28,13 @@ func installStatusItem(png []byte) {
 // correct across multiple monitors).
 func positionPopover(winWidth, winHeight int) {
 	C.positionPopover(C.int(winWidth), C.int(winHeight))
+}
+
+// setStatusText sets the live-rate text shown next to the menu-bar icon ("" clears it).
+func setStatusText(s string) {
+	cs := C.CString(s)
+	defer C.free(unsafe.Pointer(cs))
+	C.setStatusText(cs)
 }
 
 // enablePopoverDismiss hides the popover when the user clicks away.

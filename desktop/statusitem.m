@@ -24,9 +24,36 @@ void installStatusItem(const void *png, int len) {
     [img setTemplate:YES];
     [img setSize:NSMakeSize(18, 18)];
     gItem.button.image = img;
+    gItem.button.imagePosition = NSImageLeft; // icon, then the live rate text
     gTarget = [[NSStatusTarget alloc] init];
     gItem.button.target = gTarget;
     gItem.button.action = @selector(clicked:);
+  });
+}
+
+// setStatusText sets the live-rate text shown next to the menu-bar icon. An
+// empty string clears it (icon only). Uses monospaced digits so the width
+// doesn't jitter as the numbers change.
+void setStatusText(const char *utf8) {
+  NSString *s = utf8 ? [NSString stringWithUTF8String:utf8] : @"";
+  dispatch_async(dispatch_get_main_queue(), ^{
+    if (!gItem) return;
+    if (s.length == 0) {
+      gItem.button.attributedTitle = [[NSAttributedString alloc] initWithString:@""];
+      return;
+    }
+    // Match the native menu-bar text size (≈14pt) but with monospaced digits.
+    CGFloat size = [NSFont menuBarFontOfSize:0].pointSize;
+    NSFont *font = [NSFont monospacedDigitSystemFontOfSize:size
+                                                    weight:NSFontWeightRegular];
+    NSDictionary *attrs = @{
+      NSFontAttributeName : font,
+      NSForegroundColorAttributeName : [NSColor controlTextColor],
+    };
+    // Leading space separates the text from the icon.
+    NSString *padded = [@"  " stringByAppendingString:s];
+    gItem.button.attributedTitle =
+      [[NSAttributedString alloc] initWithString:padded attributes:attrs];
   });
 }
 

@@ -53,6 +53,9 @@ func main() {
 	// Watch today's usage against the user's thresholds and notify on crossings.
 	startAlertsLoop(client)
 
+	// Show the live download/upload rate next to the menu-bar icon.
+	startMenuBarReadout(client)
+
 	// Periodically check GitHub for a newer release and notify on a new version.
 	startUpdateLoop()
 
