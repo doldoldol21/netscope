@@ -19,6 +19,24 @@ static id gDashDelegate = nil;
 }
 @end
 
+// NSDashWindow handles Cmd-W itself. As a menu-bar accessory app we have no
+// application menu, so the standard File ▸ Close (Cmd-W) item that normally
+// binds the shortcut doesn't exist — Cmd-W would otherwise do nothing. Key
+// equivalents route through the key window before the WKWebView's keyDown, so
+// catching it here closes the window even while the web view has focus.
+@interface NSDashWindow : NSWindow
+@end
+@implementation NSDashWindow
+- (BOOL)performKeyEquivalent:(NSEvent *)event {
+  if ((event.modifierFlags & NSEventModifierFlagCommand) &&
+      [[event charactersIgnoringModifiers] isEqualToString:@"w"]) {
+    [self performClose:nil];
+    return YES;
+  }
+  return [super performKeyEquivalent:event];
+}
+@end
+
 // openDashWindow creates (or re-focuses) the dashboard window and loads url.
 void openDashWindow(const char *curl) {
   NSString *urlStr = [NSString stringWithUTF8String:curl];
@@ -32,7 +50,7 @@ void openDashWindow(const char *curl) {
       // (transparent) title bar gives a real draggable strip with traffic lights.
       NSUInteger mask = NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
                         NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable;
-      gDash = [[NSWindow alloc] initWithContentRect:frame
+      gDash = [[NSDashWindow alloc] initWithContentRect:frame
                                           styleMask:mask
                                             backing:NSBackingStoreBuffered
                                               defer:NO];
