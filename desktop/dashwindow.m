@@ -22,6 +22,9 @@ static id gDashKeyMonitor = nil;
     [NSEvent removeMonitor:gDashKeyMonitor];
     gDashKeyMonitor = nil;
   }
+  // Blank the web view so its live SSE stream stops and the WKWebView content
+  // process is freed while the dashboard is closed (reopening reloads the URL).
+  [gDashWeb loadHTMLString:@"" baseURL:nil];
 }
 @end
 

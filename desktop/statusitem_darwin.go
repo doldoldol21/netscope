@@ -45,5 +45,10 @@ func statusItemClickedGo() {
 func popoverDidHideGo() {
 	winMu.Lock()
 	winVisible = false
+	ctx := appCtx
 	winMu.Unlock()
+	// Click-away dismiss: stop the live stream too. This runs on the Cocoa main
+	// thread (the resign-key observer), so hop off it before calling the Wails
+	// runtime, which must not run on the main thread.
+	go setPanelLive(ctx, false)
 }

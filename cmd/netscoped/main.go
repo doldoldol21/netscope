@@ -63,7 +63,9 @@ func run(iface, pcapFile string, demoMode bool, sock, dbPath string, noStore boo
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	dns := dnscache.New(time.Hour, 50000)
+	// 20k IP→host entries is ample for a personal machine and bounds the
+	// daemon's idle footprint (entries also expire after the TTL).
+	dns := dnscache.New(time.Hour, 20000)
 	rev := revdns.New(dns, 4) // reverse-DNS fallback for unresolved IPs
 	res := resolver.New(300 * time.Millisecond)
 

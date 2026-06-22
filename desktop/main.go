@@ -76,6 +76,11 @@ func main() {
 			Assets:  webui.FS(),
 			Handler: proxy,
 		},
+		OnDomReady: func(ctx context.Context) {
+			// The popover loads hidden at startup; pause its live stream until the
+			// user actually opens it (a show toggles it back on).
+			setPanelLive(ctx, false)
+		},
 		OnStartup: func(ctx context.Context) {
 			// Publish appCtx under winMu before installing the status item, so the
 			// click callback (which reads appCtx under winMu) can't race the write.
@@ -161,6 +166,7 @@ func onStatusItemClick() {
 		return
 	}
 	if winVisible {
+		setPanelLive(appCtx, false) // stop the live stream while hidden
 		wruntime.WindowHide(appCtx)
 		winVisible = false
 		return
@@ -170,8 +176,24 @@ func onStatusItemClick() {
 	// under the status item on whichever monitor the menu bar is on.
 	positionPopover(popoverWidth, popoverHeight)
 	wruntime.WindowShow(appCtx)
-	focusPopover() // make it key so clicking away dismisses it
+	focusPopover()             // make it key so clicking away dismisses it
+	setPanelLive(appCtx, true) // resume live updates now that it's visible
 	winVisible = true
+}
+
+// setPanelLive turns the popover's live SSE stream + today's-total polling on or
+// off via the JS hook, so a hidden popover doesn't keep the daemon streaming.
+// Uses ExecJS (reliable even on a hidden webview); the guard tolerates the JS
+// hook not being defined yet. Callers already run off the Cocoa main thread.
+func setPanelLive(ctx context.Context, on bool) {
+	if ctx == nil {
+		return
+	}
+	arg := "false"
+	if on {
+		arg = "true"
+	}
+	wruntime.WindowExecJS(ctx, "window.nsLive&&window.nsLive("+arg+")")
 }
 
 func envOr(key, def string) string {

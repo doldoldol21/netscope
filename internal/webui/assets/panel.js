@@ -78,12 +78,34 @@ async function loadToday() {
   } catch (_) { /* daemon not ready */ }
 }
 
-let es = null;
+// Live updates run only while the popover is visible. Go calls window.nsLive
+// on show/hide so a hidden popover doesn't keep the daemon streaming a snapshot
+// every second (wasted CPU/battery). wantLive gates reconnects so an error
+// while paused doesn't silently re-open the stream.
+let es = null, todayTimer = null, wantLive = false;
 function connect() {
+  if (es) return;
   es = new EventSource("/api/live");
   es.onmessage = (e) => { try { render(JSON.parse(e.data)); } catch (_) {} };
-  es.onerror = () => { setDisconnected(); es.close(); setTimeout(connect, 2000); };
+  es.onerror = () => {
+    setDisconnected();
+    if (es) { es.close(); es = null; }
+    if (wantLive) setTimeout(() => { if (wantLive) connect(); }, 2000);
+  };
 }
+function disconnect() { if (es) { es.close(); es = null; } }
+// nsLive(true|false): start/stop the live stream + today's-total polling.
+window.nsLive = (on) => {
+  wantLive = !!on;
+  if (on) {
+    connect();
+    loadToday();
+    if (!todayTimer) todayTimer = setInterval(loadToday, 15000);
+  } else {
+    disconnect();
+    if (todayTimer) { clearInterval(todayTimer); todayTimer = null; }
+  }
+};
 
 // ---- actions (Wails runtime) ----
 const rt = () => window.runtime || {};
@@ -175,8 +197,8 @@ window.addEventListener("DOMContentLoaded", () => {
   }
 });
 
-connect();
-loadToday();
-setInterval(loadToday, 15000);
+// Start live by default; Go pauses it via nsLive(false) once the hidden
+// popover's DOM is ready, and toggles it on show/hide thereafter.
+window.nsLive(true);
 drawSpark();
 window.addEventListener("resize", drawSpark);
