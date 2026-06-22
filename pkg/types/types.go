@@ -81,6 +81,14 @@ type DomainStat struct {
 // Total returns rx+tx.
 func (d DomainStat) Total() uint64 { return d.RxBytes + d.TxBytes }
 
+// NetIface describes a capturable network interface for the settings UI.
+type NetIface struct {
+	Name    string `json:"name"`    // e.g. "en0"
+	Display string `json:"display"` // e.g. "en0 (192.168.0.5)"
+	Up      bool   `json:"up"`
+	Active  bool   `json:"active"` // currently being captured
+}
+
 // TimePoint is one bucket of a time-series response.
 type TimePoint struct {
 	Time    time.Time `json:"time"`

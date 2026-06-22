@@ -22,7 +22,9 @@ func OpenLive(iface string, dns *dnscache.Cache) (*Source, error) { return nil, 
 
 // NewLiveSupervisor returns a non-functional placeholder on unsupported
 // platforms; its Run reports the unsupported error like the other stubs.
-func NewLiveSupervisor(iface string, dns *dnscache.Cache) *Source { return &Source{name: iface} }
+func NewLiveSupervisor(iface string, dns *dnscache.Cache, prefPath string) *Source {
+	return &Source{name: iface}
+}
 
 func OpenOffline(path string, localIPs []string, dns *dnscache.Cache) (*Source, error) {
 	return nil, errUnsupported
@@ -31,6 +33,11 @@ func OpenOffline(path string, localIPs []string, dns *dnscache.Cache) (*Source, 
 func (s *Source) Name() string { return s.name }
 
 func (s *Source) Run(ctx context.Context, out chan<- types.Flow) error { return errUnsupported }
+
+// Capturer stubs so the live source satisfies api.Capturer on all platforms.
+func (s *Source) ListInterfaces() []types.NetIface      { return nil }
+func (s *Source) PreferredInterface() string            { return "" }
+func (s *Source) SetPreferredInterface(name string) error { return errUnsupported }
 
 // LocalIPs returns no addresses on unsupported platforms.
 func LocalIPs() []string { return nil }

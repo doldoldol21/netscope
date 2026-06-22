@@ -127,10 +127,27 @@ type Engine struct {
 	snapMu   sync.RWMutex
 	snapshot types.Snapshot
 
+	ifaceMu sync.Mutex
+	iface   string // capture interface, updatable as the supervisor re-opens
+
 	rateRx, rateTx uint64
 	rateAt         time.Time
 
 	nowFn func() time.Time
+}
+
+// SetInterface updates the capture-interface name surfaced in snapshots (the
+// supervisor calls this when it (re)opens on a different interface).
+func (e *Engine) SetInterface(name string) {
+	e.ifaceMu.Lock()
+	e.iface = name
+	e.ifaceMu.Unlock()
+}
+
+func (e *Engine) currentIface() string {
+	e.ifaceMu.Lock()
+	defer e.ifaceMu.Unlock()
+	return e.iface
 }
 
 // New constructs an Engine. res may be nil (everything attributes to "unknown");
@@ -148,6 +165,7 @@ func New(cfg Config, res Resolver, dns *dnscache.Cache, store *storage.Store) *E
 		sessApps:    make(map[string]*appAcc),
 		sessDomains: make(map[domKey]*domAcc),
 		nowFn:       time.Now,
+		iface:       cfg.Interface,
 	}
 	e.sessStart = now
 	return e
@@ -389,7 +407,7 @@ func (e *Engine) updateSnapshot() {
 		RxPerSec:     rxps,
 		TxPerSec:     txps,
 		ActiveApps:   active,
-		Interface:    e.cfg.Interface,
+		Interface:    e.currentIface(),
 	}
 	e.snapMu.Lock()
 	e.snapshot = snap

@@ -18,16 +18,25 @@ import (
 	"github.com/doldoldol21/netscope/pkg/types"
 )
 
+// Capturer lets the API list and switch the capture interface. Implemented by
+// the live capture supervisor; nil for demo/offline sources (which can't switch).
+type Capturer interface {
+	ListInterfaces() []types.NetIface
+	PreferredInterface() string // "" means auto-detect
+	SetPreferredInterface(name string) error
+}
+
 // Server wires the engine (live), store (history) and update checker to HTTP.
 type Server struct {
 	eng     *engine.Engine
 	store   *storage.Store
 	updater *update.Checker
+	cap     Capturer
 }
 
-// NewServer builds a Server. store and updater may be nil.
-func NewServer(eng *engine.Engine, store *storage.Store, updater *update.Checker) *Server {
-	return &Server{eng: eng, store: store, updater: updater}
+// NewServer builds a Server. store, updater and capturer may be nil.
+func NewServer(eng *engine.Engine, store *storage.Store, updater *update.Checker, capturer Capturer) *Server {
+	return &Server{eng: eng, store: store, updater: updater, cap: capturer}
 }
 
 // Handler returns the API handler. netscope is app-only: the dashboard UI is
@@ -43,7 +52,43 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/summary", s.handleSummary)
 	mux.HandleFunc("/api/version", s.handleVersion)
 	mux.HandleFunc("/api/health", s.handleHealth)
+	mux.HandleFunc("/api/interfaces", s.handleInterfaces)
 	return mux
+}
+
+// handleInterfaces lists capturable interfaces (GET) and switches the capture
+// interface (POST {"name":"en0"}; empty name = auto-detect). When the source
+// can't switch (demo/offline), GET returns just the current capture interface.
+func (s *Server) handleInterfaces(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost {
+		if s.cap == nil {
+			http.Error(w, "interface switching not supported by this source", http.StatusNotImplemented)
+			return
+		}
+		var body struct {
+			Name string `json:"name"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+		if err := s.cap.SetPreferredInterface(body.Name); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	resp := map[string]any{
+		"current":  s.eng.Snapshot().Interface, // interface actually being captured
+		"selected": "",                         // user's preference ("" = auto)
+		"options":  []types.NetIface{},
+	}
+	if s.cap != nil {
+		resp["selected"] = s.cap.PreferredInterface()
+		resp["options"] = s.cap.ListInterfaces()
+	}
+	writeJSON(w, resp)
 }
 
 // handleVersion reports the running version and any available update.

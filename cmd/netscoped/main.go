@@ -89,6 +89,7 @@ func run(iface, pcapFile string, demoMode bool, sock, dbPath string, noStore boo
 	// resolver), unlike pcap replay where apps show as "unknown".
 	var src flowSource
 	var eres engine.Resolver = res
+	var capturer api.Capturer // non-nil only for the live supervisor (can switch ifaces)
 	var err error
 	switch {
 	case demoMode:
@@ -100,7 +101,14 @@ func run(iface, pcapFile string, demoMode bool, sock, dbPath string, noStore boo
 	default:
 		// A supervised live source: tracks the default-route interface and
 		// re-opens capture across network changes (Wi-Fi↔Ethernet, VPN, unplug).
-		src = capture.NewLiveSupervisor(iface, dns)
+		// Persist the user's interface choice next to the DB so it survives restarts.
+		ifacePref := ""
+		if dbPath != "" {
+			ifacePref = filepath.Join(filepath.Dir(dbPath), "iface")
+		}
+		sup := capture.NewLiveSupervisor(iface, dns, ifacePref)
+		src = sup
+		capturer = sup
 	}
 	if err != nil {
 		return err
@@ -116,6 +124,12 @@ func run(iface, pcapFile string, demoMode bool, sock, dbPath string, noStore boo
 		SelfPID:        os.Getpid(),
 		Hinter:         rev,
 	}, eres, dns, store)
+
+	// Keep snapshot's interface name in sync as the live supervisor re-opens.
+	// Structural check so this compiles on platforms without the supervisor.
+	if n, ok := src.(interface{ SetOnInterface(func(string)) }); ok {
+		n.SetOnInterface(eng.SetInterface)
+	}
 
 	flows := make(chan types.Flow, 4096)
 
@@ -153,7 +167,7 @@ func run(iface, pcapFile string, demoMode bool, sock, dbPath string, noStore boo
 	if err != nil {
 		return fmt.Errorf("listen on %s: %w", sock, err)
 	}
-	srv := &http.Server{Handler: api.NewServer(eng, store, updater).Handler()}
+	srv := &http.Server{Handler: api.NewServer(eng, store, updater, capturer).Handler()}
 	go func() {
 		<-ctx.Done()
 		shutCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)

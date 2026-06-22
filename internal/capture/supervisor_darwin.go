@@ -5,6 +5,9 @@ package capture
 import (
 	"context"
 	"log"
+	"net"
+	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -23,25 +26,45 @@ const ifaceWatchInterval = 5 * time.Second
 // the new interface, feeding the same flow channel throughout, so data keeps
 // flowing without restarting the daemon.
 type LiveSupervisor struct {
-	pref string // user-requested interface; "" means auto-detect
-	dns  *dnscache.Cache
+	dns      *dnscache.Cache
+	prefPath string // file persisting the user's interface choice ("" = none)
 
-	mu     sync.Mutex
-	active string
+	mu       sync.Mutex
+	pref     string             // user-requested interface; "" means auto-detect
+	active   string             // interface currently being captured
+	cancel   context.CancelFunc // cancels the running source to force a re-open
+	onActive func(string)       // notified when the active interface (re)opens
+}
+
+// SetOnInterface registers a callback invoked with the active interface name
+// whenever capture (re)opens — lets the engine keep snapshots in sync.
+func (ls *LiveSupervisor) SetOnInterface(fn func(string)) {
+	ls.mu.Lock()
+	ls.onActive = fn
+	ls.mu.Unlock()
 }
 
 // NewLiveSupervisor returns a supervised live source. iface pins capture to a
 // specific interface; empty auto-detects the default-route interface and tracks
-// it across network changes.
-func NewLiveSupervisor(iface string, dns *dnscache.Cache) *LiveSupervisor {
-	ls := &LiveSupervisor{pref: iface, dns: dns}
+// it across network changes. prefPath (optional) persists a runtime interface
+// choice so it survives daemon restarts; a saved choice overrides an empty iface.
+func NewLiveSupervisor(iface string, dns *dnscache.Cache, prefPath string) *LiveSupervisor {
+	ls := &LiveSupervisor{dns: dns, prefPath: prefPath, pref: iface}
+	if iface == "" {
+		if saved := ls.loadPref(); saved != "" {
+			ls.pref = saved
+		}
+	}
 	ls.active, _ = ls.resolve()
 	return ls
 }
 
 func (ls *LiveSupervisor) resolve() (string, error) {
-	if ls.pref != "" {
-		return ls.pref, nil
+	ls.mu.Lock()
+	p := ls.pref
+	ls.mu.Unlock()
+	if p != "" {
+		return p, nil
 	}
 	return defaultInterface()
 }
@@ -49,7 +72,11 @@ func (ls *LiveSupervisor) resolve() (string, error) {
 func (ls *LiveSupervisor) setActive(name string) {
 	ls.mu.Lock()
 	ls.active = name
+	fn := ls.onActive
 	ls.mu.Unlock()
+	if fn != nil {
+		fn(name)
+	}
 }
 
 // Name returns the interface currently being captured (or last selected).
@@ -91,13 +118,20 @@ func (ls *LiveSupervisor) Run(ctx context.Context, out chan<- types.Flow) error 
 		log.Printf("capture: live on %s", iface)
 
 		runCtx, cancel := context.WithCancel(ctx)
+		ls.mu.Lock()
+		ls.cancel = cancel // SetPreferred cancels this to switch interfaces now
+		auto := ls.pref == ""
+		ls.mu.Unlock()
 		// In auto mode, watch for the default route moving to another interface
 		// and cancel this source so the loop re-opens on the new one.
-		if ls.pref == "" {
+		if auto {
 			go ls.watch(runCtx, iface, cancel)
 		}
 		err = src.Run(runCtx, out)
 		cancel()
+		ls.mu.Lock()
+		ls.cancel = nil
+		ls.mu.Unlock()
 
 		if ctx.Err() != nil {
 			return ctx.Err()
@@ -131,6 +165,96 @@ func (ls *LiveSupervisor) watch(ctx context.Context, current string, cancel cont
 			}
 		}
 	}
+}
+
+// PreferredInterface returns the user's chosen interface ("" = auto-detect).
+func (ls *LiveSupervisor) PreferredInterface() string {
+	ls.mu.Lock()
+	defer ls.mu.Unlock()
+	return ls.pref
+}
+
+// SetPreferredInterface switches the capture interface at runtime (""=auto),
+// persists the choice, and re-opens capture on it immediately.
+func (ls *LiveSupervisor) SetPreferredInterface(name string) error {
+	ls.mu.Lock()
+	ls.pref = name
+	c := ls.cancel
+	ls.mu.Unlock()
+	ls.savePref(name)
+	log.Printf("capture: interface preference set to %q", name)
+	if c != nil {
+		c() // drop the current source; the Run loop re-opens on the new interface
+	}
+	return nil
+}
+
+// ListInterfaces returns the capturable interfaces, marking the active one.
+func (ls *LiveSupervisor) ListInterfaces() []types.NetIface {
+	out := Interfaces()
+	active := ls.Name()
+	for i := range out {
+		out[i].Active = out[i].Name == active
+	}
+	return out
+}
+
+func (ls *LiveSupervisor) loadPref() string {
+	if ls.prefPath == "" {
+		return ""
+	}
+	b, err := os.ReadFile(ls.prefPath)
+	if err != nil {
+		return ""
+	}
+	s := strings.TrimSpace(string(b))
+	if s == "auto" {
+		return ""
+	}
+	return s
+}
+
+func (ls *LiveSupervisor) savePref(name string) {
+	if ls.prefPath == "" {
+		return
+	}
+	v := name
+	if v == "" {
+		v = "auto"
+	}
+	_ = os.WriteFile(ls.prefPath, []byte(v+"\n"), 0o644)
+}
+
+// Interfaces lists non-loopback interfaces that have a global unicast address
+// (the ones worth capturing on), for the settings UI.
+func Interfaces() []types.NetIface {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return nil
+	}
+	var out []types.NetIface
+	for _, ifi := range ifaces {
+		if ifi.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		addrs, _ := ifi.Addrs()
+		ip := ""
+		for _, a := range addrs {
+			if n, ok := a.(*net.IPNet); ok && n.IP.IsGlobalUnicast() {
+				ip = n.IP.String()
+				break
+			}
+		}
+		if ip == "" {
+			continue // skip interfaces with no usable address
+		}
+		out = append(out, types.NetIface{
+			Name:    ifi.Name,
+			Display: ifi.Name + " (" + ip + ")",
+			Up:      ifi.Flags&net.FlagUp != 0,
+		})
+	}
+	return out
 }
 
 // sleep waits for d or until ctx is cancelled. It returns false if ctx ended.

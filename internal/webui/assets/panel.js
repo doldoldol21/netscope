@@ -128,8 +128,33 @@ function openSettings() {
     r.EventsEmit("netscope:getupdate");  // Go replies on "netscope:update"
     r.EventsEmit("netscope:getmenubar"); // Go replies on "netscope:menubar"
   }
+  loadInterfaces(); // capture interface list (over the daemon API)
   $("settings").classList.add("show");
 }
+
+// ---- capture interface (daemon API over the socket proxy) ----
+async function loadInterfaces() {
+  try {
+    const res = await fetch("/api/interfaces");
+    if (!res.ok) return;
+    const d = await res.json();
+    const sel = $("set-iface");
+    const opts = ['<option value="">Automatic</option>'].concat(
+      (d.options || []).map((o) =>
+        `<option value="${esc(o.name)}">${esc(o.display)}${o.active ? " • active" : ""}</option>`));
+    sel.innerHTML = opts.join("");
+    sel.value = d.selected || "";
+  } catch (_) { /* daemon not ready */ }
+}
+$("set-iface").onchange = async (e) => {
+  try {
+    await fetch("/api/interfaces", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: e.currentTarget.value }),
+    });
+  } catch (_) { /* ignore */ }
+  setTimeout(loadInterfaces, 900); // refresh the "• active" marker after re-open
+};
 
 // ---- menu-bar readout style ----
 function fillMenuBar(cfg) {
