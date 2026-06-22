@@ -122,9 +122,22 @@ func LocalIPs() []string {
 	return ips
 }
 
-// defaultInterface picks the interface backing the host's default route by
-// finding the first up, non-loopback interface with a global unicast address.
+// defaultInterface picks the interface backing the host's default route.
+//
+// It asks the kernel which source address it would use for an outbound
+// connection (a UDP "dial" selects a route without sending any packet) and
+// maps that address back to its interface. This follows the real default
+// route, unlike scanning net.Interfaces() in index order — which can pick an
+// inactive interface (e.g. a stale en7) over the active one (en0).
 func defaultInterface() (string, error) {
+	if conn, err := net.Dial("udp", "8.8.8.8:53"); err == nil {
+		local := conn.LocalAddr().(*net.UDPAddr).IP
+		conn.Close()
+		if name := interfaceForIP(local); name != "" {
+			return name, nil
+		}
+	}
+	// Fallback: first up, non-loopback interface with a global unicast address.
 	ifaces, err := net.Interfaces()
 	if err != nil {
 		return "", err
@@ -141,4 +154,21 @@ func defaultInterface() (string, error) {
 		}
 	}
 	return "", fmt.Errorf("no suitable network interface found")
+}
+
+// interfaceForIP returns the name of the interface that owns ip, or "".
+func interfaceForIP(ip net.IP) string {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return ""
+	}
+	for _, ifi := range ifaces {
+		addrs, _ := ifi.Addrs()
+		for _, a := range addrs {
+			if ipnet, ok := a.(*net.IPNet); ok && ipnet.IP.Equal(ip) {
+				return ifi.Name
+			}
+		}
+	}
+	return ""
 }

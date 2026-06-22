@@ -20,6 +20,10 @@ type Source struct{ name string }
 
 func OpenLive(iface string, dns *dnscache.Cache) (*Source, error) { return nil, errUnsupported }
 
+// NewLiveSupervisor returns a non-functional placeholder on unsupported
+// platforms; its Run reports the unsupported error like the other stubs.
+func NewLiveSupervisor(iface string, dns *dnscache.Cache) *Source { return &Source{name: iface} }
+
 func OpenOffline(path string, localIPs []string, dns *dnscache.Cache) (*Source, error) {
 	return nil, errUnsupported
 }

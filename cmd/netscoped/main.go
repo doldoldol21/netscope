@@ -95,7 +95,9 @@ func run(iface, pcapFile string, demoMode bool, sock, dbPath string, noStore boo
 	case pcapFile != "":
 		src, err = capture.OpenOffline(pcapFile, capture.LocalIPs(), dns)
 	default:
-		src, err = capture.OpenLive(iface, dns)
+		// A supervised live source: tracks the default-route interface and
+		// re-opens capture across network changes (Wi-Fi↔Ethernet, VPN, unplug).
+		src = capture.NewLiveSupervisor(iface, dns)
 	}
 	if err != nil {
 		return err
