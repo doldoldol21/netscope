@@ -59,27 +59,22 @@
     </div>
 
     <div class="set-body">
-      <div class="set-sub">Usage alerts</div>
-      <p class="set-hint">Notify me when today's traffic crosses a limit. Leave 0 to turn off.</p>
-      <label class="set-row">
-        <span class="set-lbl">Daily total</span>
-        <span class="set-inp"><input type="number" id="set-daily" min="0" step="0.5" placeholder="0" /><em>GB</em></span>
-      </label>
-      <label class="set-row">
-        <span class="set-lbl">Any one app</span>
-        <span class="set-inp"><input type="number" id="set-app" min="0" step="0.5" placeholder="0" /><em>GB</em></span>
-      </label>
+      <div class="set-sub">Alerts</div>
+      <p class="set-hint">Notify when today's usage crosses a daily limit, in GB. 0 = off.
+        Upload-only watches data leaving your Mac (backups, cloud sync).</p>
+      <div class="alert-grid">
+        <span></span>
+        <span class="ag-head">↓↑ Total<small>GB</small></span>
+        <span class="ag-head up">↑ Upload<small>GB</small></span>
 
-      <div class="set-sub">Upload watch</div>
-      <p class="set-hint">Uploads are data leaving your Mac. Notify on heavy uploads — backups, cloud sync. Leave 0 to turn off.</p>
-      <label class="set-row">
-        <span class="set-lbl">Daily upload</span>
-        <span class="set-inp"><input type="number" id="set-up-daily" min="0" step="0.5" placeholder="0" /><em>GB</em></span>
-      </label>
-      <label class="set-row">
-        <span class="set-lbl">Any one app</span>
-        <span class="set-inp"><input type="number" id="set-up-app" min="0" step="0.5" placeholder="0" /><em>GB</em></span>
-      </label>
+        <span class="set-lbl">All apps</span>
+        <input type="number" id="set-daily" min="0" step="0.5" placeholder="0" />
+        <input type="number" id="set-up-daily" min="0" step="0.5" placeholder="0" />
+
+        <span class="set-lbl">One app</span>
+        <input type="number" id="set-app" min="0" step="0.5" placeholder="0" />
+        <input type="number" id="set-up-app" min="0" step="0.5" placeholder="0" />
+      </div>
 
       <div class="set-sub">Menu bar</div>
       <label class="set-row">

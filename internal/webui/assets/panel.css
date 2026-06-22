@@ -120,6 +120,22 @@ button { font-family: var(--sans); font-size: 12.5px; border-radius: 9px; cursor
   color: var(--muted); margin: 8px 0 0; padding-top: 9px; border-top: 1px solid var(--line-soft); }
 .set-sub:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
 .set-sub:first-of-type { margin-top: 0; }
+/* alerts matrix: rows = scope (all apps / one app), columns = total / upload */
+.alert-grid { display: grid; grid-template-columns: 1fr 70px 70px; gap: 8px 8px; align-items: center; }
+.ag-head { font-size: 10px; font-weight: 600; color: var(--muted); text-align: right;
+  text-transform: uppercase; letter-spacing: .3px; }
+.ag-head small { font-size: 9px; font-weight: 500; opacity: .7; margin-left: 4px; }
+.ag-head.up { color: var(--tx); }
+.alert-grid input {
+  width: 100%; text-align: right; font: 600 13px var(--mono); color: var(--fg);
+  background: var(--bg2); border: 1px solid var(--line); border-radius: 8px;
+  padding: 7px 9px; font-variant-numeric: tabular-nums;
+}
+.alert-grid input:focus { outline: none; border-color: var(--accent); }
+/* no spinner arrows on the GB number inputs */
+.alert-grid input::-webkit-inner-spin-button,
+.alert-grid input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+.alert-grid input { -moz-appearance: textfield; }
 
 /* menu-bar style selector — reset the native chrome and draw our own chevron */
 .set-sel {
