@@ -16,7 +16,7 @@ import (
 // against the set of local interface addresses and feeding observed DNS
 // answers into the supplied cache.
 type Decoder struct {
-	localIPs map[string]bool
+	localIPs map[[16]byte]bool // keyed by canonical 16-byte form (alloc-free lookups)
 	dns      *dnscache.Cache
 }
 
@@ -24,28 +24,50 @@ type Decoder struct {
 // this host (used to decide upload vs download); dns may be nil to skip DNS
 // learning.
 func NewDecoder(localIPs []string, dns *dnscache.Cache) *Decoder {
-	set := make(map[string]bool, len(localIPs))
-	for _, ip := range localIPs {
-		set[ip] = true
+	set := make(map[[16]byte]bool, len(localIPs))
+	for _, s := range localIPs {
+		if ip := net.ParseIP(s); ip != nil {
+			if k, ok := ipKey(ip); ok {
+				set[k] = true
+			}
+		}
 	}
 	return &Decoder{localIPs: set, dns: dns}
+}
+
+// ipKey returns a canonical fixed-size key for an IP without heap allocation, so
+// per-packet membership checks don't allocate (unlike net.IP.String()).
+func ipKey(ip net.IP) ([16]byte, bool) {
+	var k [16]byte
+	if v4 := ip.To4(); v4 != nil { // To4 returns a sub-slice, no allocation
+		k[10], k[11] = 0xff, 0xff
+		copy(k[12:], v4)
+		return k, true
+	}
+	if len(ip) == net.IPv6len {
+		copy(k[:], ip)
+		return k, true
+	}
+	return k, false
 }
 
 // Decode reduces a packet to a Flow. The bool is false when the packet is not
 // an attributable IP/TCP/UDP packet (e.g. ARP, loopback chatter) or when it is
 // purely intra-host traffic we choose to ignore.
 func (d *Decoder) Decode(pkt gopacket.Packet) (types.Flow, bool) {
-	net := pkt.NetworkLayer()
-	if net == nil {
+	nl := pkt.NetworkLayer()
+	if nl == nil {
 		return types.Flow{}, false
 	}
 
-	var srcIP, dstIP string
-	switch n := net.(type) {
+	// Keep the IPs as raw bytes; only the kept flow's remote IP is stringified
+	// (once, below) — the per-packet hot path must not allocate.
+	var srcIP, dstIP net.IP
+	switch n := nl.(type) {
 	case *layers.IPv4:
-		srcIP, dstIP = n.SrcIP.String(), n.DstIP.String()
+		srcIP, dstIP = n.SrcIP, n.DstIP
 	case *layers.IPv6:
-		srcIP, dstIP = n.SrcIP.String(), n.DstIP.String()
+		srcIP, dstIP = n.SrcIP, n.DstIP
 	default:
 		return types.Flow{}, false
 	}
@@ -79,7 +101,7 @@ func (d *Decoder) Decode(pkt gopacket.Packet) (types.Flow, bool) {
 		Proto:      proto,
 		Direction:  dir,
 		LocalPort:  localPort,
-		RemoteIP:   remoteIP,
+		RemoteIP:   remoteIP.String(), // the one string allocation, kept packets only
 		RemotePort: remotePort,
 		Bytes:      wireBytes(pkt),
 	}
@@ -91,14 +113,14 @@ func (d *Decoder) Decode(pkt gopacket.Packet) (types.Flow, bool) {
 
 // direction figures out which endpoint is local and reports the flow direction
 // and the normalised local/remote ports. ok is false for intra-host traffic.
-func (d *Decoder) direction(srcIP, dstIP string, sport, dport uint16) (types.Direction, uint16, string, uint16, bool) {
+func (d *Decoder) direction(srcIP, dstIP net.IP, sport, dport uint16) (types.Direction, uint16, net.IP, uint16, bool) {
 	srcLocal := d.isLocal(srcIP)
 	dstLocal := d.isLocal(dstIP)
 
 	switch {
 	case srcLocal && dstLocal:
 		// Pure loopback / host-to-host: not interesting for bandwidth.
-		return "", 0, "", 0, false
+		return "", 0, nil, 0, false
 	case srcLocal:
 		return types.DirOut, sport, dstIP, dport, true
 	case dstLocal:
@@ -113,12 +135,13 @@ func (d *Decoder) direction(srcIP, dstIP string, sport, dport uint16) (types.Dir
 		if isPrivate(dstIP) && !isPrivate(srcIP) {
 			return types.DirIn, dport, srcIP, sport, true
 		}
-		return "", 0, "", 0, false
+		return "", 0, nil, 0, false
 	}
 }
 
-func (d *Decoder) isLocal(ip string) bool {
-	return d.localIPs[ip]
+func (d *Decoder) isLocal(ip net.IP) bool {
+	k, ok := ipKey(ip)
+	return ok && d.localIPs[k]
 }
 
 func (d *Decoder) recordDNS(dns *layers.DNS) {
@@ -161,10 +184,6 @@ func wireBytes(pkt gopacket.Packet) uint64 {
 }
 
 // isPrivate reports whether ip is in an RFC1918 / link-local / loopback range.
-func isPrivate(ip string) bool {
-	parsed := net.ParseIP(ip)
-	if parsed == nil {
-		return false
-	}
-	return parsed.IsPrivate() || parsed.IsLoopback() || parsed.IsLinkLocalUnicast()
+func isPrivate(ip net.IP) bool {
+	return ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast()
 }
