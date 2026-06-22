@@ -115,6 +115,11 @@ button { font-family: var(--sans); font-size: 12.5px; border-radius: 9px; cursor
   color: var(--muted); margin: 4px 0 -2px; }
 .set-sub:first-of-type { margin-top: 0; }
 
+/* menu-bar style selector */
+.set-sel { font: 12px var(--sans); color: var(--fg); background: var(--bg2);
+  border: 1px solid var(--line); border-radius: 8px; padding: 5px 8px; max-width: 190px; }
+.set-sel:focus { outline: none; border-color: var(--accent); }
+
 /* updates: checkbox, status line, check-now / update buttons */
 .set-chk { width: 16px; height: 16px; accent-color: var(--accent); cursor: pointer; }
 .upd-status { font-size: 12px; color: var(--dim); }

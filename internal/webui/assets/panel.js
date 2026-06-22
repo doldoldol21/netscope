@@ -124,11 +124,25 @@ const bytesToGb = (n) => { n = Number(n) || 0; return n > 0 ? +(n / GB).toFixed(
 function openSettings() {
   const r = rt();
   if (r.EventsEmit) {
-    r.EventsEmit("netscope:getalerts"); // Go replies on "netscope:alerts"
-    r.EventsEmit("netscope:getupdate"); // Go replies on "netscope:update"
+    r.EventsEmit("netscope:getalerts");  // Go replies on "netscope:alerts"
+    r.EventsEmit("netscope:getupdate");  // Go replies on "netscope:update"
+    r.EventsEmit("netscope:getmenubar"); // Go replies on "netscope:menubar"
   }
   $("settings").hidden = false;
 }
+
+// ---- menu-bar readout style ----
+function fillMenuBar(cfg) {
+  cfg = cfg || {};
+  const sel = $("set-menubar");
+  sel.innerHTML = (cfg.options || [])
+    .map((o) => `<option value="${esc(o.id)}">${esc(o.label)}</option>`).join("");
+  if (cfg.current) sel.value = cfg.current;
+}
+$("set-menubar").onchange = (e) => {
+  const r = rt();
+  if (r.EventsEmit) r.EventsEmit("netscope:setmenubar", e.currentTarget.value);
+};
 function fillSettings(cfg) {
   cfg = cfg || {};
   $("set-daily").value = bytesToGb(cfg.dailyTotalBytes) || "";
@@ -185,6 +199,7 @@ window.addEventListener("DOMContentLoaded", () => {
   if (window.runtime && window.runtime.EventsOn) {
     window.runtime.EventsOn("netscope:show", () => { /* already on panel */ });
     window.runtime.EventsOn("netscope:alerts", (cfg) => fillSettings(cfg));
+    window.runtime.EventsOn("netscope:menubar", (cfg) => fillMenuBar(cfg));
     window.runtime.EventsOn("netscope:update", (st) => renderUpdate(st));
     window.runtime.EventsOn("netscope:updateerror", () => {
       $("upd-status").textContent = "Update failed — try again";

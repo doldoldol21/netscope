@@ -105,6 +105,17 @@ func main() {
 			wruntime.EventsOn(ctx, "netscope:setalerts", func(data ...interface{}) {
 				setAlertsFromEvent(data...)
 			})
+			// Menu-bar readout style, chosen in the popover settings.
+			wruntime.EventsOn(ctx, "netscope:getmenubar", func(...interface{}) {
+				wruntime.EventsEmit(ctx, "netscope:menubar", menuBarStylesJSON())
+			})
+			wruntime.EventsOn(ctx, "netscope:setmenubar", func(data ...interface{}) {
+				if len(data) > 0 {
+					if id, ok := data[0].(string); ok {
+						setMenuBarStyle(id)
+					}
+				}
+			})
 			// Software-update controls, surfaced in the popover.
 			wruntime.EventsOn(ctx, "netscope:getupdate", func(...interface{}) {
 				wruntime.EventsEmit(ctx, "netscope:update", updateStatusJSON())
