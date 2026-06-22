@@ -13,6 +13,7 @@ package main
 
 import (
 	"context"
+	"encoding/csv"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -21,6 +22,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -42,8 +44,11 @@ func main() {
 	fs := flag.NewFlagSet("netscope", flag.ExitOnError)
 	sock := fs.String("sock", ipc.DefaultSocketPath(), "netscoped unix socket path")
 	rng := fs.String("range", "today", "time range for rankings: hour|today|day|week")
+	format := fs.String("format", "csv", "export format: csv|json")
+	typ := fs.String("type", "apps", "export data: apps|domains")
 	fs.Usage = func() {
-		fmt.Fprint(os.Stderr, "usage: netscope [top|apps|domains|open] [--sock path] [--range hour|today|day|week]\n")
+		fmt.Fprint(os.Stderr, "usage: netscope [top|apps|domains|export|open] [--sock path] [--range hour|today|day|week]\n"+
+			"       netscope export [--type apps|domains] [--format csv|json] [--range ...] > out.csv\n")
 	}
 	_ = fs.Parse(args)
 
@@ -57,6 +62,8 @@ func main() {
 		err = ranking(base, "apps", *rng)
 	case "domains":
 		err = ranking(base, "domains", *rng)
+	case "export":
+		err = exportData(base, *typ, *rng, *format)
 	case "open":
 		err = openApp()
 	default:
@@ -74,6 +81,7 @@ func main() {
 // flag values when hunting for the positional subcommand.
 var valueFlags = map[string]bool{
 	"-sock": true, "--sock": true, "-range": true, "--range": true,
+	"-format": true, "--format": true, "-type": true, "--type": true,
 }
 
 // splitCommand separates the subcommand (first bare positional argument) from
@@ -99,6 +107,63 @@ func splitCommand(args []string) (string, []string) {
 		rest = append(rest, a)
 	}
 	return cmd, rest
+}
+
+// exportData writes per-app or per-domain totals for a range to stdout as CSV
+// or JSON, for archiving or analysis elsewhere. Redirect to a file as needed.
+func exportData(base, kind, rng, format string) error {
+	if kind != "apps" && kind != "domains" {
+		return fmt.Errorf("--type must be apps or domains, got %q", kind)
+	}
+	if format != "csv" && format != "json" {
+		return fmt.Errorf("--format must be csv or json, got %q", format)
+	}
+	url := fmt.Sprintf("%s/api/%s?range=%s", base, kind, rng)
+
+	if kind == "apps" {
+		var apps []types.AppTraffic
+		if err := getJSON(url, &apps); err != nil {
+			return err
+		}
+		sort.Slice(apps, func(i, j int) bool { return apps[i].Total() > apps[j].Total() })
+		if format == "json" {
+			return writeJSON(apps)
+		}
+		w := csv.NewWriter(os.Stdout)
+		defer w.Flush()
+		_ = w.Write([]string{"app", "path", "rx_bytes", "tx_bytes", "total_bytes", "connections"})
+		for _, a := range apps {
+			_ = w.Write([]string{a.Name, a.Path,
+				strconv.FormatUint(a.RxBytes, 10), strconv.FormatUint(a.TxBytes, 10),
+				strconv.FormatUint(a.Total(), 10), strconv.Itoa(a.Connections)})
+		}
+		return w.Error()
+	}
+
+	var doms []types.DomainStat
+	if err := getJSON(url, &doms); err != nil {
+		return err
+	}
+	sort.Slice(doms, func(i, j int) bool { return doms[i].Total() > doms[j].Total() })
+	if format == "json" {
+		return writeJSON(doms)
+	}
+	w := csv.NewWriter(os.Stdout)
+	defer w.Flush()
+	_ = w.Write([]string{"domain", "app", "category", "rx_bytes", "tx_bytes", "total_bytes"})
+	for _, d := range doms {
+		_ = w.Write([]string{d.Domain, d.AppName, d.Category,
+			strconv.FormatUint(d.RxBytes, 10), strconv.FormatUint(d.TxBytes, 10),
+			strconv.FormatUint(d.Total(), 10)})
+	}
+	return w.Error()
+}
+
+// writeJSON pretty-prints v to stdout.
+func writeJSON(v any) error {
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	return enc.Encode(v)
 }
 
 func getJSON(url string, v any) error {

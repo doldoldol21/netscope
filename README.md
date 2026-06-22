@@ -54,7 +54,8 @@ login.)
   popover's ⚙ button). Catches surprise backups and cloud-sync uploads.
 - **Dashboard** — a separate native window: throughput chart, today/week
   rankings, and per-domain breakdown with neutral categories (cloud, cdn, ai, …).
-- **CLI** — `netscope`, `netscope apps --range week`, `netscope domains` …
+- **CLI** — `netscope`, `netscope apps --range week`, `netscope domains`,
+  `netscope export … > out.csv` …
 - **Private by design** — HTTPS stays encrypted; netscope only counts *bytes per
   process* and maps IPs to domains by watching your own DNS replies.
 
@@ -182,11 +183,14 @@ socket to you so the (unprivileged) app and CLI can connect.
 bin/netscope                 # live terminal table (default: "top")
 bin/netscope apps --range week
 bin/netscope domains --range today
+bin/netscope export --type apps --range week --format csv > apps.csv
+bin/netscope export --type domains --range today --format json > domains.json
 bin/netscope open            # launch the native app
 ```
 
 `--range` is one of `hour | today | day | week`. Point at a non-default socket
-with `--sock /path/to.sock`.
+with `--sock /path/to.sock`. `export` writes per-app or per-domain totals to
+stdout as `csv` or `json` — your data, portable, in one command.
 
 ### Demo / development (no root)
 
