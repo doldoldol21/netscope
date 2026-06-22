@@ -77,7 +77,11 @@ func main() {
 			Handler: proxy,
 		},
 		OnStartup: func(ctx context.Context) {
+			// Publish appCtx under winMu before installing the status item, so the
+			// click callback (which reads appCtx under winMu) can't race the write.
+			winMu.Lock()
 			appCtx = ctx
+			winMu.Unlock()
 			installStatusItem(statusIcon())
 			enablePopoverDismiss()
 			// The panel's "Open Dashboard" button asks to open the dashboard window.

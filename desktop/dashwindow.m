@@ -9,17 +9,21 @@
 static NSWindow *gDash = nil;
 static WKWebView *gDashWeb = nil;
 static id gDashDelegate = nil;
+static id gDashKeyMonitor = nil;
 
 @interface NSDashDelegate : NSObject <NSWindowDelegate>
 @end
 @implementation NSDashDelegate
-// When the window closes, drop back to a menu-bar accessory app (no Dock icon).
+// When the window closes, drop back to a menu-bar accessory app (no Dock icon)
+// and tear down the Cmd-W monitor so it doesn't linger for the process lifetime.
 - (void)windowWillClose:(NSNotification *)n {
   [NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
+  if (gDashKeyMonitor) {
+    [NSEvent removeMonitor:gDashKeyMonitor];
+    gDashKeyMonitor = nil;
+  }
 }
 @end
-
-static id gDashKeyMonitor = nil;
 
 // openDashWindow creates (or re-focuses) the dashboard window and loads url.
 void openDashWindow(const char *curl) {
@@ -48,23 +52,6 @@ void openDashWindow(const char *curl) {
       gDashDelegate = [[NSDashDelegate alloc] init];
       gDash.delegate = gDashDelegate;
 
-      // Cmd-W to close. As a menu-bar accessory app we have no application menu,
-      // so the standard File ▸ Close item that binds Cmd-W doesn't exist, and a
-      // window performKeyEquivalent: override is intercepted by the focused
-      // WKWebView (its content process eats the key event). A local event
-      // monitor sees the key down before it reaches the responder chain, so it
-      // reliably closes the window even while the web view has focus.
-      gDashKeyMonitor = [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskKeyDown
-                         handler:^NSEvent *(NSEvent *e) {
-        if ((e.modifierFlags & NSEventModifierFlagCommand) &&
-            [[e charactersIgnoringModifiers] isEqualToString:@"w"] &&
-            e.window == gDash) {
-          [gDash performClose:nil];
-          return nil; // consume the event
-        }
-        return e;
-      }];
-
       WKWebViewConfiguration *cfg = [[WKWebViewConfiguration alloc] init];
       gDashWeb = [[WKWebView alloc] initWithFrame:frame configuration:cfg];
       gDashWeb.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
@@ -75,6 +62,26 @@ void openDashWindow(const char *curl) {
     [gDashWeb loadRequest:[NSURLRequest requestWithURL:url]];
     [gDash makeKeyAndOrderFront:nil];
     [NSApp activateIgnoringOtherApps:YES];
+
+    // Cmd-W to close. As a menu-bar accessory app we have no application menu,
+    // so the standard File ▸ Close item that binds Cmd-W doesn't exist, and a
+    // window performKeyEquivalent: override is intercepted by the focused
+    // WKWebView (its content process eats the key event). A local event monitor
+    // sees the key down before the responder chain, so it reliably closes the
+    // window even while the web view has focus. Installed per-open and removed
+    // in windowWillClose: so it never lingers eating Cmd-W app-wide.
+    if (!gDashKeyMonitor) {
+      gDashKeyMonitor = [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskKeyDown
+                         handler:^NSEvent *(NSEvent *e) {
+        if ((e.modifierFlags & NSEventModifierFlagCommand) &&
+            [[e charactersIgnoringModifiers] isEqualToString:@"w"] &&
+            e.window == gDash) {
+          [gDash performClose:nil];
+          return nil; // consume the event
+        }
+        return e;
+      }];
+    }
   });
 }
 

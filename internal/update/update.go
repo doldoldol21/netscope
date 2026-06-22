@@ -109,7 +109,7 @@ func parse(v string) ([3]int, bool) {
 		v = v[:i]
 	}
 	parts := strings.Split(v, ".")
-	if len(parts) == 0 || len(parts) > 3 {
+	if len(parts) != 3 { // require a full x.y.z; partial tags aren't trusted
 		return out, false
 	}
 	for i, p := range parts {

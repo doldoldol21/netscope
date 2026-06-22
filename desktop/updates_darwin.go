@@ -183,16 +183,28 @@ func performUpdate() error {
 	}
 	_ = exec.Command("/usr/bin/xattr", "-cr", newApp).Run() // strip any quarantine
 
-	// A detached swapper: wait for us to exit, replace the bundle, relaunch.
+	// A detached swapper: wait for us to exit, then replace the bundle. Move the
+	// old bundle aside first and only delete it once the new one is in place —
+	// so a failed mv (cross-volume, perms, SIP) never leaves the user with no
+	// app. On any failure, restore the backup and relaunch it.
 	script := fmt.Sprintf(`#!/bin/bash
-pid=%d
+pid=%[1]d
+app=%[2]q
+new=%[3]q
+tmp=%[4]q
+bak="$app.bak.$$"
 while kill -0 "$pid" 2>/dev/null; do sleep 0.3; done
-rm -rf %q
-mv %q %q
-xattr -cr %q 2>/dev/null || true
-open %q
-rm -rf %q
-`, os.Getpid(), appPath, newApp, appPath, appPath, appPath, tmp)
+if ! mv "$app" "$bak" 2>/dev/null; then bak=""; fi   # may already be gone
+if mv "$new" "$app" 2>/dev/null; then
+  xattr -cr "$app" 2>/dev/null || true
+  [ -n "$bak" ] && rm -rf "$bak"
+else
+  # restore the original so the user is never left without an app
+  [ -n "$bak" ] && mv "$bak" "$app" 2>/dev/null
+fi
+open "$app"
+rm -rf "$tmp"
+`, os.Getpid(), appPath, newApp, tmp)
 	scriptPath := filepath.Join(tmp, "swap.sh")
 	if err := os.WriteFile(scriptPath, []byte(script), 0o755); err != nil {
 		return err
