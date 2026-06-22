@@ -152,6 +152,8 @@ function fillSettings(cfg) {
   cfg = cfg || {};
   $("set-daily").value = bytesToGb(cfg.dailyTotalBytes) || "";
   $("set-app").value = bytesToGb(cfg.perAppBytes) || "";
+  $("set-up-daily").value = bytesToGb(cfg.dailyUploadBytes) || "";
+  $("set-up-app").value = bytesToGb(cfg.perAppUploadBytes) || "";
 }
 // Alerts save instantly on edit (on blur / Enter) — no separate Save button, so
 // every setting in this panel applies the moment it changes.
@@ -160,10 +162,11 @@ function saveAlerts() {
   if (r.EventsEmit) r.EventsEmit("netscope:setalerts", {
     dailyTotalBytes: gbToBytes($("set-daily").value),
     perAppBytes: gbToBytes($("set-app").value),
+    dailyUploadBytes: gbToBytes($("set-up-daily").value),
+    perAppUploadBytes: gbToBytes($("set-up-app").value),
   });
 }
-$("set-daily").onchange = saveAlerts;
-$("set-app").onchange = saveAlerts;
+["set-daily", "set-app", "set-up-daily", "set-up-app"].forEach((id) => { $(id).onchange = saveAlerts; });
 $("alerts-btn").onclick = openSettings;
 $("set-close").onclick = () => { $("settings").classList.remove("show"); };
 

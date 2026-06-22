@@ -40,7 +40,8 @@ func runAlertCheck() {
 		return
 	}
 	cfg := alertChecker.Config()
-	if cfg.DailyTotalBytes == 0 && cfg.PerAppBytes == 0 {
+	if cfg.DailyTotalBytes == 0 && cfg.PerAppBytes == 0 &&
+		cfg.DailyUploadBytes == 0 && cfg.PerAppUploadBytes == 0 {
 		return // nothing armed
 	}
 
@@ -51,8 +52,9 @@ func runAlertCheck() {
 	if !getJSON("/api/summary?range=today", &sum) {
 		return
 	}
-	perApp := map[string]int64{}
-	if cfg.PerAppBytes > 0 {
+	perApp := map[string]int64{}       // total bytes per app
+	perAppUpload := map[string]int64{} // upload (tx) bytes per app
+	if cfg.PerAppBytes > 0 || cfg.PerAppUploadBytes > 0 {
 		var apps []struct {
 			Name    string `json:"name"`
 			RxBytes int64  `json:"rxBytes"`
@@ -61,12 +63,16 @@ func runAlertCheck() {
 		if getJSON("/api/apps?range=today", &apps) {
 			for _, a := range apps {
 				perApp[a.Name] += a.RxBytes + a.TxBytes
+				perAppUpload[a.Name] += a.TxBytes
 			}
 		}
 	}
 
 	day := time.Now().Format("2006-01-02")
 	for _, a := range alertChecker.Check(day, sum.TotalRx+sum.TotalTx, perApp) {
+		notify(a.Title, a.Body)
+	}
+	for _, a := range alertChecker.CheckUpload(day, sum.TotalTx, perAppUpload) {
 		notify(a.Title, a.Body)
 	}
 }
@@ -109,8 +115,10 @@ func setAlertsFromEvent(data ...interface{}) {
 		return 0
 	}
 	cfg := alerts.Config{
-		DailyTotalBytes: num("dailyTotalBytes"),
-		PerAppBytes:     num("perAppBytes"),
+		DailyTotalBytes:   num("dailyTotalBytes"),
+		PerAppBytes:       num("perAppBytes"),
+		DailyUploadBytes:  num("dailyUploadBytes"),
+		PerAppUploadBytes: num("perAppUploadBytes"),
 	}
 	alertChecker.SetConfig(cfg)
 	_ = alerts.Save(alertCfgPath, cfg)

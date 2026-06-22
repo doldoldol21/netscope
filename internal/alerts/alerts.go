@@ -17,6 +17,10 @@ import (
 type Config struct {
 	DailyTotalBytes int64 `json:"dailyTotalBytes"` // alert when today's total crosses this
 	PerAppBytes     int64 `json:"perAppBytes"`     // alert when any one app crosses this today
+	// Upload watch (privacy): uploads are data leaving your machine — surprise
+	// backups, cloud sync, exfiltration. Zero disables.
+	DailyUploadBytes  int64 `json:"dailyUploadBytes"`  // alert when today's total upload crosses this
+	PerAppUploadBytes int64 `json:"perAppUploadBytes"` // alert when any one app's upload crosses this today
 }
 
 // Alert is a single notification to post.
@@ -81,6 +85,39 @@ func (c *Checker) Check(day string, totalBytes int64, perApp map[string]int64) [
 				out = append(out, Alert{
 					Title: "netscope",
 					Body:  fmt.Sprintf("%s used %s today (limit %s).", name, humanBytes(b), humanBytes(c.cfg.PerAppBytes)),
+				})
+			}
+		}
+	}
+	return out
+}
+
+// CheckUpload evaluates the upload-watch thresholds (privacy) for the day
+// against today's total upload and per-app upload bytes. Like Check, each
+// threshold fires at most once per day. Shares the day/fired state with Check.
+func (c *Checker) CheckUpload(day string, totalUpload int64, perAppUpload map[string]int64) []Alert {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if day != c.day {
+		c.day = day
+		c.fired = map[string]bool{}
+	}
+	var out []Alert
+	if c.cfg.DailyUploadBytes > 0 && totalUpload >= c.cfg.DailyUploadBytes && !c.fired["upload"] {
+		c.fired["upload"] = true
+		out = append(out, Alert{
+			Title: "netscope",
+			Body:  fmt.Sprintf("⬆ Uploads passed %s today (now %s).", humanBytes(c.cfg.DailyUploadBytes), humanBytes(totalUpload)),
+		})
+	}
+	if c.cfg.PerAppUploadBytes > 0 {
+		for name, b := range perAppUpload {
+			key := "upapp:" + name
+			if b >= c.cfg.PerAppUploadBytes && !c.fired[key] {
+				c.fired[key] = true
+				out = append(out, Alert{
+					Title: "netscope",
+					Body:  fmt.Sprintf("⬆ %s uploaded %s today (limit %s).", name, humanBytes(b), humanBytes(c.cfg.PerAppUploadBytes)),
 				})
 			}
 		}
