@@ -44,6 +44,10 @@ type Config struct {
 	SnapshotInterval time.Duration
 	// Retention bounds how long stored samples are kept; zero disables purging.
 	Retention time.Duration
+	// MaxDBBytes is a hard disk safety net: when the database (incl. WAL) exceeds
+	// it, the oldest data is dropped until it fits, regardless of Retention. Zero
+	// disables the cap.
+	MaxDBBytes int64
 	// Interface is the capture source name, surfaced in snapshots.
 	Interface string
 	// LiveTopN caps how many apps/domains the live snapshot carries.
@@ -162,11 +166,13 @@ func (e *Engine) Run(ctx context.Context, flows <-chan types.Flow) error {
 	defer flushT.Stop()
 	defer snapT.Stop()
 
-	var purgeC <-chan time.Time
-	if e.cfg.Retention > 0 && e.store != nil {
-		pt := time.NewTicker(time.Hour)
-		purgeC = pt.C
-		defer pt.Stop()
+	// Hourly storage maintenance: retention purge, disk-size cap, WAL checkpoint,
+	// and VACUUM to actually reclaim freed space. Runs whenever we persist.
+	var maintC <-chan time.Time
+	if e.store != nil {
+		mt := time.NewTicker(time.Hour)
+		maintC = mt.C
+		defer mt.Stop()
 	}
 
 	for {
@@ -188,9 +194,30 @@ func (e *Engine) Run(ctx context.Context, flows <-chan types.Flow) error {
 			e.flush()
 		case <-snapT.C:
 			e.updateSnapshot()
-		case <-purgeC:
-			_ = e.store.Purge(e.nowFn().Add(-e.cfg.Retention))
+		case <-maintC:
+			e.maintainStore()
 		}
+	}
+}
+
+// maintainStore runs periodic DB upkeep: drop data past the retention window,
+// enforce the hard disk-size cap, checkpoint the WAL so it can't grow without
+// bound, and VACUUM to return freed pages to the filesystem.
+func (e *Engine) maintainStore() {
+	if e.store == nil {
+		return
+	}
+	purged := false
+	if e.cfg.Retention > 0 {
+		if d, err := e.store.Purge(e.nowFn().Add(-e.cfg.Retention)); err == nil {
+			purged = d
+		}
+	}
+	// EnforceSizeCap already checkpoints + vacuums between its own deletions.
+	capped, _ := e.store.EnforceSizeCap(e.cfg.MaxDBBytes)
+	e.store.Checkpoint()
+	if purged && !capped {
+		_ = e.store.Vacuum() // reclaim space from the time-based purge
 	}
 }
 

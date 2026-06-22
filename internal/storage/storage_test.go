@@ -18,6 +18,55 @@ func openTemp(t *testing.T) *Store {
 	return s
 }
 
+func TestEnforceSizeCap(t *testing.T) {
+	s := openTemp(t)
+	day := int64(86400)
+	base := int64(1_700_000_000)
+	base -= base % day // align to a day boundary
+	// Write several days of data with enough rows to grow the file.
+	for d := int64(0); d < 6; d++ {
+		bucket := base + d*day
+		apps := make([]types.AppTraffic, 0, 200)
+		doms := make([]types.DomainStat, 0, 200)
+		for i := 0; i < 200; i++ {
+			name := "app-" + string(rune('A'+i%26)) + string(rune('a'+i%26)) + time.Unix(bucket, 0).String()
+			apps = append(apps, types.AppTraffic{Name: name, RxBytes: 12345, TxBytes: 6789})
+			doms = append(doms, types.DomainStat{Domain: name + ".example.com", RxBytes: 5555, TxBytes: 4444})
+		}
+		if err := s.FlushApps(bucket, apps); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.FlushDomains(bucket, doms); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s.Checkpoint()
+	_ = s.Vacuum()
+	before := s.SizeOnDisk()
+
+	// A cap of 0 disables the safety net.
+	if did, _ := s.EnforceSizeCap(0); did {
+		t.Fatal("cap=0 should be a no-op")
+	}
+	// Cap just under the current size must drop the oldest day and shrink.
+	did, err := s.EnforceSizeCap(before - 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !did {
+		t.Fatal("expected EnforceSizeCap to delete data")
+	}
+	if after := s.SizeOnDisk(); after >= before {
+		t.Fatalf("size did not shrink: before=%d after=%d", before, after)
+	}
+	// The newest day must survive (we delete oldest-first).
+	newest := time.Unix(base+5*day, 0)
+	apps, _ := s.Apps(newest.Add(-time.Hour), newest.Add(time.Hour))
+	if len(apps) == 0 {
+		t.Fatal("newest day was deleted; cap should drop oldest first")
+	}
+}
+
 func TestFlushAndQueryApps(t *testing.T) {
 	s := openTemp(t)
 	base := time.Date(2026, 6, 18, 10, 0, 0, 0, time.UTC)
@@ -114,7 +163,7 @@ func TestPurge(t *testing.T) {
 	s.FlushApps(old.Unix(), []types.AppTraffic{{Name: "old", RxBytes: 1}})
 	s.FlushApps(recent.Unix(), []types.AppTraffic{{Name: "new", RxBytes: 1}})
 
-	if err := s.Purge(time.Unix(500_000, 0)); err != nil {
+	if _, err := s.Purge(time.Unix(500_000, 0)); err != nil {
 		t.Fatal(err)
 	}
 	apps, _ := s.Apps(time.Unix(0, 0), time.Unix(2_000_000, 0))

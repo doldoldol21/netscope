@@ -6,6 +6,7 @@ package storage
 import (
 	"database/sql"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/doldoldol21/netscope/pkg/types"
@@ -14,7 +15,8 @@ import (
 
 // Store is a handle to the netscope database.
 type Store struct {
-	db *sql.DB
+	db   *sql.DB
+	path string // db file path, for on-disk size accounting
 }
 
 const schema = `
@@ -56,7 +58,9 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("apply schema: %w", err)
 	}
-	return &Store{db: db}, nil
+	// Cap the WAL's auto-checkpoint so it can't balloon between maintenance runs.
+	_, _ = db.Exec(`PRAGMA wal_autocheckpoint=1000`) // ~4MB of pages
+	return &Store{db: db, path: path}, nil
 }
 
 // Close closes the underlying database.
@@ -256,14 +260,78 @@ func (s *Store) AppTimeSeries(app string, since, until time.Time, step time.Dura
 	return out, rows.Err()
 }
 
-// Purge deletes samples older than before, for retention management.
-func (s *Store) Purge(before time.Time) error {
+// Purge deletes samples older than before, for retention management. It reports
+// whether any rows were actually removed (so the caller can decide to VACUUM).
+func (s *Store) Purge(before time.Time) (bool, error) {
 	cut := before.Unix()
-	if _, err := s.db.Exec(`DELETE FROM app_samples WHERE bucket < ?`, cut); err != nil {
-		return err
+	r1, err := s.db.Exec(`DELETE FROM app_samples WHERE bucket < ?`, cut)
+	if err != nil {
+		return false, err
 	}
-	if _, err := s.db.Exec(`DELETE FROM domain_samples WHERE bucket < ?`, cut); err != nil {
-		return err
+	r2, err := s.db.Exec(`DELETE FROM domain_samples WHERE bucket < ?`, cut)
+	if err != nil {
+		return false, err
 	}
-	return nil
+	n1, _ := r1.RowsAffected()
+	n2, _ := r2.RowsAffected()
+	return n1+n2 > 0, nil
+}
+
+// SizeOnDisk returns the total bytes the database occupies, including the WAL
+// and shared-memory side files (which can dominate between checkpoints).
+func (s *Store) SizeOnDisk() int64 {
+	var total int64
+	for _, suffix := range []string{"", "-wal", "-shm"} {
+		if fi, err := os.Stat(s.path + suffix); err == nil {
+			total += fi.Size()
+		}
+	}
+	return total
+}
+
+// Checkpoint flushes the WAL back into the main database and truncates it, so
+// the WAL file can't grow without bound. Best-effort.
+func (s *Store) Checkpoint() {
+	_, _ = s.db.Exec(`PRAGMA wal_checkpoint(TRUNCATE)`)
+}
+
+// Vacuum rebuilds the database, reclaiming pages freed by deletes so the file
+// actually shrinks on disk. It rewrites the whole file, so call it sparingly.
+func (s *Store) Vacuum() error {
+	_, err := s.db.Exec(`VACUUM`)
+	return err
+}
+
+// EnforceSizeCap is the disk safety net: independent of time-based retention, it
+// drops the oldest data (a day at a time) until the database fits under
+// maxBytes. It checkpoints + vacuums between steps so on-disk size reflects each
+// deletion. Returns whether anything was removed. A non-positive cap disables it.
+func (s *Store) EnforceSizeCap(maxBytes int64) (bool, error) {
+	if maxBytes <= 0 {
+		return false, nil
+	}
+	deleted := false
+	for i := 0; i < 400; i++ { // bounded: ~a year of daily steps
+		if s.SizeOnDisk() <= maxBytes {
+			break
+		}
+		var oldest sql.NullInt64
+		if err := s.db.QueryRow(`SELECT MIN(bucket) FROM app_samples`).Scan(&oldest); err != nil {
+			return deleted, err
+		}
+		if !oldest.Valid {
+			break // table empty; can't shrink further by deleting rows
+		}
+		cut := oldest.Int64 + 86400 // drop the oldest day
+		if _, err := s.db.Exec(`DELETE FROM app_samples WHERE bucket < ?`, cut); err != nil {
+			return deleted, err
+		}
+		if _, err := s.db.Exec(`DELETE FROM domain_samples WHERE bucket < ?`, cut); err != nil {
+			return deleted, err
+		}
+		deleted = true
+		s.Checkpoint()
+		_ = s.Vacuum() // reclaim so the next SizeOnDisk reflects the deletion
+	}
+	return deleted, nil
 }

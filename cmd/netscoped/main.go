@@ -43,12 +43,13 @@ func main() {
 		noStore   = flag.Bool("no-store", false, "run in memory only, no persistence")
 		bucket    = flag.Duration("bucket", 10*time.Second, "aggregation/flush granularity")
 		retention = flag.Duration("retention", 30*24*time.Hour, "how long to keep samples (0 = forever)")
+		maxDB     = flag.Int64("max-db", 256<<20, "hard cap on database size in bytes; oldest data is dropped to stay under it (0 = no cap)")
 		liveWin   = flag.Duration("live-window", 30*time.Minute, "live view keeps apps/domains active within this window (0 = whole session)")
 		printTop  = flag.Bool("print", false, "also print the top apps to stdout every few seconds")
 	)
 	flag.Parse()
 
-	if err := run(*iface, *pcapFile, *demoMode, *sock, *dbPath, *noStore, *bucket, *retention, *liveWin, *printTop); err != nil {
+	if err := run(*iface, *pcapFile, *demoMode, *sock, *dbPath, *noStore, *bucket, *retention, *maxDB, *liveWin, *printTop); err != nil {
 		log.Fatalf("netscoped: %v", err)
 	}
 }
@@ -59,7 +60,7 @@ type flowSource interface {
 	Name() string
 }
 
-func run(iface, pcapFile string, demoMode bool, sock, dbPath string, noStore bool, bucket, retention, liveWin time.Duration, printTop bool) error {
+func run(iface, pcapFile string, demoMode bool, sock, dbPath string, noStore bool, bucket, retention time.Duration, maxDB int64, liveWin time.Duration, printTop bool) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -109,6 +110,7 @@ func run(iface, pcapFile string, demoMode bool, sock, dbPath string, noStore boo
 	eng := engine.New(engine.Config{
 		Bucket:         bucket,
 		Retention:      retention,
+		MaxDBBytes:     maxDB,
 		SessionHorizon: liveWin,
 		Interface:      src.Name(),
 		SelfPID:        os.Getpid(),
