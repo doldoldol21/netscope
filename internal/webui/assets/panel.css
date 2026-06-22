@@ -105,7 +105,9 @@ button { font-family: var(--sans); font-size: 12.5px; border-radius: 9px; cursor
 }
 .set-inp input:focus { outline: none; border-color: var(--accent); }
 .set-inp em { font-style: normal; font-size: 11px; color: var(--muted); width: 18px; }
-.settings .primary { height: 34px; margin-top: auto; }
+/* Reset the footer's flex:1 — in this vertical column it would stretch the
+   button to fill all remaining height. */
+.settings .primary { flex: 0 0 auto; height: 34px; margin-top: auto; }
 
 ::-webkit-scrollbar { width: 7px; }
 ::-webkit-scrollbar-thumb { background: var(--line); border-radius: 5px; }
