@@ -21,7 +21,8 @@ type Status struct {
 	Current         string    `json:"current"`
 	Latest          string    `json:"latest"`
 	UpdateAvailable bool      `json:"updateAvailable"`
-	URL             string    `json:"url"`
+	URL             string    `json:"url"`      // release page (human-facing)
+	AssetURL        string    `json:"assetUrl"` // app .zip download (in-app self-update)
 	CheckedAt       time.Time `json:"checkedAt"`
 }
 
@@ -55,6 +56,10 @@ func Check(ctx context.Context, repo, current string) (Status, error) {
 	var rel struct {
 		TagName string `json:"tag_name"`
 		HTMLURL string `json:"html_url"`
+		Assets  []struct {
+			Name string `json:"name"`
+			URL  string `json:"browser_download_url"`
+		} `json:"assets"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&rel); err != nil {
 		return st, err
@@ -62,6 +67,19 @@ func Check(ctx context.Context, repo, current string) (Status, error) {
 	st.Latest = rel.TagName
 	st.URL = rel.HTMLURL
 	st.UpdateAvailable = Newer(rel.TagName, current)
+	// The app bundle is published as netscope-<tag>-app.zip; pick it for the
+	// in-app self-update. Prefer the release's actual asset; fall back to the
+	// conventional download URL (mirrors install.sh) if assets aren't listed.
+	for _, a := range rel.Assets {
+		if strings.HasSuffix(a.Name, "-app.zip") && a.URL != "" {
+			st.AssetURL = a.URL
+			break
+		}
+	}
+	if st.AssetURL == "" && rel.TagName != "" {
+		st.AssetURL = fmt.Sprintf("https://github.com/%s/releases/download/%s/netscope-%s-app.zip",
+			repo, rel.TagName, rel.TagName)
+	}
 	return st, nil
 }
 

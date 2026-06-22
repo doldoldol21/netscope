@@ -101,7 +101,10 @@ const bytesToGb = (n) => { n = Number(n) || 0; return n > 0 ? +(n / GB).toFixed(
 
 function openSettings() {
   const r = rt();
-  if (r.EventsEmit) r.EventsEmit("netscope:getalerts"); // Go replies on "netscope:alerts"
+  if (r.EventsEmit) {
+    r.EventsEmit("netscope:getalerts"); // Go replies on "netscope:alerts"
+    r.EventsEmit("netscope:getupdate"); // Go replies on "netscope:update"
+  }
   $("settings").hidden = false;
 }
 function fillSettings(cfg) {
@@ -120,10 +123,55 @@ $("set-save").onclick = () => {
   $("settings").hidden = true;
 };
 
+// ---- software updates ----
+function renderUpdate(st) {
+  st = st || {};
+  $("set-autocheck").checked = st.autoCheck !== false;
+  const banner = $("updbanner"), now = $("upd-now"), status = $("upd-status");
+  now.textContent = "Update & Restart"; now.disabled = false;
+  if (st.updateAvailable && st.latest) {
+    status.textContent = `${st.latest} available`;
+    status.classList.add("avail");
+    banner.querySelector(".ub-txt").textContent = `Update ${st.latest} available`;
+    banner.hidden = false; now.hidden = false;
+  } else {
+    status.textContent = st.current ? `Up to date · ${st.current}` : "Up to date";
+    status.classList.remove("avail");
+    banner.hidden = true; now.hidden = true;
+  }
+}
+function startUpdate(btn) {
+  const r = rt();
+  if (!r.EventsEmit) return;
+  if (btn) { btn.textContent = "Downloading…"; btn.disabled = true; }
+  r.EventsEmit("netscope:doupdate"); // app downloads, swaps the bundle, relaunches
+}
+$("upd-check").onclick = () => {
+  const r = rt();
+  $("upd-status").textContent = "Checking…";
+  $("upd-status").classList.remove("avail");
+  if (r.EventsEmit) r.EventsEmit("netscope:checkupdate"); // Go replies on "netscope:update"
+};
+$("upd-now").onclick = (e) => startUpdate(e.currentTarget);
+$("updbanner").onclick = () => { openSettings(); startUpdate($("upd-now")); };
+$("set-autocheck").onchange = (e) => {
+  const r = rt();
+  if (r.EventsEmit) r.EventsEmit("netscope:setautocheck", e.currentTarget.checked);
+};
+
 window.addEventListener("DOMContentLoaded", () => {
   if (window.runtime && window.runtime.EventsOn) {
     window.runtime.EventsOn("netscope:show", () => { /* already on panel */ });
     window.runtime.EventsOn("netscope:alerts", (cfg) => fillSettings(cfg));
+    window.runtime.EventsOn("netscope:update", (st) => renderUpdate(st));
+    window.runtime.EventsOn("netscope:updateerror", () => {
+      $("upd-status").textContent = "Update failed — try again";
+      $("upd-status").classList.remove("avail");
+      const now = $("upd-now");
+      now.textContent = "Update & Restart"; now.disabled = false;
+    });
+    // Ask for cached update status so the banner can appear on launch.
+    if (window.runtime.EventsEmit) window.runtime.EventsEmit("netscope:getupdate");
   }
 });
 

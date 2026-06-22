@@ -53,6 +53,9 @@ func main() {
 	// Watch today's usage against the user's thresholds and notify on crossings.
 	startAlertsLoop(client)
 
+	// Periodically check GitHub for a newer release and notify on a new version.
+	startUpdateLoop()
+
 	err := wails.Run(&options.App{
 		Title: "netscope",
 		// Only one menu-bar app at a time: a second launch (login agent +
@@ -89,6 +92,32 @@ func main() {
 			})
 			wruntime.EventsOn(ctx, "netscope:setalerts", func(data ...interface{}) {
 				setAlertsFromEvent(data...)
+			})
+			// Software-update controls, surfaced in the popover.
+			wruntime.EventsOn(ctx, "netscope:getupdate", func(...interface{}) {
+				wruntime.EventsEmit(ctx, "netscope:update", updateStatusJSON())
+			})
+			wruntime.EventsOn(ctx, "netscope:checkupdate", func(...interface{}) {
+				go func() {
+					runUpdateCheck()
+					wruntime.EventsEmit(ctx, "netscope:update", updateStatusJSON())
+				}()
+			})
+			wruntime.EventsOn(ctx, "netscope:setautocheck", func(data ...interface{}) {
+				on := true
+				if len(data) > 0 {
+					if b, ok := data[0].(bool); ok {
+						on = b
+					}
+				}
+				setAutoCheck(on)
+			})
+			wruntime.EventsOn(ctx, "netscope:doupdate", func(...interface{}) {
+				go func() {
+					if err := performUpdate(); err != nil {
+						wruntime.EventsEmit(ctx, "netscope:updateerror", err.Error())
+					}
+				}()
 			})
 		},
 		Mac: &mac.Options{

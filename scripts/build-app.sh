@@ -23,7 +23,10 @@ WAILS="$(command -v wails 2>/dev/null || echo "$(go env GOPATH)/bin/wails")"
 [ -x "$WAILS" ] || { echo "wails not found; run: go install github.com/wailsapp/wails/v2/cmd/wails@latest" >&2; exit 1; }
 
 echo "==> building app (Wails)"
-( cd desktop && "$WAILS" build -clean )
+# Inject the version into the GUI binary too: without -ldflags the menu-bar
+# app's buildinfo.Version stays "dev", so its update check (Newer) would never
+# report an available release.
+( cd desktop && "$WAILS" build -clean -ldflags "$LDFLAGS" )
 
 echo "==> assembling $APP"
 mkdir -p dist

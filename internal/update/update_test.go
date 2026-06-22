@@ -44,6 +44,30 @@ func TestCheckUpdateAvailable(t *testing.T) {
 	if !st.UpdateAvailable || st.Latest != "v0.9.0" || st.URL == "" {
 		t.Fatalf("unexpected status: %+v", st)
 	}
+	// No assets listed -> fall back to the conventional download URL.
+	want := "https://github.com/owner/repo/releases/download/v0.9.0/netscope-v0.9.0-app.zip"
+	if st.AssetURL != want {
+		t.Fatalf("AssetURL fallback = %q, want %q", st.AssetURL, want)
+	}
+}
+
+func TestCheckPrefersReleaseAsset(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"tag_name":"v0.9.0","html_url":"https://example.com/r",
+			"assets":[{"name":"netscope-v0.9.0-app.zip","browser_download_url":"https://cdn.example/x.zip"}]}`))
+	}))
+	defer srv.Close()
+	old := apiBase
+	apiBase = srv.URL
+	defer func() { apiBase = old }()
+
+	st, err := Check(context.Background(), "owner/repo", "v0.8.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.AssetURL != "https://cdn.example/x.zip" {
+		t.Fatalf("AssetURL = %q, want the release asset URL", st.AssetURL)
+	}
 }
 
 func TestCheckNoReleases(t *testing.T) {

@@ -17,6 +17,11 @@
     <span class="meta" id="meta">connecting…</span>
   </header>
 
+  <button class="updbanner" id="updbanner" hidden>
+    <span class="ub-txt">Update available</span>
+    <span class="ub-go">Update ↻</span>
+  </button>
+
   <section class="rates">
     <div class="rate down">
       <div class="line"><span class="arrow">▼</span><span class="v" id="rx">0</span></div>
@@ -49,9 +54,11 @@
 
   <div class="settings" id="settings" hidden>
     <div class="set-head">
-      <span>Usage alerts</span>
+      <span>Settings</span>
       <button class="x" id="set-close" title="Close">✕</button>
     </div>
+
+    <div class="set-sub">Usage alerts</div>
     <p class="set-hint">Notify me when today's traffic crosses a limit. Leave 0 to turn off.</p>
     <label class="set-row">
       <span class="set-lbl">Daily total</span>
@@ -61,6 +68,18 @@
       <span class="set-lbl">Any one app</span>
       <span class="set-inp"><input type="number" id="set-app" min="0" step="0.5" placeholder="0" /><em>GB</em></span>
     </label>
+
+    <div class="set-sub">Updates</div>
+    <label class="set-row">
+      <span class="set-lbl">Check automatically</span>
+      <input type="checkbox" id="set-autocheck" class="set-chk" />
+    </label>
+    <div class="set-row">
+      <span class="set-lbl upd-status" id="upd-status">—</span>
+      <button class="mini" id="upd-check">Check now</button>
+    </div>
+    <button class="primary upd-now" id="upd-now" hidden>Update &amp; Restart</button>
+
     <button class="primary" id="set-save">Save</button>
   </div>
 </div>
