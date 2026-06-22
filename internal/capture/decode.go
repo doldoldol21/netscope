@@ -105,6 +105,17 @@ func (d *Decoder) Decode(pkt gopacket.Packet) (types.Flow, bool) {
 		RemotePort: remotePort,
 		Bytes:      wireBytes(pkt),
 	}
+
+	// Learn IP->host from the TLS SNI in an outbound ClientHello. This covers
+	// servers with no DNS answer we saw and no PTR record (Anthropic, Cloudflare,
+	// Telegram, …) — the host is in cleartext even though the session is encrypted.
+	if d.dns != nil && proto == types.ProtoTCP && dir == types.DirOut {
+		if tl := pkt.TransportLayer(); tl != nil {
+			if sni := parseSNI(tl.LayerPayload()); sni != "" {
+				d.dns.Put(flow.RemoteIP, sni)
+			}
+		}
+	}
 	if flow.Timestamp.IsZero() {
 		// Offline sources without per-packet timestamps; caller stamps later.
 	}
@@ -165,6 +176,74 @@ func (d *Decoder) recordDNS(dns *layers.DNS) {
 		}
 		d.dns.Put(ans.IP.String(), host)
 	}
+}
+
+// parseSNI extracts the server_name (SNI) from a TLS ClientHello in a TCP
+// payload, or "" if the payload isn't a ClientHello or has no SNI. It bails out
+// immediately on non-handshake bytes so it's cheap on the per-packet hot path.
+func parseSNI(p []byte) string {
+	// TLS record: type(1)=0x16 handshake, version(2), length(2).
+	if len(p) < 6 || p[0] != 0x16 {
+		return ""
+	}
+	hs := p[5:]
+	// Handshake: msg_type(1)=0x01 ClientHello, length(3), version(2), random(32).
+	if len(hs) < 38 || hs[0] != 0x01 {
+		return ""
+	}
+	i := 4 + 2 + 32 // skip msg_type+length(4), client_version(2), random(32)
+	if i >= len(hs) {
+		return ""
+	}
+	i += 1 + int(hs[i]) // session_id: len(1) + id
+	if i+2 > len(hs) {
+		return ""
+	}
+	i += 2 + (int(hs[i])<<8 | int(hs[i+1])) // cipher_suites: len(2) + suites
+	if i+1 > len(hs) {
+		return ""
+	}
+	i += 1 + int(hs[i]) // compression_methods: len(1) + methods
+	if i+2 > len(hs) {
+		return ""
+	}
+	end := i + 2 + (int(hs[i])<<8 | int(hs[i+1])) // extensions block
+	i += 2
+	if end > len(hs) {
+		end = len(hs)
+	}
+	for i+4 <= end {
+		extType := int(hs[i])<<8 | int(hs[i+1])
+		extLen := int(hs[i+2])<<8 | int(hs[i+3])
+		i += 4
+		if i+extLen > len(hs) {
+			break
+		}
+		if extType == 0x0000 { // server_name
+			return sniName(hs[i : i+extLen])
+		}
+		i += extLen
+	}
+	return ""
+}
+
+// sniName reads the first host_name from a server_name extension body.
+func sniName(b []byte) string {
+	// server_name_list: list_len(2), then entries: name_type(1), name_len(2), name.
+	i := 2
+	for i+3 <= len(b) {
+		nameType := b[i]
+		nameLen := int(b[i+1])<<8 | int(b[i+2])
+		i += 3
+		if i+nameLen > len(b) {
+			break
+		}
+		if nameType == 0x00 { // host_name
+			return string(b[i : i+nameLen])
+		}
+		i += nameLen
+	}
+	return ""
 }
 
 // wireBytes returns the original on-wire length of the packet, falling back to
