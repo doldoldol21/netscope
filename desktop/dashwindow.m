@@ -29,6 +29,33 @@ static id gDashKeyMonitor = nil;
 }
 @end
 
+// NSExportHandler receives export requests from the dashboard JS and saves the
+// file via a native Save panel. The web view can't write files itself, and
+// WKWebView blob/attachment downloads are unreliable without a download
+// delegate, so a JS→native message + NSSavePanel is the robust path.
+static id gExportHandler = nil;
+@interface NSExportHandler : NSObject <WKScriptMessageHandler>
+@end
+@implementation NSExportHandler
+- (void)userContentController:(WKUserContentController *)ucc
+      didReceiveScriptMessage:(WKScriptMessage *)msg {
+  if (![msg.body isKindOfClass:[NSDictionary class]]) return;
+  NSDictionary *body = (NSDictionary *)msg.body;
+  NSString *text = body[@"text"];
+  NSString *name = body[@"filename"];
+  if (![text isKindOfClass:[NSString class]]) return;
+  NSSavePanel *panel = [NSSavePanel savePanel];
+  panel.nameFieldStringValue = [name isKindOfClass:[NSString class]] ? name : @"netscope-export.csv";
+  void (^done)(NSModalResponse) = ^(NSModalResponse r) {
+    if (r == NSModalResponseOK && panel.URL) {
+      [[text dataUsingEncoding:NSUTF8StringEncoding] writeToURL:panel.URL atomically:YES];
+    }
+  };
+  if (gDash) [panel beginSheetModalForWindow:gDash completionHandler:done];
+  else done([panel runModal]);
+}
+@end
+
 // installAppMenu gives the app a real main menu once. As a menu-bar accessory
 // app we otherwise have none, so standard shortcuts (Cmd-W close, Cmd-Q quit,
 // Cmd-C copy, Cmd-A select-all) don't work. Menu key equivalents are handled by
@@ -112,6 +139,9 @@ void openDashWindow(const char *curl) {
       }] retain];
 
       WKWebViewConfiguration *cfg = [[WKWebViewConfiguration alloc] init];
+      // Expose window.webkit.messageHandlers.netscopeExport for CSV/JSON export.
+      gExportHandler = [[NSExportHandler alloc] init];
+      [cfg.userContentController addScriptMessageHandler:gExportHandler name:@"netscopeExport"];
       gDashWeb = [[WKWebView alloc] initWithFrame:frame configuration:cfg];
       gDashWeb.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
       gDash.contentView = gDashWeb;

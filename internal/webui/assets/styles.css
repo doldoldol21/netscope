@@ -230,3 +230,17 @@ tr.clickable:hover td { background: var(--panel-2); }
 @media (prefers-reduced-motion: reduce) { .skel { animation: none; } }
 .skel-line { height: 11px; }
 .tbl.skel-tbl td { vertical-align: middle; }
+
+/* panel header export button */
+.iconbtn { margin-left: 8px; width: 26px; height: 24px; flex: none; cursor: pointer;
+  color: var(--fg-dim); background: var(--panel-2); border: 1px solid var(--line);
+  border-radius: 7px; font-size: 13px; line-height: 1; transition: .15s; }
+.iconbtn:hover { color: var(--fg); border-color: var(--accent); }
+.iconbtn:active { transform: translateY(1px); }
+
+/* top-header export button */
+.hdr-btn { flex: none; cursor: pointer; color: var(--fg-dim);
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 999px;
+  font: 600 12px/1 var(--sans); padding: 7px 13px; transition: .15s; --wails-draggable: no-drag; }
+.hdr-btn:hover { color: var(--fg); border-color: var(--accent); }
+.hdr-btn:active { transform: translateY(1px); }

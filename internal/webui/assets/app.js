@@ -506,7 +506,7 @@ async function loadVersion() {
 
 // ============================================================ per-app drill-down
 const drillState = { app: null, range: "today" };
-let drillCache = [];
+let drillCache = [], drillDomains = [];
 
 function openDrill(app) {
   drillState.app = app;
@@ -547,6 +547,7 @@ async function loadDrill() {
       `<span style="color:var(--tx)">↑ ${fmtBytes(tx).str}</span>` +
       `<span class="dt-cap">${range}</span>`;
     drawDrillChart(ts || []);
+    drillDomains = doms || []; // remembered for the drill export button
     const dd = $("drill-domains");
     dd.innerHTML = drillDomainsHTML(doms || []);
     dd.firstElementChild && dd.firstElementChild.classList.add("fade-in");
@@ -639,6 +640,56 @@ document.querySelectorAll("#drill-tabs button").forEach((btn) => {
 $("drill-close").onclick = closeDrill;
 $("drill").addEventListener("click", (e) => { if (e.target === $("drill")) closeDrill(); });
 window.addEventListener("resize", () => { if ($("drill").classList.contains("show")) drawDrillChart(drillCache); });
+
+// ============================================================ export (CSV)
+const csvCell = (v) => {
+  const s = String(v == null ? "" : v);
+  return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+};
+const toCSV = (rows) => rows.map((r) => r.map(csvCell).join(",")).join("\n") + "\n";
+
+// exportAll saves apps + domains together (the current range) as one JSON file.
+async function exportAll() {
+  const range = rangeState.apps;
+  let apps, domains;
+  if (range === "session") {
+    apps = liveApps || []; domains = liveDomains || [];
+  } else {
+    [apps, domains] = await Promise.all([
+      fetchJSON(`${API}/api/apps?range=${range}`).catch(() => []),
+      fetchJSON(`${API}/api/domains?range=${range}`).catch(() => []),
+    ]);
+  }
+  const bundle = { generatedAt: new Date().toISOString(), range, apps: apps || [], domains: domains || [] };
+  const date = new Date().toISOString().slice(0, 10);
+  saveFile(`netscope-${range}-${date}.json`, JSON.stringify(bundle, null, 2));
+}
+
+// exportDrillDomains saves the focused app's per-domain breakdown as CSV.
+function exportDrillDomains() {
+  const app = drillState.app;
+  if (!app) return;
+  const rows = [["domain", "category", "rx_bytes", "tx_bytes", "total_bytes"]];
+  (drillDomains || []).forEach((d) => rows.push([d.domain, d.category || "",
+    d.rxBytes || 0, d.txBytes || 0, (Number(d.rxBytes) + Number(d.txBytes)) || 0]));
+  const safe = app.replace(/[^\w.-]+/g, "_");
+  saveFile(`netscope-${safe}-domains-${drillState.range}.csv`, toCSV(rows));
+}
+
+// saveFile hands the text to native (Save panel) in the app, or falls back to a
+// blob download in a plain browser / dev.
+function saveFile(filename, text) {
+  const bridge = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.netscopeExport;
+  if (bridge) { bridge.postMessage({ filename, text }); return; }
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([text], { type: "text/csv" }));
+  a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+$("export-all").onclick = exportAll;
+$("drill-export").onclick = exportDrillDomains;
 
 // boot
 connect();
