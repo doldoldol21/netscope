@@ -119,10 +119,20 @@ button { font-family: var(--sans); font-size: 12.5px; border-radius: 9px; cursor
 .set-sub:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
 .set-sub:first-of-type { margin-top: 0; }
 
-/* menu-bar style selector */
-.set-sel { font: 12px var(--sans); color: var(--fg); background: var(--bg2);
-  border: 1px solid var(--line); border-radius: 8px; padding: 5px 8px; max-width: 190px; }
+/* menu-bar style selector — reset the native chrome and draw our own chevron */
+.set-sel {
+  appearance: none; -webkit-appearance: none;
+  font: 12.5px var(--sans); color: var(--fg);
+  background-color: var(--bg2);
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' fill='none' stroke='%239aa6b2' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+  background-repeat: no-repeat; background-position: right 9px center;
+  border: 1px solid var(--line); border-radius: 8px;
+  padding: 6px 26px 6px 10px; max-width: 200px; cursor: pointer;
+  transition: border-color .12s, background-color .12s;
+}
+.set-sel:hover { border-color: var(--tx); }
 .set-sel:focus { outline: none; border-color: var(--accent); }
+.set-sel option { background: var(--bg2); color: var(--fg); }
 
 /* updates: checkbox, status line, check-now / update buttons */
 .set-chk { width: 16px; height: 16px; accent-color: var(--accent); cursor: pointer; }
