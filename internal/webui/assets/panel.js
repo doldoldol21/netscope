@@ -41,7 +41,7 @@ function drawSpark() {
 
 function render(s) {
   $("dot").classList.add("live");
-  $("meta").textContent = s.interface || "live";
+  if (s.interface) { ifaceCur = s.interface; updateMetaText(); }
   $("rx").textContent = fmtRate(s.rxPerSec);
   $("tx").textContent = fmtRate(s.txPerSec);
   if (s.activeApps != null) $("active").textContent = s.activeApps + " active";
@@ -128,33 +128,57 @@ function openSettings() {
     r.EventsEmit("netscope:getupdate");  // Go replies on "netscope:update"
     r.EventsEmit("netscope:getmenubar"); // Go replies on "netscope:menubar"
   }
-  loadInterfaces(); // capture interface list (over the daemon API)
   $("settings").classList.add("show");
 }
 
-// ---- capture interface (daemon API over the socket proxy) ----
-async function loadInterfaces() {
+// ---- capture interface picker (top-right chip → dropdown, daemon API) ----
+let ifaceCur = "", ifaceSel = "", ifaceOpts = [];
+function updateMetaText() {
+  const cur = ifaceCur || "live";
+  $("meta").textContent = ifaceSel ? cur : ("auto · " + cur);
+}
+async function refreshIface() {
   try {
-    const res = await fetch("/api/interfaces");
-    if (!res.ok) return;
-    const d = await res.json();
-    const sel = $("set-iface");
-    const opts = ['<option value="">Automatic</option>'].concat(
-      (d.options || []).map((o) =>
-        `<option value="${esc(o.name)}">${esc(o.display)}${o.active ? " • active" : ""}</option>`));
-    sel.innerHTML = opts.join("");
-    sel.value = d.selected || "";
+    const r = await fetch("/api/interfaces");
+    if (!r.ok) return;
+    const d = await r.json();
+    ifaceSel = d.selected || "";
+    ifaceOpts = d.options || [];
+    if (d.current) ifaceCur = d.current;
+    updateMetaText();
+    buildIfaceMenu();
   } catch (_) { /* daemon not ready */ }
 }
-$("set-iface").onchange = async (e) => {
-  try {
-    await fetch("/api/interfaces", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: e.currentTarget.value }),
-    });
-  } catch (_) { /* ignore */ }
-  setTimeout(loadInterfaces, 900); // refresh the "• active" marker after re-open
+function buildIfaceMenu() {
+  const item = (name, label, on) =>
+    `<button class="ifm-item${on ? " on" : ""}" data-iface="${esc(name)}">${esc(label)}${on ? " ✓" : ""}</button>`;
+  let html = item("", "Automatic", ifaceSel === "");
+  ifaceOpts.forEach((o) => { html += item(o.name, o.display, ifaceSel === o.name); });
+  const m = $("iface-menu");
+  m.innerHTML = html;
+  m.querySelectorAll("[data-iface]").forEach((b) => {
+    b.onclick = async () => {
+      m.hidden = true;
+      try {
+        await fetch("/api/interfaces", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: b.dataset.iface }),
+        });
+      } catch (_) { /* ignore */ }
+      setTimeout(refreshIface, 800); // let capture re-open, then refresh
+    };
+  });
+}
+$("meta").onclick = (e) => {
+  e.stopPropagation();
+  const m = $("iface-menu");
+  m.hidden = !m.hidden;
+  if (!m.hidden) refreshIface();
 };
+document.addEventListener("click", (e) => {
+  const m = $("iface-menu");
+  if (!m.hidden && !m.contains(e.target) && e.target !== $("meta")) m.hidden = true;
+});
 
 // ---- menu-bar readout style ----
 function fillMenuBar(cfg) {
@@ -251,5 +275,6 @@ window.addEventListener("DOMContentLoaded", () => {
 // Start live by default; Go pauses it via nsLive(false) once the hidden
 // popover's DOM is ready, and toggles it on show/hide thereafter.
 window.nsLive(true);
+refreshIface(); // populate the capture-interface chip + menu
 drawSpark();
 window.addEventListener("resize", drawSpark);

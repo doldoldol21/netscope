@@ -15,7 +15,7 @@ body {
 }
 
 .panel {
-  height: 100%; display: flex; flex-direction: column;
+  height: 100%; display: flex; flex-direction: column; position: relative;
   background: var(--bg); border: 1px solid var(--line); border-radius: 13px;
   box-shadow: 0 12px 32px -10px #000a, 0 0 0 1px #ffffff08 inset;
   overflow: hidden;
@@ -32,8 +32,23 @@ header {
 .spacer { flex: 1; }
 .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
 .dot.live { background: var(--rx); box-shadow: 0 0 0 3px #3fb95033; }
-.meta { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden;
-  text-overflow: ellipsis; max-width: 150px; }
+/* clickable capture-interface chip (top-right) + its dropdown */
+.meta { font: 11px var(--sans); color: var(--muted); white-space: nowrap; max-width: 170px;
+  overflow: hidden; text-overflow: ellipsis; cursor: pointer;
+  background: var(--bg2); border: 1px solid var(--line); border-radius: 7px;
+  padding: 3px 8px; transition: .12s; }
+.meta:hover { color: var(--fg); border-color: var(--tx); }
+.iface-menu {
+  position: absolute; top: 38px; right: 11px; z-index: 6; min-width: 180px; max-width: 280px;
+  background: var(--bg2); border: 1px solid var(--line); border-radius: 9px;
+  box-shadow: 0 12px 28px -10px #000b; padding: 4px; overflow: hidden;
+}
+.iface-menu[hidden] { display: none; }
+.ifm-item { display: block; width: 100%; text-align: left; cursor: pointer;
+  font: 12px var(--sans); color: var(--fg); background: transparent; border: 0;
+  border-radius: 6px; padding: 7px 9px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ifm-item:hover { background: var(--line); }
+.ifm-item.on { color: var(--accent); font-weight: 600; }
 
 /* ---- rates ---- */
 .rates { display: flex; padding: 12px 13px 4px; gap: 10px; }

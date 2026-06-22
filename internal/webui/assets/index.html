@@ -14,8 +14,9 @@
     <span class="brand">netscope</span>
     <span class="spacer"></span>
     <span class="dot" id="dot"></span>
-    <span class="meta" id="meta">connecting…</span>
+    <button class="meta" id="meta" title="Capture interface">connecting…</button>
   </header>
+  <div class="iface-menu" id="iface-menu" hidden></div>
 
   <button class="updbanner" id="updbanner" hidden>
     <span class="ub-txt">Update available</span>
@@ -75,12 +76,6 @@
         <input type="number" id="set-app" min="0" step="0.5" placeholder="0" />
         <input type="number" id="set-up-app" min="0" step="0.5" placeholder="0" />
       </div>
-
-      <div class="set-sub">Capture</div>
-      <label class="set-row">
-        <span class="set-lbl">Interface</span>
-        <select id="set-iface" class="set-sel"></select>
-      </label>
 
       <div class="set-sub">Menu bar</div>
       <label class="set-row">
