@@ -8,56 +8,65 @@ import (
 )
 
 const (
-	animFrameCount = 18 // frames in one wave cycle (smoothness)
-	// Below this throughput the icon is considered idle: it holds the static
-	// glyph instead of animating, so a quiet menu bar stays calm.
+	animFrames = 18 // frames in one wave cycle (smoothness)
+	// Below this throughput the icon is idle: it shows the lowest-amplitude
+	// gentle wave at a slow crawl, so a quiet menu bar stays calm.
 	animIdleBps = 2 * 1024.0
-	animMinFPS  = 4.0  // just-barely-active crawl
-	animMaxFPS  = 16.0 // saturated at high throughput
+	animFullBps = 8 * 1024 * 1024.0 // throughput at which speed/amplitude saturate
+	animMinFPS  = 3.0
+	animMaxFPS  = 12.0
 )
 
-// startMenuBarAnimator drives the menu-bar icon. When animation is enabled and
-// there's traffic, it cycles a scrolling-wave glyph at a speed that scales with
-// throughput (RunCat-style: busier link → faster wave). When idle or disabled it
-// shows the static glyph. The whole loop lives in Go; cgo is just the per-frame
-// image swap.
+// animLevels are the wave amplitudes (px) from quiet to saturated. The animator
+// picks a level from current throughput so the icon's *size* — not just its
+// speed — tracks traffic, making the mapping legible at a glance.
+var animLevels = []float64{1.5, 3.0, 4.5, 6.0, 7.5}
+
+// startMenuBarAnimator drives the menu-bar icon: a scrolling wave whose amplitude
+// and speed both rise with throughput (busier link → taller, faster wave), and
+// which rests on the static glyph when disabled. The loop is all Go; cgo is just
+// the per-frame image swap.
 func startMenuBarAnimator() {
-	frames := iconFrames(animFrameCount)
+	// Pre-render every amplitude level's cycle once.
+	sets := make([][][]byte, len(animLevels))
+	for i, amp := range animLevels {
+		sets[i] = iconFrameSet(animFrames, amp)
+	}
 	idle := statusIcon()
 	go func() {
-		// Let the status item exist and the first rate poll land first.
-		time.Sleep(7 * time.Second)
-		i := 0
-		wasIdle := true
+		time.Sleep(7 * time.Second) // let the status item + first poll land
+		frame := 0
+		wasOff := false
 		for {
 			bps, animate := currentRateBps()
-			if !animate || bps < animIdleBps {
-				// Park on the static glyph; only redraw on the transition so we
-				// don't fight a user who turned animation off.
-				if !wasIdle {
+			if !animate {
+				if !wasOff {
 					setStatusImage(idle)
-					wasIdle = true
+					wasOff = true
 				}
 				time.Sleep(400 * time.Millisecond)
 				continue
 			}
-			wasIdle = false
-			setStatusImage(frames[i%len(frames)])
-			i++
-			time.Sleep(time.Duration(float64(time.Second) / fpsForRate(bps)))
+			wasOff = false
+			t := intensity(bps) // 0..1
+			set := sets[int(math.Round(t*float64(len(sets)-1)))]
+			setStatusImage(set[frame%len(set)])
+			frame++
+			fps := animMinFPS + t*(animMaxFPS-animMinFPS)
+			time.Sleep(time.Duration(float64(time.Second) / fps))
 		}
 	}()
 }
 
-// fpsForRate maps throughput (bytes/sec) to an animation frame rate. Log-scaled
-// so the wave speeds up smoothly from idle to ~10 MB/s, then saturates.
-func fpsForRate(bps float64) float64 {
-	const fullBps = 10 * 1024 * 1024 // throughput at which we hit animMaxFPS
-	t := math.Log(bps/animIdleBps+1) / math.Log(fullBps/animIdleBps+1)
-	if t < 0 {
-		t = 0
-	} else if t > 1 {
+// intensity maps throughput (bytes/sec) to a 0..1 activity level, log-scaled
+// between idle and saturation so the wave ramps smoothly across everyday rates.
+func intensity(bps float64) float64 {
+	if bps <= animIdleBps {
+		return 0
+	}
+	t := math.Log(bps/animIdleBps+1) / math.Log(animFullBps/animIdleBps+1)
+	if t > 1 {
 		t = 1
 	}
-	return animMinFPS + t*(animMaxFPS-animMinFPS)
+	return t
 }

@@ -26,25 +26,31 @@ func statusIcon() []byte {
 	return buf.Bytes()
 }
 
-// iconFrames renders n template PNGs of a scrolling sine wave — one animation
-// cycle. Played in order they read as a wave travelling left, like an activity
-// monitor; the animator plays them faster when traffic is heavier. Same canvas
-// proportions as statusIcon so the idle (static) and animated icons match.
-func iconFrames(n int) [][]byte {
-	const w, h = 40, 22
-	const amp = 5.0
-	const period = float64(w) / 1.6 // ~1.6 wavelengths across the width
-	mid := float64(h) / 2.0
+// iconWaveCanvas matches statusIcon's proportions so the idle and animated icons
+// line up. The wave uses an integer number of wavelengths across the drawable
+// width so it scrolls seamlessly (no edge jump on wrap).
+const (
+	iconW, iconH = 40, 22
+	iconWaves    = 2 // wavelengths across the width → seamless tiling
+)
+
+// iconFrameSet renders an animation cycle of a scrolling sine wave at a given
+// amplitude: n template PNGs (macOS tints them for light/dark). Higher amplitude
+// = a taller, livelier wave, which the animator ties to throughput so the icon
+// visibly reacts to traffic rather than only changing speed.
+func iconFrameSet(n int, amp float64) [][]byte {
+	mid := float64(iconH) / 2.0
+	period := float64(iconW) / float64(iconWaves)
 	black := color.RGBA{0, 0, 0, 255}
 	frames := make([][]byte, n)
 	for f := 0; f < n; f++ {
 		phase := float64(f) / float64(n) // 0..1 over the cycle
-		img := image.NewRGBA(image.Rect(0, 0, w, h))
+		img := image.NewRGBA(image.Rect(0, 0, iconW, iconH))
 		yAt := func(x int) int {
 			return int(math.Round(mid + amp*math.Sin(2*math.Pi*(float64(x)/period+phase))))
 		}
-		px, py := 3, yAt(3)
-		for x := 4; x <= w-3; x++ {
+		px, py := 2, yAt(2)
+		for x := 3; x <= iconW-2; x++ {
 			y := yAt(x)
 			drawLine(img, px, py, x, y, black)
 			px, py = x, y
