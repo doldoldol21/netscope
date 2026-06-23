@@ -56,8 +56,8 @@ func main() {
 
 	// Simulate a chatty AI download and a smaller github upload.
 	for i := 0; i < 40; i++ {
-		data(localIP, "1.2.3.4", 50001, 443, "in", 1400, write)  // download from AI
-		data(localIP, "1.2.3.4", 50001, 443, "out", 120, write)  // request bytes
+		data(localIP, "1.2.3.4", 50001, 443, "in", 1400, write) // download from AI
+		data(localIP, "1.2.3.4", 50001, 443, "out", 120, write) // request bytes
 	}
 	for i := 0; i < 8; i++ {
 		data(localIP, "5.6.7.8", 50002, 443, "out", 900, write) // upload to github
@@ -80,7 +80,7 @@ func dnsReply(name, ip string, write func(...gopacket.SerializableLayer)) {
 	udp := &layers.UDP{SrcPort: 53, DstPort: 50000}
 	udp.SetNetworkLayerForChecksum(dip)
 	write(ether(), dip, udp, &layers.DNS{
-		QR: true,
+		QR:        true,
 		Questions: []layers.DNSQuestion{{Name: []byte(name), Type: layers.DNSTypeA, Class: layers.DNSClassIN}},
 		Answers:   []layers.DNSResourceRecord{{Name: []byte(name), Type: layers.DNSTypeA, Class: layers.DNSClassIN, IP: net.ParseIP(ip)}},
 	})

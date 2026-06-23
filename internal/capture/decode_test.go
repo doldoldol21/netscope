@@ -16,8 +16,8 @@ func clientHello(host string) []byte {
 	// server_name extension body: list_len(2), name_type(1)=0, name_len(2), name
 	listLen := len(host) + 3
 	var sn []byte
-	sn = append(sn, byte(listLen>>8), byte(listLen))    // server_name_list length
-	sn = append(sn, 0x00)                               // name_type host_name
+	sn = append(sn, byte(listLen>>8), byte(listLen))     // server_name_list length
+	sn = append(sn, 0x00)                                // name_type host_name
 	sn = append(sn, byte(len(host)>>8), byte(len(host))) // name length
 	sn = append(sn, host...)
 	// extension: type(2)=0x0000 server_name, len(2), body
@@ -28,11 +28,11 @@ func clientHello(host string) []byte {
 	// handshake body: version(2), random(32), sid_len(1)=0, cs_len(2)=2 + 1 suite,
 	// comp_len(1)=1 + 1 method, ext_len(2), extensions
 	var hb []byte
-	hb = append(hb, 0x03, 0x03)                 // client_version
-	hb = append(hb, make([]byte, 32)...)        // random
-	hb = append(hb, 0x00)                        // session_id len
-	hb = append(hb, 0x00, 0x02, 0x13, 0x01)     // cipher_suites: len 2 + one suite
-	hb = append(hb, 0x01, 0x00)                  // compression: len 1 + null
+	hb = append(hb, 0x03, 0x03)             // client_version
+	hb = append(hb, make([]byte, 32)...)    // random
+	hb = append(hb, 0x00)                   // session_id len
+	hb = append(hb, 0x00, 0x02, 0x13, 0x01) // cipher_suites: len 2 + one suite
+	hb = append(hb, 0x01, 0x00)             // compression: len 1 + null
 	hb = append(hb, byte(len(ext)>>8), byte(len(ext)))
 	hb = append(hb, ext...)
 	// handshake: type(1)=0x01, length(3), body

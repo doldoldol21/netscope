@@ -35,8 +35,8 @@ func (s *Source) Name() string { return s.name }
 func (s *Source) Run(ctx context.Context, out chan<- types.Flow) error { return errUnsupported }
 
 // Capturer stubs so the live source satisfies api.Capturer on all platforms.
-func (s *Source) ListInterfaces() []types.NetIface      { return nil }
-func (s *Source) PreferredInterface() string            { return "" }
+func (s *Source) ListInterfaces() []types.NetIface        { return nil }
+func (s *Source) PreferredInterface() string              { return "" }
 func (s *Source) SetPreferredInterface(name string) error { return errUnsupported }
 
 // LocalIPs returns no addresses on unsupported platforms.
