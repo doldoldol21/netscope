@@ -12,7 +12,7 @@ root capture daemon (`netscoped`) plus a menu-bar app and CLI, all in Go.
 
 ## Development setup
 
-Requires **Go 1.24+** and **macOS** (Xcode Command Line Tools for the C
+Requires **Go 1.25+** and **macOS** (Xcode Command Line Tools for the C
 toolchain — capture uses cgo/libpcap, the menu bar uses cgo/Cocoa).
 
 ```sh
