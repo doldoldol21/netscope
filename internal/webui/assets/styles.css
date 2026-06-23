@@ -122,8 +122,16 @@ main > * { max-width: 1340px; width: 100%; margin-inline: auto; }
 
 /* ---------- chart ---------- */
 /* The chart panel must not clip its legend: .panel sets overflow:hidden (for the
-   tables' rounded corners), but here the legend sits below the canvas. */
-.panel.full { overflow: visible; }
+   tables' rounded corners), but here the legend sits below the canvas. Scope to
+   the chart panel only, so table panels keep their clipped rounded corners. */
+.panel.full:has(canvas#chart) { overflow: visible; }
+/* A .panel.full is a grid item in <main>; with overflow:hidden WebKit collapses
+   its auto track to ~0 when content height depends on the resolved width (a
+   width:100% table) — the chart panel only dodged this via its fixed-height
+   canvas. Let the track size to content, and re-clip the rounded corners on the
+   inner table holder instead. */
+.panel.full:has(#countries) { overflow: visible; }
+#countries { overflow: hidden; border-bottom-left-radius: var(--radius); border-bottom-right-radius: var(--radius); }
 .chart-wrap { position: relative; padding: 8px 6px 4px; }
 canvas#chart { display: block; width: 100%; height: 200px; }
 .chart-legend { display: flex; gap: 16px; padding: 4px 12px 10px; font-size: 11.5px; color: var(--fg-dim); }

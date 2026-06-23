@@ -38,7 +38,7 @@ function flagChip(cc) {
 // ---------- state ----------
 // "session" = cumulative since the daemon started (stable, never resets);
 // "today"/"week" = historical totals from storage.
-const rangeState = { apps: "session", domains: "session" };
+const rangeState = { apps: "session", domains: "session", countries: "session" };
 const sortState = { apps: { key: "total", dir: -1 }, domains: { key: "total", dir: -1 } };
 let liveApps = [], liveDomains = [];
 const rateHist = []; // {t, rx, tx}
@@ -203,6 +203,52 @@ function wireSort(target) {
   });
 }
 
+// ============================================================ countries
+// Aggregate the domains list by country (client-side; country comes from GeoIP).
+function countriesHTML(domains) {
+  const by = new Map();
+  (domains || []).forEach((d) => {
+    const cc = d.country;
+    if (!cc) return;
+    const e = by.get(cc) || { cc, rx: 0, tx: 0, domains: 0 };
+    e.rx += Number(d.rxBytes) || 0; e.tx += Number(d.txBytes) || 0; e.domains++;
+    by.set(cc, e);
+  });
+  const list = [...by.values()].sort((a, b) => (b.rx + b.tx) - (a.rx + a.tx));
+  if (!list.length) return `<div class="state">no geo-located traffic yet</div>`;
+  const max = Math.max(1, ...list.map((c) => c.rx + c.tx));
+  const rows = list.slice(0, 50).map((c, i) => {
+    const total = c.rx + c.tx;
+    return `<tr>
+      <td class="rank">${i + 1}</td>
+      <td><div class="cell-name"><span class="flag">${flagEmoji(c.cc)}</span>
+        <span class="label">${esc(c.cc)} <small>· ${c.domains} domain${c.domains > 1 ? "s" : ""}</small></span>
+      </div><div class="usebar"><i style="width:${(100 * total / max).toFixed(1)}%"></i></div></td>
+      <td class="num rx">${fmtBytes(c.rx).str}</td>
+      <td class="num tx">${fmtBytes(c.tx).str}</td>
+      <td class="num">${fmtBytes(total).str}</td>
+    </tr>`;
+  }).join("");
+  return `<table class="tbl"><thead><tr><th></th><th>Country</th>
+    <th class="num">↓ Down</th><th class="num">↑ Up</th><th class="num">Total</th></tr></thead>
+    <tbody>${rows}</tbody></table>`;
+}
+function renderCountries() {
+  const el = $("countries"); // tolerate a stale cached HTML without this panel
+  if (el && rangeState.countries === "session") el.innerHTML = countriesHTML(liveDomains);
+}
+async function loadCountries(range) {
+  const el = $("countries");
+  if (!el.querySelector(".tbl")) el.innerHTML = skeletonTable();
+  try {
+    const data = await fetchJSON(`${API}/api/domains?range=${range}`);
+    el.innerHTML = countriesHTML(data || []);
+    el.firstElementChild && el.firstElementChild.classList.add("fade-in");
+  } catch (e) {
+    el.innerHTML = `<div class="state">failed to load</div>`;
+  }
+}
+
 // range tabs
 document.querySelectorAll(".tabs").forEach((tabs) => {
   const target = tabs.dataset.target;
@@ -211,7 +257,9 @@ document.querySelectorAll(".tabs").forEach((tabs) => {
       tabs.querySelectorAll("button").forEach((b) => b.classList.remove("active"));
       btn.classList.add("active");
       rangeState[target] = btn.dataset.range;
-      if (btn.dataset.range === "session") renderPanel(target);
+      const live = btn.dataset.range === "session";
+      if (target === "countries") { live ? renderCountries() : loadCountries(btn.dataset.range); }
+      else if (live) renderPanel(target);
       else loadHistory(target, btn.dataset.range);
     };
   });
@@ -498,7 +546,7 @@ function onSnapshot(s) {
   liveApps = s.apps || [];
   liveDomains = s.domains || [];
   $("c-active").textContent = (s.activeApps != null ? s.activeApps : liveApps.length);
-  renderPanel("apps"); renderPanel("domains");
+  renderPanel("apps"); renderPanel("domains"); renderCountries();
 
   rateHist.push({ t: new Date(s.time).getTime() || Date.now(), rx: Number(s.rxPerSec) || 0, tx: Number(s.txPerSec) || 0 });
   while (rateHist.length > MAXP) rateHist.shift();
