@@ -157,6 +157,13 @@ canvas#chart { display: block; width: 100%; height: 200px; }
 .tbl td.rank { color: var(--muted); font: 500 11px/1 var(--mono); width: 26px; }
 .cell-name { display: flex; align-items: center; gap: 9px; min-width: 0; }
 .cell-name .swatch { width: 9px; height: 9px; border-radius: 3px; flex: none; }
+/* App rows: a fixed icon slot with the colored dot centered behind, and the real
+   macOS app icon layered on top (it removes itself on load error → dot shows). */
+.cell-ico { position: relative; width: 16px; height: 16px; flex: none; }
+/* Center the dot without transform: a transform makes a stacking context that
+   would paint the dot *over* the later <img>. inset:0 + margin:auto centers it. */
+.cell-ico .swatch { position: absolute; inset: 0; margin: auto; }
+.app-ico { position: absolute; inset: 0; z-index: 1; width: 16px; height: 16px; border-radius: 4px; object-fit: contain; }
 .cell-name .label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 280px; }
 .cell-name .label small { color: var(--muted); font-weight: 400; }
 .usebar { height: 4px; background: var(--panel-2); border-radius: 3px; margin-top: 5px; overflow: hidden; max-width: 320px; }

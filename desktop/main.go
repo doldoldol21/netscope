@@ -200,6 +200,34 @@ func startLoopbackUI(proxy http.Handler) string {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]string{"version": buildinfo.Version})
 	})
+	// Serve native macOS app icons for the dashboard's app list. Resolved via
+	// NSWorkspace at runtime (no bundled assets) and cached in-process — keyed by
+	// (path,name) so each app's main-thread icon render happens at most once. A
+	// cached nil means "no icon" so we don't retry daemons that have none.
+	iconCache := map[string][]byte{}
+	iconCached := map[string]bool{}
+	var iconMu sync.Mutex
+	mux.HandleFunc("/appicon", func(w http.ResponseWriter, r *http.Request) {
+		path := r.URL.Query().Get("path")
+		name := r.URL.Query().Get("name")
+		key := path + "\x00" + name
+		iconMu.Lock()
+		png, ok := iconCache[key], iconCached[key]
+		iconMu.Unlock()
+		if !ok {
+			png = appIcon(path, name, 32)
+			iconMu.Lock()
+			iconCache[key], iconCached[key] = png, true
+			iconMu.Unlock()
+		}
+		if len(png) == 0 {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "image/png")
+		w.Header().Set("Cache-Control", "max-age=3600")
+		_, _ = w.Write(png)
+	})
 	// Serve the embedded UI with no-store so the WebView never mixes a cached
 	// old asset with a freshly-built one (which left, e.g., new app.js calling
 	// into HTML that the cache hadn't updated). Embedded assets carry no

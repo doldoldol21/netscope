@@ -87,10 +87,18 @@ function tableHTML(items, target) {
     const sub = isApps ? "" : (it.appName && it.appName !== "unknown" ? ` <small>· ${esc(it.appName)}</small>` : "");
     const cat = (!isApps && it.category) ? ` <span class="chip">${esc(it.category)}</span>` : "";
     const rowAttr = isApps ? ` data-app="${esc(name)}" class="clickable"` : "";
+    // Apps show their real macOS icon (served by /appicon, resolved via
+    // NSWorkspace); the colored dot stays underneath as the fallback when no
+    // icon resolves (the <img> removes itself on error).
+    const ico = isApps
+      ? `<span class="cell-ico"><span class="swatch" style="background:${swatchColor(name)}"></span>` +
+        `<img class="app-ico" alt="" loading="lazy" onerror="this.remove()" ` +
+        `src="/appicon?path=${encodeURIComponent(it.path || "")}&name=${encodeURIComponent(name)}"></span>`
+      : `<span class="swatch" style="background:${swatchColor(name)}"></span>`;
     rows += `<tr${rowAttr}>
       <td class="rank">${i + 1}</td>
       <td><div class="cell-name">
-        <span class="swatch" style="background:${swatchColor(name)}"></span>
+        ${ico}
         <span class="label" title="${esc(isApps ? (it.path || name) : name)}">${isApps ? "" : flagChip(it.country)}${esc(name)}${sub}${cat}</span>
       </div><div class="usebar"><i style="width:${(100 * total / max).toFixed(1)}%"></i></div></td>
       <td class="num rx">${fmtBytes(it.rxBytes).str}</td>
