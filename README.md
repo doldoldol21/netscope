@@ -129,6 +129,9 @@ login session. netscope keeps these separate under the hood but ships them as a
   3. **reverse DNS (PTR)** — a background fallback for any IP still unnamed.
 - **category** — domains are matched (by registrable suffix) into neutral groups
   (cloud / cdn / media / social / ai / tracking), shown as a chip.
+- **country** — each remote IP is mapped to its country (flag in the dashboard)
+  using an **embedded, offline** database — no external GeoIP lookups, so the
+  IPs you contact are never revealed to a third party.
 
 ## Resilience
 
@@ -252,6 +255,12 @@ make cover
 make vet
 make fmt
 ```
+
+## Credits
+
+IP-to-country data is **DB-IP IP-to-Country Lite** (<https://db-ip.com>),
+licensed [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). Refresh the
+embedded copy with `scripts/gen-geoip.sh`.
 
 ## License
 
