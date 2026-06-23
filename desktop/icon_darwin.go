@@ -7,6 +7,7 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"math"
 )
 
 // statusIcon draws the menu-bar template glyph: a small activity wave. macOS
@@ -23,6 +24,42 @@ func statusIcon() []byte {
 	var buf bytes.Buffer
 	_ = png.Encode(&buf, img)
 	return buf.Bytes()
+}
+
+// iconWaveCanvas matches statusIcon's proportions so the idle and animated icons
+// line up. The wave uses an integer number of wavelengths across the drawable
+// width so it scrolls seamlessly (no edge jump on wrap).
+const (
+	iconW, iconH = 40, 22
+	iconWaves    = 2 // wavelengths across the width → seamless tiling
+)
+
+// iconFrameSet renders an animation cycle of a scrolling sine wave at a given
+// amplitude: n template PNGs (macOS tints them for light/dark). Higher amplitude
+// = a taller, livelier wave, which the animator ties to throughput so the icon
+// visibly reacts to traffic rather than only changing speed.
+func iconFrameSet(n int, amp float64) [][]byte {
+	mid := float64(iconH) / 2.0
+	period := float64(iconW) / float64(iconWaves)
+	black := color.RGBA{0, 0, 0, 255}
+	frames := make([][]byte, n)
+	for f := 0; f < n; f++ {
+		phase := float64(f) / float64(n) // 0..1 over the cycle
+		img := image.NewRGBA(image.Rect(0, 0, iconW, iconH))
+		yAt := func(x int) int {
+			return int(math.Round(mid + amp*math.Sin(2*math.Pi*(float64(x)/period+phase))))
+		}
+		px, py := 2, yAt(2)
+		for x := 3; x <= iconW-2; x++ {
+			y := yAt(x)
+			drawLine(img, px, py, x, y, black)
+			px, py = x, y
+		}
+		var buf bytes.Buffer
+		_ = png.Encode(&buf, img)
+		frames[f] = buf.Bytes()
+	}
+	return frames
 }
 
 // drawLine draws a thick (3px) line between two points.

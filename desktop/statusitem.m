@@ -31,6 +31,20 @@ void installStatusItem(const void *png, int len) {
   });
 }
 
+// setStatusImage swaps the menu-bar button's template image (one animation
+// frame, or the static idle glyph). Kept as a template so macOS tints it for the
+// light/dark menu bar automatically.
+void setStatusImage(const void *png, int len) {
+  NSData *d = [NSData dataWithBytes:png length:len];
+  dispatch_async(dispatch_get_main_queue(), ^{
+    if (!gItem) return;
+    NSImage *img = [[NSImage alloc] initWithData:d];
+    [img setTemplate:YES];
+    [img setSize:NSMakeSize(18, 18)];
+    gItem.button.image = img;
+  });
+}
+
 // setStatusText sets the live-rate text shown next to the menu-bar icon. The
 // input is a colored-segment protocol: segments joined by US (0x1f), each
 // "<tag>:<text>" where tag is d=download, u=upload, n=neutral. An empty string

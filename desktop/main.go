@@ -59,6 +59,9 @@ func main() {
 	// Show the live download/upload rate next to the menu-bar icon.
 	startMenuBarReadout(client)
 
+	// Animate the menu-bar icon with current throughput (RunCat-style).
+	startMenuBarAnimator()
+
 	// Periodically check GitHub for a newer release and notify on a new version.
 	startUpdateLoop()
 
@@ -132,6 +135,15 @@ func main() {
 					}
 				}
 				setMenuBarColor(on)
+			})
+			wruntime.EventsOn(ctx, "netscope:setmenubaranim", func(data ...interface{}) {
+				on := true
+				if len(data) > 0 {
+					if b, ok := data[0].(bool); ok {
+						on = b
+					}
+				}
+				setMenuBarAnim(on)
 			})
 			// Software-update controls, surfaced in the popover.
 			wruntime.EventsOn(ctx, "netscope:getupdate", func(...interface{}) {
