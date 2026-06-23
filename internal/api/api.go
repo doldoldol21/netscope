@@ -57,7 +57,20 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/interfaces", s.handleInterfaces)
 	mux.HandleFunc("/api/ratehist", s.handleRateHist)
 	mux.HandleFunc("/api/capture", s.handleCapture)
+	mux.HandleFunc("/api/connections", s.handleConnections)
 	return mux
+}
+
+// handleConnections returns the live connections active within the last window
+// (default 15s; ?window=<seconds>), most-active first.
+func (s *Server) handleConnections(w http.ResponseWriter, r *http.Request) {
+	window := 15 * time.Second
+	if q := r.URL.Query().Get("window"); q != "" {
+		if n, err := strconv.Atoi(q); err == nil && n > 0 {
+			window = time.Duration(n) * time.Second
+		}
+	}
+	writeJSON(w, s.eng.Connections(window))
 }
 
 // handleCapture reports (GET) or sets (POST {"paused":true}) whether live
