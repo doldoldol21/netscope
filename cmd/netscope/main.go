@@ -150,9 +150,9 @@ func exportData(base, kind, rng, format string) error {
 	}
 	w := csv.NewWriter(os.Stdout)
 	defer w.Flush()
-	_ = w.Write([]string{"domain", "app", "category", "rx_bytes", "tx_bytes", "total_bytes"})
+	_ = w.Write([]string{"domain", "app", "category", "country", "rx_bytes", "tx_bytes", "total_bytes"})
 	for _, d := range doms {
-		_ = w.Write([]string{d.Domain, d.AppName, d.Category,
+		_ = w.Write([]string{d.Domain, d.AppName, d.Category, d.Country,
 			strconv.FormatUint(d.RxBytes, 10), strconv.FormatUint(d.TxBytes, 10),
 			strconv.FormatUint(d.Total(), 10)})
 	}

@@ -25,6 +25,16 @@ function hueOf(s) {
 }
 const swatchColor = (name) => `hsl(${hueOf(name)} 55% 58%)`;
 
+// ISO alpha-2 country code -> flag emoji (regional indicator letters).
+function flagEmoji(cc) {
+  if (!cc || cc.length !== 2) return "";
+  return cc.toUpperCase().replace(/./g, (c) => String.fromCodePoint(0x1f1e6 + c.charCodeAt(0) - 65));
+}
+// A small flag chip for a domain row (empty when country is unknown).
+function flagChip(cc) {
+  return cc ? `<span class="flag" title="${esc(cc)}">${flagEmoji(cc)}</span> ` : "";
+}
+
 // ---------- state ----------
 // "session" = cumulative since the daemon started (stable, never resets);
 // "today"/"week" = historical totals from storage.
@@ -67,7 +77,7 @@ function tableHTML(items, target) {
       <td class="rank">${i + 1}</td>
       <td><div class="cell-name">
         <span class="swatch" style="background:${swatchColor(name)}"></span>
-        <span class="label" title="${esc(isApps ? (it.path || name) : name)}">${esc(name)}${sub}${cat}</span>
+        <span class="label" title="${esc(isApps ? (it.path || name) : name)}">${isApps ? "" : flagChip(it.country)}${esc(name)}${sub}${cat}</span>
       </div><div class="usebar"><i style="width:${(100 * total / max).toFixed(1)}%"></i></div></td>
       <td class="num rx">${fmtBytes(it.rxBytes).str}</td>
       <td class="num tx">${fmtBytes(it.txBytes).str}</td>
@@ -572,7 +582,7 @@ function drillDomainsHTML(items) {
       <td class="rank">${i + 1}</td>
       <td><div class="cell-name">
         <span class="swatch" style="background:${swatchColor(d.domain)}"></span>
-        <span class="label" title="${esc(d.domain)}">${esc(d.domain)}${cat}</span>
+        <span class="label" title="${esc(d.domain)}">${flagChip(d.country)}${esc(d.domain)}${cat}</span>
       </div><div class="usebar"><i style="width:${(100 * total / max).toFixed(1)}%"></i></div></td>
       <td class="num rx">${fmtBytes(d.rxBytes).str}</td>
       <td class="num tx">${fmtBytes(d.txBytes).str}</td>
@@ -675,8 +685,8 @@ async function exportAll() {
 function exportDrillDomains() {
   const app = drillState.app;
   if (!app) return;
-  const rows = [["domain", "category", "rx_bytes", "tx_bytes", "total_bytes"]];
-  (drillDomains || []).forEach((d) => rows.push([d.domain, d.category || "",
+  const rows = [["domain", "country", "category", "rx_bytes", "tx_bytes", "total_bytes"]];
+  (drillDomains || []).forEach((d) => rows.push([d.domain, d.country || "", d.category || "",
     d.rxBytes || 0, d.txBytes || 0, (Number(d.rxBytes) + Number(d.txBytes)) || 0]));
   const safe = app.replace(/[^\w.-]+/g, "_");
   saveFile(`netscope-${safe}-domains-${drillState.range}.csv`, toCSV(rows));

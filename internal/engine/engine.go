@@ -13,12 +13,14 @@ package engine
 
 import (
 	"context"
+	"net"
 	"sort"
 	"sync"
 	"time"
 
 	"github.com/doldoldol21/netscope/internal/classify"
 	"github.com/doldoldol21/netscope/internal/dnscache"
+	"github.com/doldoldol21/netscope/internal/geoip"
 	"github.com/doldoldol21/netscope/internal/storage"
 	"github.com/doldoldol21/netscope/pkg/types"
 )
@@ -99,6 +101,7 @@ type domAcc struct {
 	rx         uint64
 	tx         uint64
 	category   string
+	country    string
 	lastActive time.Time
 }
 
@@ -269,12 +272,13 @@ func (e *Engine) ingest(f types.Flow) {
 		}
 	}
 	cat := classify.Category(host)
+	country := geoip.Lookup(net.ParseIP(f.RemoteIP))
 	now := e.nowFn()
 
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	applyTo(e.winApps, e.winDomains, f, proc, host, cat, now)
-	applyTo(e.sessApps, e.sessDomains, f, proc, host, cat, now)
+	applyTo(e.winApps, e.winDomains, f, proc, host, cat, country, now)
+	applyTo(e.sessApps, e.sessDomains, f, proc, host, cat, country, now)
 	switch f.Direction {
 	case types.DirIn:
 		e.totalRx += f.Bytes
@@ -284,7 +288,7 @@ func (e *Engine) ingest(f types.Flow) {
 }
 
 // applyTo folds a flow into one app map and one domain map. Caller holds e.mu.
-func applyTo(apps map[string]*appAcc, domains map[domKey]*domAcc, f types.Flow, proc types.Process, host, cat string, now time.Time) {
+func applyTo(apps map[string]*appAcc, domains map[domKey]*domAcc, f types.Flow, proc types.Process, host, cat, country string, now time.Time) {
 	a := apps[proc.Name]
 	if a == nil {
 		a = &appAcc{name: proc.Name, path: proc.Path, conns: make(map[uint16]struct{})}
@@ -299,8 +303,11 @@ func applyTo(apps map[string]*appAcc, domains map[domKey]*domAcc, f types.Flow, 
 	dk := domKey{domain: host, app: proc.Name}
 	d := domains[dk]
 	if d == nil {
-		d = &domAcc{domain: host, app: proc.Name, category: cat}
+		d = &domAcc{domain: host, app: proc.Name, category: cat, country: country}
 		domains[dk] = d
+	}
+	if d.country == "" && country != "" {
+		d.country = country // fill once we learn it
 	}
 	d.lastActive = now
 
@@ -355,6 +362,7 @@ func domainsSlice(m map[domKey]*domAcc) []types.DomainStat {
 			RxBytes:  d.rx,
 			TxBytes:  d.tx,
 			Category: d.category,
+			Country:  d.country,
 		})
 	}
 	return out

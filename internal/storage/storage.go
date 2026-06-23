@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS domain_samples (
 	rx       INTEGER NOT NULL DEFAULT 0,
 	tx       INTEGER NOT NULL DEFAULT 0,
 	category TEXT    NOT NULL DEFAULT '',
+	country  TEXT    NOT NULL DEFAULT '',
 	PRIMARY KEY (bucket, domain, app)
 );
 CREATE INDEX IF NOT EXISTS idx_domain_bucket ON domain_samples(bucket);
@@ -58,6 +59,10 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("apply schema: %w", err)
 	}
+	// Migrate: add the country column to databases created before GeoIP support.
+	// (CREATE TABLE above already includes it for fresh DBs; this is a no-op error
+	// on those, which we ignore.)
+	_, _ = db.Exec(`ALTER TABLE domain_samples ADD COLUMN country TEXT NOT NULL DEFAULT ''`)
 	// Cap the WAL's auto-checkpoint so it can't balloon between maintenance runs.
 	_, _ = db.Exec(`PRAGMA wal_autocheckpoint=1000`) // ~4MB of pages
 	return &Store{db: db, path: path}, nil
@@ -108,8 +113,8 @@ func (s *Store) FlushDomains(bucket int64, domains []types.DomainStat) error {
 	}
 	defer tx.Rollback()
 	stmt, err := tx.Prepare(`
-		INSERT INTO domain_samples (bucket, domain, app, rx, tx, category)
-		VALUES (?, ?, ?, ?, ?, ?)
+		INSERT INTO domain_samples (bucket, domain, app, rx, tx, category, country)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(bucket, domain, app) DO UPDATE SET
 			rx = rx + excluded.rx,
 			tx = tx + excluded.tx`)
@@ -118,7 +123,7 @@ func (s *Store) FlushDomains(bucket int64, domains []types.DomainStat) error {
 	}
 	defer stmt.Close()
 	for _, d := range domains {
-		if _, err := stmt.Exec(bucket, d.Domain, d.AppName, d.RxBytes, d.TxBytes, d.Category); err != nil {
+		if _, err := stmt.Exec(bucket, d.Domain, d.AppName, d.RxBytes, d.TxBytes, d.Category, d.Country); err != nil {
 			return err
 		}
 	}
@@ -152,7 +157,7 @@ func (s *Store) Apps(since, until time.Time) ([]types.AppTraffic, error) {
 // Domains returns per-domain totals over [since, until), ranked by total bytes.
 func (s *Store) Domains(since, until time.Time) ([]types.DomainStat, error) {
 	rows, err := s.db.Query(`
-		SELECT domain, MAX(app), SUM(rx), SUM(tx), MAX(category)
+		SELECT domain, MAX(app), SUM(rx), SUM(tx), MAX(category), MAX(country)
 		FROM domain_samples
 		WHERE bucket >= ? AND bucket < ?
 		GROUP BY domain
@@ -165,7 +170,7 @@ func (s *Store) Domains(since, until time.Time) ([]types.DomainStat, error) {
 	var out []types.DomainStat
 	for rows.Next() {
 		var d types.DomainStat
-		if err := rows.Scan(&d.Domain, &d.AppName, &d.RxBytes, &d.TxBytes, &d.Category); err != nil {
+		if err := rows.Scan(&d.Domain, &d.AppName, &d.RxBytes, &d.TxBytes, &d.Category, &d.Country); err != nil {
 			return nil, err
 		}
 		out = append(out, d)
@@ -177,7 +182,7 @@ func (s *Store) Domains(since, until time.Time) ([]types.DomainStat, error) {
 // ranked by total bytes — backs the dashboard's per-app drill-down.
 func (s *Store) DomainsForApp(app string, since, until time.Time) ([]types.DomainStat, error) {
 	rows, err := s.db.Query(`
-		SELECT domain, MAX(app), SUM(rx), SUM(tx), MAX(category)
+		SELECT domain, MAX(app), SUM(rx), SUM(tx), MAX(category), MAX(country)
 		FROM domain_samples
 		WHERE bucket >= ? AND bucket < ? AND app = ?
 		GROUP BY domain
@@ -190,7 +195,7 @@ func (s *Store) DomainsForApp(app string, since, until time.Time) ([]types.Domai
 	var out []types.DomainStat
 	for rows.Next() {
 		var d types.DomainStat
-		if err := rows.Scan(&d.Domain, &d.AppName, &d.RxBytes, &d.TxBytes, &d.Category); err != nil {
+		if err := rows.Scan(&d.Domain, &d.AppName, &d.RxBytes, &d.TxBytes, &d.Category, &d.Country); err != nil {
 			return nil, err
 		}
 		out = append(out, d)

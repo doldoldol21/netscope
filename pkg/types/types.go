@@ -76,6 +76,7 @@ type DomainStat struct {
 	RxBytes  uint64 `json:"rxBytes"`
 	TxBytes  uint64 `json:"txBytes"`
 	Category string `json:"category,omitempty"`
+	Country  string `json:"country,omitempty"` // ISO alpha-2 (GeoIP of the remote IP)
 }
 
 // Total returns rx+tx.
