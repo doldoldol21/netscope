@@ -186,7 +186,7 @@ make app-dev         # terminal 2: dashboard with live-reload
 
 ### From source
 
-Requires Go 1.24+ and macOS (Xcode Command Line Tools for the C toolchain).
+Requires Go 1.25+ and macOS (Xcode Command Line Tools for the C toolchain).
 
 ```sh
 git clone https://github.com/doldoldol21/netscope
