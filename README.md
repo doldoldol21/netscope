@@ -60,6 +60,16 @@ and an **Open Dashboard** button for the full window.
   process* and maps IPs to domains from your own DNS replies, reverse-DNS, and
   the cleartext TLS SNI.
 
+<div align="center">
+
+<img src="assets/shot-popover.png" width="300" alt="netscope popover" />
+&nbsp;&nbsp;
+<img src="assets/shot-dashboard.png" width="560" alt="netscope dashboard" />
+
+*the menu-bar popover, and the full dashboard window*
+
+</div>
+
 ## How it works
 
 ```
