@@ -11,6 +11,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net"
 	"net/http"
 	"os"
@@ -97,7 +98,12 @@ func main() {
 			// The panel's "Open Dashboard" button asks to open the dashboard window.
 			wruntime.EventsOn(ctx, "netscope:opendash", func(...interface{}) {
 				if dashboardURL != "" {
-					openDashWindow(dashboardURL + "/dashboard.html")
+					// A per-process query (pid) makes the URL unique to this launch:
+					// 127.0.0.1:0 can hand back a port a previous launch used, and the
+					// WebView's on-disk cache is keyed by full URL — so an identical
+					// host:port would otherwise serve a stale dashboard.html cached
+					// before no-store landed. The static file server ignores the query.
+					openDashWindow(fmt.Sprintf("%s/dashboard.html?p=%d", dashboardURL, os.Getpid()))
 				}
 			})
 			// Alert-threshold settings, edited in the popover.
@@ -182,7 +188,15 @@ func startLoopbackUI(proxy http.Handler) string {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]string{"version": buildinfo.Version})
 	})
-	mux.Handle("/", http.FileServer(http.FS(webui.FS())))
+	// Serve the embedded UI with no-store so the WebView never mixes a cached
+	// old asset with a freshly-built one (which left, e.g., new app.js calling
+	// into HTML that the cache hadn't updated). Embedded assets carry no
+	// modtime, so without this the WebView caches heuristically.
+	files := http.FileServer(http.FS(webui.FS()))
+	mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		files.ServeHTTP(w, r)
+	}))
 	go func() { _ = http.Serve(ln, mux) }()
 	return "http://" + ln.Addr().String()
 }
