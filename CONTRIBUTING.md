@@ -69,6 +69,20 @@ docs: …   test: …   refactor: …   chore: …
 Phase 1 targets macOS; non-darwin builds compile (capture is stubbed) so the
 pure packages stay portable.
 
+## Releasing (maintainers)
+
+Releases are automated. Merge changes to `main` via PR, then push a tag:
+
+```sh
+git tag -a v0.7.0 -m "netscope v0.7.0"
+git push origin v0.7.0
+```
+
+GitHub Actions (`.github/workflows/release.yml`) builds `netscope.app` on macOS
+and publishes a release with the app zip + `install.sh`. (Run the workflow
+manually via *Actions ▸ Release ▸ Run workflow* to build a test artifact without
+publishing.)
+
 ## License
 
 By contributing, you agree your contributions are licensed under the

@@ -1,0 +1,43 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch: {} # manual run: build + upload an artifact, but don't publish
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # full history + tags so `git describe` stamps the version
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Install Wails
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
+      - name: Build package
+        run: |
+          export PATH="$(go env GOPATH)/bin:$PATH"
+          make package
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: netscope-app
+          path: |
+            dist/netscope-*-app.zip
+            dist/install.sh
+      - name: Publish release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            dist/netscope-*-app.zip dist/install.sh \
+            --title "netscope ${GITHUB_REF_NAME}" \
+            --generate-notes
