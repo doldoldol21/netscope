@@ -1,0 +1,4 @@
+# Auto-requests review from the maintainer on every PR that touches these paths.
+# (GitHub never requests the PR author themselves, so the maintainer's own PRs
+# are unaffected — self-merge stays available with 0 required approvals.)
+* @doldoldol21
