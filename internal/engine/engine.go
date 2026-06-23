@@ -129,6 +129,7 @@ type Engine struct {
 
 	snapMu   sync.RWMutex
 	snapshot types.Snapshot
+	rateHist []types.RatePoint // last ~2 min of per-second rates, to seed the live chart
 
 	ifaceMu sync.Mutex
 	iface   string // capture interface, updatable as the supervisor re-opens
@@ -419,7 +420,25 @@ func (e *Engine) updateSnapshot() {
 	}
 	e.snapMu.Lock()
 	e.snapshot = snap
+	// Keep a rolling per-second history so a freshly-opened dashboard can show
+	// the recent live chart immediately instead of starting from blank.
+	e.rateHist = append(e.rateHist, types.RatePoint{Time: now, RxPerSec: rxps, TxPerSec: txps})
+	if n := len(e.rateHist); n > rateHistLen {
+		e.rateHist = append(e.rateHist[:0], e.rateHist[n-rateHistLen:]...)
+	}
 	e.snapMu.Unlock()
+}
+
+// rateHistLen bounds the per-second rate ring (~2 minutes at one sample/sec).
+const rateHistLen = 120
+
+// RateHistory returns a copy of the recent per-second rate samples.
+func (e *Engine) RateHistory() []types.RatePoint {
+	e.snapMu.RLock()
+	defer e.snapMu.RUnlock()
+	out := make([]types.RatePoint, len(e.rateHist))
+	copy(out, e.rateHist)
+	return out
 }
 
 // pruneLocked drops session entries idle beyond SessionHorizon to bound memory.

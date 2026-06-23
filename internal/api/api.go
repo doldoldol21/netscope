@@ -53,7 +53,14 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/version", s.handleVersion)
 	mux.HandleFunc("/api/health", s.handleHealth)
 	mux.HandleFunc("/api/interfaces", s.handleInterfaces)
+	mux.HandleFunc("/api/ratehist", s.handleRateHist)
 	return mux
+}
+
+// handleRateHist returns the recent per-second throughput samples, so the
+// dashboard can seed its live chart immediately instead of from blank.
+func (s *Server) handleRateHist(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, s.eng.RateHistory())
 }
 
 // handleInterfaces lists capturable interfaces (GET) and switches the capture

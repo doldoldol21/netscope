@@ -353,12 +353,27 @@ document.querySelectorAll("#chart-tabs button").forEach((btn) => {
     chartMode = btn.dataset.mode;
     if (chartMode === "live") {
       $("chart-hint").textContent = "live · last 2 min";
-      drawChart();
+      seedLive();
     } else {
       loadHistChart(chartMode);
     }
   };
 });
+
+// seedLive prefills the live chart with the daemon's recent per-second history,
+// so it shows the last ~2 min immediately instead of starting blank on open.
+async function seedLive() {
+  try {
+    const pts = await fetchJSON(`${API}/api/ratehist`);
+    if (chartMode !== "live") return;
+    rateHist.length = 0;
+    (pts || []).forEach((p) => rateHist.push({
+      t: new Date(p.time).getTime() || Date.now(),
+      rx: Number(p.rxPerSec) || 0, tx: Number(p.txPerSec) || 0,
+    }));
+  } catch (_) { /* daemon not ready */ }
+  drawChart();
+}
 
 async function loadHistChart(range) {
   $("chart-hint").textContent = "loading " + (RANGE_LABEL[range] || range) + "…";
@@ -743,9 +758,9 @@ $("export-all").onclick = exportAll;
 $("drill-export").onclick = exportDrillDomains;
 
 // boot
+seedLive(); // prefill the live chart from the daemon's recent history
 connect();
 loadSummary();
 loadVersion();
 setInterval(loadSummary, 10000);
 setInterval(loadVersion, 3600000);
-drawChart();

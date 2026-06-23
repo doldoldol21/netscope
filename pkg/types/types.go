@@ -90,6 +90,13 @@ type NetIface struct {
 	Active  bool   `json:"active"` // currently being captured
 }
 
+// RatePoint is one per-second throughput sample (for seeding the live chart).
+type RatePoint struct {
+	Time     time.Time `json:"time"`
+	RxPerSec uint64    `json:"rxPerSec"`
+	TxPerSec uint64    `json:"txPerSec"`
+}
+
 // TimePoint is one bucket of a time-series response.
 type TimePoint struct {
 	Time    time.Time `json:"time"`
