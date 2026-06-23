@@ -126,3 +126,24 @@ type Snapshot struct {
 	// Paused is true while live capture is suspended by the user.
 	Paused bool `json:"paused"`
 }
+
+// Connection is one live network connection (an app talking to a remote
+// endpoint), surfaced by the "Live connections" view. Distinct local ports to
+// the same remote endpoint collapse into one row.
+type Connection struct {
+	Proto      Protocol  `json:"proto"`
+	App        string    `json:"app"`
+	Path       string    `json:"path"`
+	Host       string    `json:"host"` // hostname if known, else the remote IP
+	RemoteIP   string    `json:"remoteIP"`
+	RemotePort uint16    `json:"remotePort"`
+	Country    string    `json:"country"`
+	Category   string    `json:"category"`
+	RxBytes    uint64    `json:"rxBytes"`
+	TxBytes    uint64    `json:"txBytes"`
+	FirstSeen  time.Time `json:"firstSeen"`
+	LastSeen   time.Time `json:"lastSeen"`
+}
+
+// Total is the connection's combined throughput so far.
+func (c Connection) Total() uint64 { return c.RxBytes + c.TxBytes }

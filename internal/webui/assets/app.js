@@ -46,7 +46,7 @@ const MAXP = 120;
 
 // ============================================================ tables
 // filterState holds the per-panel search query (matches name/domain/app/cat/country).
-const filterState = { apps: "", domains: "" };
+const filterState = { apps: "", domains: "", conns: "" };
 function matchFilter(it, target, q) {
   if (target === "apps") {
     return (it.name || "").toLowerCase().includes(q) || (it.path || "").toLowerCase().includes(q);
@@ -257,6 +257,63 @@ async function loadCountries(range) {
   }
 }
 
+// ============================================================ live connections
+let connsList = []; // last fetched connections
+let connsBusy = false;
+let connsLastFetch = 0;
+
+function connMatch(c, q) {
+  return (c.host || "").toLowerCase().includes(q) || (c.app || "").toLowerCase().includes(q) ||
+    (c.country || "").toLowerCase().includes(q) || (c.category || "").toLowerCase().includes(q) ||
+    (c.remoteIP || "").toLowerCase().includes(q) || String(c.remotePort).includes(q);
+}
+
+function connsHTML(list) {
+  let items = list || [];
+  const q = filterState.conns.toLowerCase();
+  if (q) items = items.filter((c) => connMatch(c, q));
+  if (!items.length) {
+    return `<div class="state">${q ? `no matches for “${esc(q)}”` : "no active connections"}</div>`;
+  }
+  const max = Math.max(1, ...items.map((c) => Number(c.rxBytes) + Number(c.txBytes)));
+  const rows = items.slice(0, 100).map((c) => {
+    const total = Number(c.rxBytes) + Number(c.txBytes);
+    const host = c.host || c.remoteIP;
+    const ico = `<span class="cell-ico"><span class="swatch" style="background:${swatchColor(c.app)}"></span>` +
+      `<img class="app-ico" alt="" loading="lazy" onerror="this.remove()" ` +
+      `src="/appicon?path=${encodeURIComponent(c.path || "")}&name=${encodeURIComponent(c.app || "")}"></span>`;
+    return `<tr>
+      <td><div class="cell-name">${ico}<span class="label" title="${esc(c.app)}">${esc(c.app || "unknown")}</span></div></td>
+      <td><div class="cell-name"><span class="flag">${flagEmoji(c.country)}</span>
+        <span class="label" title="${esc(host)}:${c.remotePort}">${esc(host)}<small>:${c.remotePort}</small></span></div></td>
+      <td><span class="chip">${esc(c.proto)}</span></td>
+      <td><div class="usebar"><i style="width:${(100 * total / max).toFixed(1)}%"></i></div></td>
+      <td class="num rx">${fmtBytes(c.rxBytes).str}</td>
+      <td class="num tx">${fmtBytes(c.txBytes).str}</td>
+      <td class="num">${fmtBytes(total).str}</td>
+    </tr>`;
+  }).join("");
+  return `<table class="tbl"><thead><tr>
+    <th>App</th><th>Remote</th><th>Proto</th><th></th>
+    <th class="num">↓ Down</th><th class="num">↑ Up</th><th class="num">Total</th>
+  </tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+function renderConns() {
+  const el = $("conns");
+  if (el) el.innerHTML = connsHTML(connsList);
+}
+
+async function refreshConnections() {
+  if (connsBusy) return;
+  connsBusy = true;
+  try {
+    connsList = (await fetchJSON(`${API}/api/connections?window=15`)) || [];
+    renderConns();
+  } catch (_) { /* daemon not ready */ }
+  finally { connsBusy = false; }
+}
+
 // range tabs
 document.querySelectorAll(".tabs").forEach((tabs) => {
   const target = tabs.dataset.target;
@@ -272,6 +329,12 @@ document.querySelectorAll(".tabs").forEach((tabs) => {
     };
   });
 });
+
+// live-connections search box (separate: not a tableHTML target)
+(() => {
+  const box = $("conns-search");
+  if (box) box.oninput = () => { filterState.conns = box.value.trim(); renderConns(); };
+})();
 
 // search/filter boxes — re-render the current range (live or cached history)
 ["apps", "domains"].forEach((target) => {
@@ -559,6 +622,10 @@ function onSnapshot(s) {
   liveDomains = s.domains || [];
   $("c-active").textContent = (s.activeApps != null ? s.activeApps : liveApps.length);
   renderPanel("apps"); renderPanel("domains"); renderCountries();
+
+  // Refresh live connections at most ~every 2s (snapshots arrive ~1s).
+  const tnow = Date.now();
+  if (tnow - connsLastFetch > 2000) { connsLastFetch = tnow; refreshConnections(); }
 
   rateHist.push({ t: new Date(s.time).getTime() || Date.now(), rx: Number(s.rxPerSec) || 0, tx: Number(s.txPerSec) || 0 });
   while (rateHist.length > MAXP) rateHist.shift();
