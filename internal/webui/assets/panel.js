@@ -188,6 +188,7 @@ function fillMenuBar(cfg) {
     .map((o) => `<option value="${esc(o.id)}">${esc(o.label)}</option>`).join("");
   if (cfg.current) sel.value = cfg.current;
   $("set-menubar-color").checked = !!cfg.color;
+  $("set-menubar-anim").checked = cfg.animate !== false; // default on
 }
 $("set-menubar").onchange = (e) => {
   const r = rt();
@@ -196,6 +197,10 @@ $("set-menubar").onchange = (e) => {
 $("set-menubar-color").onchange = (e) => {
   const r = rt();
   if (r.EventsEmit) r.EventsEmit("netscope:setmenubarcolor", e.currentTarget.checked);
+};
+$("set-menubar-anim").onchange = (e) => {
+  const r = rt();
+  if (r.EventsEmit) r.EventsEmit("netscope:setmenubaranim", e.currentTarget.checked);
 };
 function fillSettings(cfg) {
   cfg = cfg || {};

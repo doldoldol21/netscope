@@ -59,11 +59,21 @@ var (
 	readoutMu    sync.Mutex
 	readoutStyle = "arrows"
 	readoutColor = false
+	readoutAnim  = true // animate the menu-bar icon with traffic by default
 	readoutPath  string
 	lastRx       string
 	lastTx       string
+	lastTotalBps float64 // most recent rx+tx, drives the icon animation speed
 	readoutHTTP  *http.Client
 )
+
+// currentRateBps returns the last-seen total throughput (rx+tx) in bytes/sec and
+// whether icon animation is enabled — read by the menu-bar animator.
+func currentRateBps() (bps float64, animate bool) {
+	readoutMu.Lock()
+	defer readoutMu.Unlock()
+	return lastTotalBps, readoutAnim
+}
 
 // startMenuBarReadout polls the daemon's live snapshot and shows the current
 // download/upload rate next to the menu-bar icon in the user's chosen style.
@@ -78,6 +88,7 @@ func startMenuBarReadout(client *http.Client) {
 			if ok {
 				readoutMu.Lock()
 				lastRx, lastTx = compactRate(rx), compactRate(tx)
+				lastTotalBps = rx + tx
 				readoutMu.Unlock()
 				renderReadout()
 			} else {
@@ -136,7 +147,22 @@ func menuBarStylesJSON() map[string]any {
 	for _, s := range menuBarStyles {
 		opts = append(opts, map[string]string{"id": s.ID, "label": s.Label})
 	}
-	return map[string]any{"current": cur, "color": color, "options": opts}
+	readoutMu.Lock()
+	anim := readoutAnim
+	readoutMu.Unlock()
+	return map[string]any{"current": cur, "color": color, "animate": anim, "options": opts}
+}
+
+// setMenuBarAnim toggles (and persists) the animated menu-bar icon. When turned
+// off the animator drops back to the static idle glyph.
+func setMenuBarAnim(on bool) {
+	readoutMu.Lock()
+	readoutAnim = on
+	readoutMu.Unlock()
+	saveReadoutStyle()
+	if !on {
+		setStatusImage(statusIcon())
+	}
 }
 
 // setMenuBarStyle applies and persists a style, refreshing the menu bar at once.
@@ -158,8 +184,9 @@ func setMenuBarColor(on bool) {
 }
 
 type readoutPrefs struct {
-	Style string `json:"style"`
-	Color bool   `json:"color"`
+	Style   string `json:"style"`
+	Color   bool   `json:"color"`
+	Animate *bool  `json:"animate"` // pointer so a missing field keeps the default (on)
 }
 
 func loadReadoutStyle() {
@@ -174,6 +201,9 @@ func loadReadoutStyle() {
 			readoutStyle = styleByID(p.Style).ID
 		}
 		readoutColor = p.Color
+		if p.Animate != nil {
+			readoutAnim = *p.Animate
+		}
 		readoutMu.Unlock()
 	}
 }
@@ -183,7 +213,8 @@ func saveReadoutStyle() {
 		return
 	}
 	readoutMu.Lock()
-	p := readoutPrefs{Style: readoutStyle, Color: readoutColor}
+	anim := readoutAnim
+	p := readoutPrefs{Style: readoutStyle, Color: readoutColor, Animate: &anim}
 	readoutMu.Unlock()
 	_ = os.MkdirAll(filepath.Dir(readoutPath), 0o755)
 	if b, err := json.MarshalIndent(p, "", "  "); err == nil {

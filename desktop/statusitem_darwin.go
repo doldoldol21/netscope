@@ -6,6 +6,7 @@ package main
 #cgo LDFLAGS: -framework Cocoa
 #include <stdlib.h>
 extern void installStatusItem(const void *png, int len);
+extern void setStatusImage(const void *png, int len);
 extern void setStatusText(const char *utf8);
 extern void positionPopover(int winW, int winH);
 extern void enablePopoverDismiss(void);
@@ -21,6 +22,14 @@ func installStatusItem(png []byte) {
 		return
 	}
 	C.installStatusItem(unsafe.Pointer(&png[0]), C.int(len(png)))
+}
+
+// setStatusImage swaps the menu-bar icon to the given template PNG (one frame).
+func setStatusImage(png []byte) {
+	if len(png) == 0 {
+		return
+	}
+	C.setStatusImage(unsafe.Pointer(&png[0]), C.int(len(png)))
 }
 
 // positionPopover places the popover window flush under the status item, on the

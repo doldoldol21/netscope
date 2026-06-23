@@ -7,6 +7,7 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"math"
 )
 
 // statusIcon draws the menu-bar template glyph: a small activity wave. macOS
@@ -23,6 +24,36 @@ func statusIcon() []byte {
 	var buf bytes.Buffer
 	_ = png.Encode(&buf, img)
 	return buf.Bytes()
+}
+
+// iconFrames renders n template PNGs of a scrolling sine wave — one animation
+// cycle. Played in order they read as a wave travelling left, like an activity
+// monitor; the animator plays them faster when traffic is heavier. Same canvas
+// proportions as statusIcon so the idle (static) and animated icons match.
+func iconFrames(n int) [][]byte {
+	const w, h = 40, 22
+	const amp = 5.0
+	const period = float64(w) / 1.6 // ~1.6 wavelengths across the width
+	mid := float64(h) / 2.0
+	black := color.RGBA{0, 0, 0, 255}
+	frames := make([][]byte, n)
+	for f := 0; f < n; f++ {
+		phase := float64(f) / float64(n) // 0..1 over the cycle
+		img := image.NewRGBA(image.Rect(0, 0, w, h))
+		yAt := func(x int) int {
+			return int(math.Round(mid + amp*math.Sin(2*math.Pi*(float64(x)/period+phase))))
+		}
+		px, py := 3, yAt(3)
+		for x := 4; x <= w-3; x++ {
+			y := yAt(x)
+			drawLine(img, px, py, x, y, black)
+			px, py = x, y
+		}
+		var buf bytes.Buffer
+		_ = png.Encode(&buf, img)
+		frames[f] = buf.Bytes()
+	}
+	return frames
 }
 
 // drawLine draws a thick (3px) line between two points.
