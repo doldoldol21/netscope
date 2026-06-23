@@ -121,6 +121,9 @@ main > * { max-width: 1340px; width: 100%; margin-inline: auto; }
 .tabs button.active { background: var(--panel-3); color: var(--fg); box-shadow: 0 1px 0 #00000033; }
 
 /* ---------- chart ---------- */
+/* The chart panel must not clip its legend: .panel sets overflow:hidden (for the
+   tables' rounded corners), but here the legend sits below the canvas. */
+.panel.full { overflow: visible; }
 .chart-wrap { position: relative; padding: 8px 6px 4px; }
 canvas#chart { display: block; width: 100%; height: 200px; }
 .chart-legend { display: flex; gap: 16px; padding: 4px 12px 10px; font-size: 11.5px; color: var(--fg-dim); }
@@ -244,3 +247,15 @@ tr.clickable:hover td { background: var(--panel-2); }
   font: 600 12px/1 var(--sans); padding: 7px 13px; transition: .15s; --wails-draggable: no-drag; }
 .hdr-btn:hover { color: var(--fg); border-color: var(--accent); }
 .hdr-btn:active { transform: translateY(1px); }
+
+/* panel search/filter box */
+.search {
+  appearance: none; -webkit-appearance: none;
+  font: 12px var(--sans); color: var(--fg); background: var(--panel-2);
+  border: 1px solid var(--line); border-radius: 7px; padding: 5px 9px;
+  width: 150px; max-width: 38%; margin-left: 10px; transition: border-color .12s, width .15s;
+}
+.search::placeholder { color: var(--muted); }
+.search:focus { outline: none; border-color: var(--accent); width: 200px; }
+.search::-webkit-search-cancel-button { -webkit-appearance: none; height: 12px; width: 12px;
+  background: var(--muted); mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M3 3l6 6M9 3l-6 6' stroke='black' stroke-width='1.6'/%3E%3C/svg%3E") center/contain no-repeat; cursor: pointer; }

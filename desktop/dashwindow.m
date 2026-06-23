@@ -97,6 +97,15 @@ void openDashWindow(const char *curl) {
     installAppMenu();
     // Become a regular app so the window gains focus, Cmd-Tab and a Dock icon.
     [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
+    // A runtime-promoted accessory app shows a generic (white) icon in Cmd-Tab /
+    // the Dock — and it's already non-nil, so set our bundle icon unconditionally
+    // (once) rather than only when empty.
+    static BOOL gIconSet = NO;
+    if (!gIconSet) {
+      NSString *icon = [[NSBundle mainBundle] pathForResource:@"iconfile" ofType:@"icns"];
+      NSImage *img = icon ? [[NSImage alloc] initWithContentsOfFile:icon] : nil;
+      if (img) { NSApp.applicationIconImage = img; gIconSet = YES; }
+    }
     if (gDash == nil) {
       NSRect frame = NSMakeRect(0, 0, 1120, 760);
       // No FullSizeContentView: that lets the WKWebView fill the title-bar strip

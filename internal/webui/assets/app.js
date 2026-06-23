@@ -45,14 +45,28 @@ const rateHist = []; // {t, rx, tx}
 const MAXP = 120;
 
 // ============================================================ tables
+// filterState holds the per-panel search query (matches name/domain/app/cat/country).
+const filterState = { apps: "", domains: "" };
+function matchFilter(it, target, q) {
+  if (target === "apps") {
+    return (it.name || "").toLowerCase().includes(q) || (it.path || "").toLowerCase().includes(q);
+  }
+  return (it.domain || "").toLowerCase().includes(q) || (it.appName || "").toLowerCase().includes(q) ||
+    (it.category || "").toLowerCase().includes(q) || (it.country || "").toLowerCase().includes(q);
+}
+
 function tableHTML(items, target) {
-  if (!items || !items.length) {
+  const q = filterState[target].toLowerCase(); // case-insensitive (macOS may auto-capitalize input)
+  let list = items || [];
+  if (q) list = list.filter((it) => matchFilter(it, target, q));
+  if (!list.length) {
+    if (q) return `<div class="state">no matches for “${esc(q)}”</div>`;
     const session = rangeState[target] === "session";
     return `<div class="state">${session ? "waiting for traffic…" : "no traffic in this range"}</div>`;
   }
   const isApps = target === "apps";
   const s = sortState[target];
-  const sorted = [...items].sort((a, b) => {
+  const sorted = [...list].sort((a, b) => {
     const av = sortVal(a, s.key), bv = sortVal(b, s.key);
     return (av < bv ? -1 : av > bv ? 1 : 0) * s.dir;
   });
@@ -102,6 +116,12 @@ function renderPanel(target) {
   if (rangeState[target] !== "session") return; // history handled by loadHistory
   const isApps = target === "apps";
   const items = isApps ? liveApps : liveDomains;
+  if (filterState[target]) { // filtering: full rebuild (skip in-place patch)
+    $(target).innerHTML = tableHTML(items, target);
+    wireSort(target);
+    liveSig[target] = "";
+    return;
+  }
   const s = sortState[target];
   const sorted = [...items].sort((a, b) => {
     const av = sortVal(a, s.key), bv = sortVal(b, s.key);
@@ -195,6 +215,21 @@ document.querySelectorAll(".tabs").forEach((tabs) => {
       else loadHistory(target, btn.dataset.range);
     };
   });
+});
+
+// search/filter boxes — re-render the current range (live or cached history)
+["apps", "domains"].forEach((target) => {
+  const box = $(target + "-search");
+  if (!box) return;
+  box.oninput = () => {
+    filterState[target] = box.value.trim();
+    if (rangeState[target] === "session") {
+      renderPanel(target);
+    } else {
+      $(target).innerHTML = tableHTML(JSON.parse($(target).dataset.cache || "[]"), target);
+      wireSort(target);
+    }
+  };
 });
 
 // ============================================================ summary cards
