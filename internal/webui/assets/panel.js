@@ -128,9 +128,25 @@ function openSettings() {
     r.EventsEmit("netscope:getalerts");  // Go replies on "netscope:alerts"
     r.EventsEmit("netscope:getupdate");  // Go replies on "netscope:update"
     r.EventsEmit("netscope:getmenubar"); // Go replies on "netscope:menubar"
+    r.EventsEmit("netscope:gettheme");   // Go replies on "netscope:theme"
   }
   $("settings").classList.add("show");
 }
+
+// ---- theme (shared with the dashboard; persisted server-side) ----
+function applyTheme(mode) {
+  const m = ["auto", "light", "dark"].includes(mode) ? mode : "auto";
+  if (m === "auto") document.documentElement.removeAttribute("data-theme");
+  else document.documentElement.setAttribute("data-theme", m);
+  const sel = $("set-theme");
+  if (sel) sel.value = m;
+}
+$("set-theme").onchange = (e) => {
+  const v = e.currentTarget.value;
+  applyTheme(v);
+  const r = rt();
+  if (r.EventsEmit) r.EventsEmit("netscope:settheme", v);
+};
 
 // ---- pause/resume capture (daemon closes the pcap handle while paused) ----
 let capPaused = false;
@@ -298,6 +314,7 @@ window.addEventListener("DOMContentLoaded", () => {
     window.runtime.EventsOn("netscope:show", () => { /* already on panel */ });
     window.runtime.EventsOn("netscope:alerts", (cfg) => fillSettings(cfg));
     window.runtime.EventsOn("netscope:menubar", (cfg) => fillMenuBar(cfg));
+    window.runtime.EventsOn("netscope:theme", (t) => applyTheme(t));
     window.runtime.EventsOn("netscope:update", (st) => renderUpdate(st));
     window.runtime.EventsOn("netscope:updateerror", () => {
       $("upd-status").textContent = "Update failed — try again";
@@ -305,8 +322,11 @@ window.addEventListener("DOMContentLoaded", () => {
       const now = $("upd-now");
       now.textContent = "Update & Restart"; now.disabled = false;
     });
-    // Ask for cached update status so the banner can appear on launch.
-    if (window.runtime.EventsEmit) window.runtime.EventsEmit("netscope:getupdate");
+    // Ask for cached update status + theme so the popover styles itself on launch.
+    if (window.runtime.EventsEmit) {
+      window.runtime.EventsEmit("netscope:getupdate");
+      window.runtime.EventsEmit("netscope:gettheme");
+    }
   }
 });
 

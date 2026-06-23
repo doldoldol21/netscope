@@ -29,14 +29,25 @@
   --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", Segoe UI, sans-serif;
 }
 
+/* Light theme variables. Applied two ways: automatically when the OS is light
+   and the user hasn't forced a theme (prefers-color-scheme), or explicitly via
+   [data-theme="light"]. [data-theme="dark"] keeps the dark defaults above and is
+   excluded from the auto rule so a user override always wins. */
 @media (prefers-color-scheme: light) {
-  :root {
+  :root:not([data-theme="dark"]) {
     color-scheme: light;
-    --bg: #f6f8fa; --bg-grad: none; --panel: #ffffff; --panel-2: #f3f5f8;
-    --panel-3: #eaeef2; --line: #d8dee4; --line-soft: #e6eaef; --fg: #1f2328;
-    --fg-dim: #57606a; --muted: #818b98; --accent: #0969da; --ai-bg: #f3eeff;
-    --ai-line: #d8c7ff; --shadow: 0 1px 2px #0000000d, 0 8px 24px -18px #0003;
+    --bg: #e9ecf1; --bg-grad: none; --panel: #f2f4f8; --panel-2: #e9edf3;
+    --panel-3: #dfe4ec; --line: #d2d8e1; --line-soft: #dee3ea; --fg: #2b303a;
+    --fg-dim: #5a626d; --muted: #8a93a0; --accent: #0969da; --ai-bg: #ece6fb;
+    --ai-line: #d4c6f5; --shadow: 0 1px 2px #00000010, 0 8px 24px -18px #00000026;
   }
+}
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f6f8fa; --bg-grad: none; --panel: #ffffff; --panel-2: #f3f5f8;
+  --panel-3: #eaeef2; --line: #d8dee4; --line-soft: #e6eaef; --fg: #1f2328;
+  --fg-dim: #57606a; --muted: #818b98; --accent: #0969da; --ai-bg: #f3eeff;
+  --ai-line: #d8c7ff; --shadow: 0 1px 2px #0000000d, 0 8px 24px -18px #0003;
 }
 
 * { box-sizing: border-box; }

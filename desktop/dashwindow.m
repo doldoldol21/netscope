@@ -172,6 +172,16 @@ void openDashWindow(const char *curl) {
   });
 }
 
+// dashEvalJS runs JavaScript in the dashboard web view if it's loaded. Used to
+// push live UI changes (e.g. a theme switch from the popover) instantly.
+void dashEvalJS(const char *js) {
+  NSString *code = js ? [NSString stringWithUTF8String:js] : nil;
+  if (code.length == 0) return;
+  dispatch_async(dispatch_get_main_queue(), ^{
+    if (gDashWeb) [gDashWeb evaluateJavaScript:code completionHandler:nil];
+  });
+}
+
 // closeDashWindow hides the dashboard window (kept for reuse).
 void closeDashWindow(void) {
   dispatch_async(dispatch_get_main_queue(), ^{
