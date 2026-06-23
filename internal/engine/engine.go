@@ -133,6 +133,7 @@ type Engine struct {
 
 	ifaceMu sync.Mutex
 	iface   string // capture interface, updatable as the supervisor re-opens
+	paused  bool   // surfaced in snapshots so the UI can show "paused"
 
 	rateRx, rateTx uint64
 	rateAt         time.Time
@@ -146,6 +147,19 @@ func (e *Engine) SetInterface(name string) {
 	e.ifaceMu.Lock()
 	e.iface = name
 	e.ifaceMu.Unlock()
+}
+
+// SetPaused records whether capture is suspended, for snapshot reporting.
+func (e *Engine) SetPaused(p bool) {
+	e.ifaceMu.Lock()
+	e.paused = p
+	e.ifaceMu.Unlock()
+}
+
+func (e *Engine) isPaused() bool {
+	e.ifaceMu.Lock()
+	defer e.ifaceMu.Unlock()
+	return e.paused
 }
 
 func (e *Engine) currentIface() string {
@@ -417,6 +431,7 @@ func (e *Engine) updateSnapshot() {
 		TxPerSec:     txps,
 		ActiveApps:   active,
 		Interface:    e.currentIface(),
+		Paused:       e.isPaused(),
 	}
 	e.snapMu.Lock()
 	e.snapshot = snap

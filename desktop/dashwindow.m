@@ -99,12 +99,21 @@ void openDashWindow(const char *curl) {
     [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
     // A runtime-promoted accessory app shows a generic (white) icon in Cmd-Tab /
     // the Dock — and it's already non-nil, so set our bundle icon unconditionally
-    // (once) rather than only when empty.
+    // (once). Load the bundle's actual composited icon via NSWorkspace (more
+    // reliable than reading the .icns directly), then force the Dock tile to
+    // redraw so the freshly-promoted process picks it up instead of the generic.
     static BOOL gIconSet = NO;
     if (!gIconSet) {
-      NSString *icon = [[NSBundle mainBundle] pathForResource:@"iconfile" ofType:@"icns"];
-      NSImage *img = icon ? [[NSImage alloc] initWithContentsOfFile:icon] : nil;
-      if (img) { NSApp.applicationIconImage = img; gIconSet = YES; }
+      NSImage *img = [[NSWorkspace sharedWorkspace] iconForFile:[[NSBundle mainBundle] bundlePath]];
+      if (!img) {
+        NSString *icon = [[NSBundle mainBundle] pathForResource:@"iconfile" ofType:@"icns"];
+        img = icon ? [[NSImage alloc] initWithContentsOfFile:icon] : nil;
+      }
+      if (img) {
+        NSApp.applicationIconImage = img;
+        [NSApp.dockTile display];
+        gIconSet = YES;
+      }
     }
     if (gDash == nil) {
       NSRect frame = NSMakeRect(0, 0, 1120, 760);

@@ -38,6 +38,8 @@ func (s *Source) Run(ctx context.Context, out chan<- types.Flow) error { return 
 func (s *Source) ListInterfaces() []types.NetIface        { return nil }
 func (s *Source) PreferredInterface() string              { return "" }
 func (s *Source) SetPreferredInterface(name string) error { return errUnsupported }
+func (s *Source) Paused() bool                            { return false }
+func (s *Source) SetPaused(p bool)                        {}
 
 // LocalIPs returns no addresses on unsupported platforms.
 func LocalIPs() []string { return nil }
