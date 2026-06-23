@@ -72,9 +72,11 @@ function tableHTML(items, target) {
   });
   const max = Math.max(1, ...sorted.map((x) => Number(x.rxBytes) + Number(x.txBytes)));
 
+  const spark = isApps && rangeState[target] === "session"; // live per-app trend
   const head = `<thead><tr>
     <th></th>
     <th data-key="name">${isApps ? "App" : "Domain"}</th>
+    ${spark ? `<th class="spark-col">Trend</th>` : ""}
     <th class="num ${th("down", target)}" data-key="down">↓ Down<span class="caret">▼</span></th>
     <th class="num ${th("up", target)}" data-key="up">↑ Up<span class="caret">▼</span></th>
     <th class="num ${th("total", target)}" data-key="total">Total<span class="caret">▼</span></th>
@@ -101,6 +103,7 @@ function tableHTML(items, target) {
         ${ico}
         <span class="label" title="${esc(isApps ? (it.path || name) : name)}">${isApps ? "" : flagChip(it.country)}${esc(name)}${sub}${cat}</span>
       </div><div class="usebar"><i style="width:${(100 * total / max).toFixed(1)}%"></i></div></td>
+      ${spark ? `<td class="spark-col">${sparkSVG((appHist.get(name) || {}).pts)}</td>` : ""}
       <td class="num rx">${fmtBytes(it.rxBytes).str}</td>
       <td class="num tx">${fmtBytes(it.txBytes).str}</td>
       <td class="num">${fmtBytes(total).str}</td>
@@ -108,6 +111,37 @@ function tableHTML(items, target) {
   });
   return `<table class="tbl">${head}<tbody>${rows}</tbody></table>`;
 }
+// Per-app live throughput history (client-side): each snapshot we diff an app's
+// cumulative session bytes to get a per-tick delta, building a small ring buffer
+// for the row's mini sparkline. No backend change needed.
+const appHist = new Map(); // name -> { prev: number, pts: number[] }
+const SPARK_PTS = 24;
+function updateAppHist(apps) {
+  const seen = new Set();
+  for (const a of apps || []) {
+    const name = a.name || "unknown";
+    seen.add(name);
+    const total = Number(a.rxBytes) + Number(a.txBytes);
+    let h = appHist.get(name);
+    if (!h) { h = { prev: total, pts: [] }; appHist.set(name, h); }
+    const delta = Math.max(0, total - h.prev);
+    h.prev = total;
+    h.pts.push(delta);
+    if (h.pts.length > SPARK_PTS) h.pts.shift();
+  }
+  for (const k of appHist.keys()) if (!seen.has(k)) appHist.delete(k); // drop gone apps
+}
+
+// sparkSVG renders a tiny throughput trend as an inline SVG polyline (cheap to
+// update every second, unlike a per-row canvas).
+function sparkSVG(pts) {
+  if (!pts || pts.length < 2) return "";
+  const w = 60, h = 16, max = Math.max(1, ...pts), step = w / (pts.length - 1);
+  const d = pts.map((v, i) => `${(i * step).toFixed(1)},${(h - 1 - (v / max) * (h - 2)).toFixed(1)}`).join(" ");
+  return `<svg class="spark-svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true">` +
+    `<polyline points="${d}" fill="none" stroke="var(--accent)" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/></svg>`;
+}
+
 const th = (key, target) => sortState[target].key === key ? "sorted" : "";
 function sortVal(x, key) {
   if (key === "down") return Number(x.rxBytes);
@@ -139,7 +173,7 @@ function renderPanel(target) {
   const el = $(target);
   const tbody = el.querySelector("tbody");
   if (tbody && liveSig[target] === sig && tbody.children.length === sorted.length) {
-    patchRows(tbody, sorted); // same rows: just update numbers + bar widths
+    patchRows(tbody, sorted, target); // same rows: just update numbers + bar widths
     return;
   }
   el.innerHTML = tableHTML(items, target); // structure changed: rebuild
@@ -148,8 +182,9 @@ function renderPanel(target) {
 }
 
 // patchRows updates the numeric cells and bar widths of existing rows in place.
-function patchRows(tbody, sorted) {
+function patchRows(tbody, sorted, target) {
   const max = Math.max(1, ...sorted.map((x) => Number(x.rxBytes) + Number(x.txBytes)));
+  const spark = target === "apps" && rangeState.apps === "session";
   for (let i = 0; i < sorted.length; i++) {
     const it = sorted[i], tr = tbody.children[i];
     if (!tr) continue;
@@ -160,6 +195,10 @@ function patchRows(tbody, sorted) {
     if (nums[2]) nums[2].textContent = fmtBytes(total).str;
     const bar = tr.querySelector(".usebar i");
     if (bar) bar.style.width = (100 * total / max).toFixed(1) + "%";
+    if (spark) {
+      const cell = tr.querySelector(".spark-col");
+      if (cell) cell.innerHTML = sparkSVG((appHist.get(it.name || "unknown") || {}).pts);
+    }
   }
 }
 
@@ -642,6 +681,7 @@ function onSnapshot(s) {
   $("rxps").textContent = fmtRate(s.rxPerSec);
   $("txps").textContent = fmtRate(s.txPerSec);
   liveApps = s.apps || [];
+  updateAppHist(liveApps);
   liveDomains = s.domains || [];
   $("c-active").textContent = (s.activeApps != null ? s.activeApps : liveApps.length);
   renderPanel("apps"); renderPanel("domains"); renderCountries();

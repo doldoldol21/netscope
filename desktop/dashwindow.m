@@ -14,10 +14,8 @@ static id gDashKeyMonitor = nil;
 @interface NSDashDelegate : NSObject <NSWindowDelegate>
 @end
 @implementation NSDashDelegate
-// When the window closes, drop back to a menu-bar accessory app (no Dock icon)
-// and tear down the Cmd-W monitor so it doesn't linger for the process lifetime.
+// When the window closes, blank the web view so its live stream stops.
 - (void)windowWillClose:(NSNotification *)n {
-  [NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
   // Blank the web view so its live SSE stream stops and the WKWebView content
   // process is freed while the dashboard is closed (reopening reloads the URL).
   // NOTE: do NOT removeMonitor here — windowWillClose fires from inside the
@@ -95,26 +93,11 @@ void openDashWindow(const char *curl) {
   NSString *urlStr = [NSString stringWithUTF8String:curl];
   dispatch_async(dispatch_get_main_queue(), ^{
     installAppMenu();
-    // Become a regular app so the window gains focus, Cmd-Tab and a Dock icon.
-    [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
-    // A runtime-promoted accessory app shows a generic (white) icon in Cmd-Tab /
-    // the Dock — and it's already non-nil, so set our bundle icon unconditionally
-    // (once). Load the bundle's actual composited icon via NSWorkspace (more
-    // reliable than reading the .icns directly), then force the Dock tile to
-    // redraw so the freshly-promoted process picks it up instead of the generic.
-    static BOOL gIconSet = NO;
-    if (!gIconSet) {
-      NSImage *img = [[NSWorkspace sharedWorkspace] iconForFile:[[NSBundle mainBundle] bundlePath]];
-      if (!img) {
-        NSString *icon = [[NSBundle mainBundle] pathForResource:@"iconfile" ofType:@"icns"];
-        img = icon ? [[NSImage alloc] initWithContentsOfFile:icon] : nil;
-      }
-      if (img) {
-        NSApp.applicationIconImage = img;
-        [NSApp.dockTile display];
-        gIconSet = YES;
-      }
-    }
+    // Stay a menu-bar accessory app (RunCat/AlDente-style): no Dock icon, not in
+    // the Cmd-Tab switcher. We deliberately do NOT promote to .regular — runtime
+    // promotion of an LSUIElement app gave a generic white Dock/Cmd-Tab icon and
+    // ranked it last in the Cmd-Tab MRU. The window still focuses via activate +
+    // makeKeyAndOrderFront below.
     if (gDash == nil) {
       NSRect frame = NSMakeRect(0, 0, 1120, 760);
       // No FullSizeContentView: that lets the WKWebView fill the title-bar strip
@@ -129,12 +112,23 @@ void openDashWindow(const char *curl) {
       gDash.releasedWhenClosed = NO;                 // reuse across open/close
       gDash.title = @"netscope";
       gDash.titlebarAppearsTransparent = YES;        // blend the bar into the UI
-      gDash.titleVisibility = NSWindowTitleHidden;
+      gDash.titleVisibility = NSWindowTitleVisible;   // show "netscope" in the title bar
       gDash.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
       gDash.backgroundColor = [NSColor colorWithSRGBRed:13/255.0 green:17/255.0 blue:23/255.0 alpha:1.0];
       [gDash setMinSize:NSMakeSize(760, 480)];
       gDashDelegate = [[NSDashDelegate alloc] init];
       gDash.delegate = gDashDelegate;
+
+      // When the app is activated (Cmd-Tab, Dock click), raise the dashboard to
+      // the front. A runtime-promoted accessory app doesn't reliably re-order its
+      // window on activation, so Cmd-Tab to netscope left the dashboard behind
+      // other apps' windows. Installed once for the window's lifetime.
+      [[NSNotificationCenter defaultCenter]
+        addObserverForName:NSApplicationDidBecomeActiveNotification
+        object:nil queue:[NSOperationQueue mainQueue]
+        usingBlock:^(NSNotification *note) {
+          if (gDash && gDash.isVisible) [gDash makeKeyAndOrderFront:nil];
+        }];
 
       // Cmd-W to close. As a menu-bar accessory app we have no application menu,
       // so the standard File ▸ Close item that binds Cmd-W doesn't exist, and a
@@ -167,8 +161,27 @@ void openDashWindow(const char *curl) {
     }
     NSURL *url = [NSURL URLWithString:urlStr];
     [gDashWeb loadRequest:[NSURLRequest requestWithURL:url]];
+
+    // Animate the window in when it was closed (not when just re-focusing an open
+    // one): fade up from a slightly smaller, lower frame — a soft AlDente-style
+    // pop. The target is the window's resting frame.
+    BOOL animate = !gDash.isVisible;
+    NSRect target = gDash.frame;
+    if (animate) {
+      NSRect start = NSInsetRect(target, target.size.width * 0.02, target.size.height * 0.02);
+      start.origin.y -= 14; // start a touch lower, so it rises into place
+      gDash.alphaValue = 0.0;
+      [gDash setFrame:start display:NO];
+    }
     [gDash makeKeyAndOrderFront:nil];
     [NSApp activateIgnoringOtherApps:YES];
+    if (animate) {
+      [NSAnimationContext runAnimationGroup:^(NSAnimationContext *ctx) {
+        ctx.duration = 0.22; // default ease-in-ease-out timing reads as a soft pop
+        gDash.animator.alphaValue = 1.0;
+        [gDash.animator setFrame:target display:YES];
+      } completionHandler:nil];
+    }
   });
 }
 
