@@ -7,6 +7,20 @@
   --mono: "SF Mono", ui-monospace, Menlo, monospace;
   --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
 }
+/* Light theme — softened (no stark white). Auto-applied when the OS is light and
+   the user hasn't forced a theme, or explicitly via [data-theme="light"]. */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    color-scheme: light;
+    --bg: #e9ecf1; --bg2: #dfe3ea; --line: #d0d7df; --line-soft: #dde2e8;
+    --fg: #2b303a; --dim: #5a626d; --muted: #8a93a0; --accent: #0969da;
+  }
+}
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #e9ecf1; --bg2: #dfe3ea; --line: #d0d7df; --line-soft: #dde2e8;
+  --fg: #2b303a; --dim: #5a626d; --muted: #8a93a0; --accent: #0969da;
+}
 * { box-sizing: border-box; margin: 0; }
 html, body { height: 100%; background: transparent; }
 body {

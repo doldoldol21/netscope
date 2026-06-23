@@ -136,6 +136,21 @@ func main() {
 				}
 				setMenuBarColor(on)
 			})
+			// Theme (auto/light/dark), chosen in settings, shared with the dashboard.
+			wruntime.EventsOn(ctx, "netscope:gettheme", func(...interface{}) {
+				wruntime.EventsEmit(ctx, "netscope:theme", loadTheme())
+			})
+			wruntime.EventsOn(ctx, "netscope:settheme", func(data ...interface{}) {
+				if len(data) > 0 {
+					if t, ok := data[0].(string); ok {
+						saveTheme(t)
+						applied := loadTheme()
+						wruntime.EventsEmit(ctx, "netscope:theme", applied) // popover
+						// Push to the dashboard window instantly (no polling lag).
+						dashEvalJS("window.nsApplyTheme&&window.nsApplyTheme('" + applied + "')")
+					}
+				}
+			})
 			wruntime.EventsOn(ctx, "netscope:setmenubaranim", func(data ...interface{}) {
 				on := true
 				if len(data) > 0 {
@@ -199,6 +214,25 @@ func startLoopbackUI(proxy http.Handler) string {
 	mux.HandleFunc("/appinfo", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]string{"version": buildinfo.Version})
+	})
+	// Persist the dashboard's theme choice (auto/light/dark) in a small file, so
+	// it survives relaunches (the loopback origin's port changes each launch, so
+	// the WebView's localStorage wouldn't). GET returns it; POST {"theme":...} sets.
+	mux.HandleFunc("/theme", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			var body struct {
+				Theme string `json:"theme"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				http.Error(w, "bad request", http.StatusBadRequest)
+				return
+			}
+			saveTheme(body.Theme)
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{"theme": loadTheme()})
 	})
 	// Serve native macOS app icons for the dashboard's app list. Resolved via
 	// NSWorkspace at runtime (no bundled assets) and cached in-process — keyed by

@@ -330,6 +330,29 @@ document.querySelectorAll(".tabs").forEach((tabs) => {
   });
 });
 
+// ============================================================ theme
+// "auto" follows the OS (prefers-color-scheme); light/dark force it via
+// <html data-theme>. Chosen in the popover's settings and persisted server-side
+// (/theme); we poll so a change made in the popover reflects here while open.
+let themeMode = "auto";
+function applyTheme(mode) {
+  const next = ["auto", "light", "dark"].includes(mode) ? mode : "auto";
+  if (next === themeMode) return;
+  themeMode = next;
+  if (themeMode === "auto") document.documentElement.removeAttribute("data-theme");
+  else document.documentElement.setAttribute("data-theme", themeMode);
+  if (chartMode === "live") drawChart(); else drawHistChart(); // recolor canvas
+}
+async function loadTheme() {
+  try {
+    const d = await fetchJSON(`${API}/theme`);
+    applyTheme((d && d.theme) || "auto");
+  } catch (_) { /* keep current */ }
+}
+// The GUI pushes theme changes instantly via dashEvalJS(); this is the hook.
+window.nsApplyTheme = applyTheme;
+loadTheme(); // initial (covers a theme set before this window opened)
+
 // live-connections search box (separate: not a tableHTML target)
 (() => {
   const box = $("conns-search");
