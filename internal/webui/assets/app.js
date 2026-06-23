@@ -547,8 +547,12 @@ function drawSpark(id, color) {
 
 // ============================================================ live wiring
 function onSnapshot(s) {
+  applyPausedFromSnapshot(!!s.paused);
   const since = s.sessionStart ? sessionAge(s.sessionStart) : "";
-  setStatus("live", (s.interface || "—") + " · capturing" + (since ? " · session " + since : ""));
+  const state = capPaused
+    ? (s.interface || "—") + " · paused"
+    : (s.interface || "—") + " · capturing" + (since ? " · session " + since : "");
+  setStatus(capPaused ? "paused" : "live", state);
   $("rxps").textContent = fmtRate(s.rxPerSec);
   $("txps").textContent = fmtRate(s.txPerSec);
   liveApps = s.apps || [];
@@ -573,9 +577,37 @@ function sessionAge(iso) {
   return `${s}s`;
 }
 
+// ---- pause/resume capture (daemon closes the pcap handle while paused) ----
+let capPaused = false;
+let pausePendingUntil = 0; // ignore stale snapshots right after a manual toggle
+// A snapshot generated just before our POST landed still reports the old state;
+// during the pending window keep our optimistic value until snapshots agree.
+function applyPausedFromSnapshot(p) {
+  if (Date.now() < pausePendingUntil && p !== capPaused) return;
+  pausePendingUntil = 0;
+  reflectPaused(p);
+}
+function reflectPaused(p) {
+  capPaused = p;
+  const b = $("pause-btn");
+  if (b) { b.textContent = p ? "▶ Resume" : "⏸ Pause"; b.title = p ? "Resume capture" : "Pause capture"; b.classList.toggle("on", p); }
+}
+async function togglePause() {
+  const next = !capPaused;
+  pausePendingUntil = Date.now() + 3000; // hold our choice until snapshots catch up
+  reflectPaused(next); // optimistic; snapshots reconcile
+  try {
+    await fetch(`${API}/api/capture`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ paused: next }),
+    });
+  } catch (_) { /* ignore; next snapshot reconciles */ }
+}
+$("pause-btn").onclick = togglePause;
+
 function setStatus(kind, text) {
   const dot = $("dot");
-  dot.className = "dot " + (kind === "live" ? "live" : kind === "warn" ? "warn" : "");
+  dot.className = "dot " + (kind === "live" ? "live" : kind === "warn" || kind === "paused" ? "warn" : "");
   $("status-text").textContent = text;
 }
 

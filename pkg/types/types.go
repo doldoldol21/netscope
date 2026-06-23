@@ -123,4 +123,6 @@ type Snapshot struct {
 	// window (not the cumulative count).
 	ActiveApps int    `json:"activeApps"`
 	Interface  string `json:"interface"`
+	// Paused is true while live capture is suspended by the user.
+	Paused bool `json:"paused"`
 }

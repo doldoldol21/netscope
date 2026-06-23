@@ -14,7 +14,10 @@
     <span class="brand">netscope</span>
     <span class="spacer"></span>
     <span class="dot" id="dot"></span>
-    <button class="meta" id="meta" title="Capture interface">connecting…</button>
+    <button class="meta" id="meta" aria-label="Capture interface"
+            data-tip="Capture interface" data-tip-down>connecting…</button>
+    <button class="iconbtn" id="pause-btn" aria-label="Pause capture"
+            data-tip="Pause capture" data-tip-down>⏸</button>
   </header>
   <div class="iface-menu" id="iface-menu" hidden></div>
 
@@ -48,9 +51,11 @@
   <ul class="apps" id="apps"></ul>
 
   <footer>
-    <button class="primary" id="dash">Open Dashboard <span class="ext">↗</span></button>
-    <button class="ghost" id="alerts-btn" title="Usage alerts">⚙</button>
-    <button class="ghost" id="quit" title="Quit netscope">⏻</button>
+    <button class="primary" id="dash" aria-label="Open Dashboard">Open Dashboard <span class="ext">↗</span></button>
+    <button class="ghost" id="alerts-btn" aria-label="Settings"
+            data-tip="Settings">⚙</button>
+    <button class="ghost" id="quit" aria-label="Quit netscope"
+            data-tip="Quit">⏻</button>
   </footer>
 
   <div class="settings" id="settings">
@@ -104,6 +109,7 @@
     </div>
   </div>
 </div>
+<script src="tooltip.js"></script>
 <script src="panel.js"></script>
 </body>
 </html>

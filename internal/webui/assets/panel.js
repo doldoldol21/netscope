@@ -40,7 +40,8 @@ function drawSpark() {
 }
 
 function render(s) {
-  $("dot").classList.add("live");
+  applyPausedFromSnapshot(!!s.paused);
+  if (!capPaused) $("dot").classList.add("live");
   if (s.interface) { ifaceCur = s.interface; updateMetaText(); }
   $("rx").textContent = fmtRate(s.rxPerSec);
   $("tx").textContent = fmtRate(s.txPerSec);
@@ -131,9 +132,41 @@ function openSettings() {
   $("settings").classList.add("show");
 }
 
+// ---- pause/resume capture (daemon closes the pcap handle while paused) ----
+let capPaused = false;
+let pausePendingUntil = 0; // ignore stale snapshots right after a manual toggle
+// A snapshot generated just before our POST landed still reports the old state;
+// during the pending window keep our optimistic value until snapshots agree.
+function applyPausedFromSnapshot(p) {
+  if (Date.now() < pausePendingUntil && p !== capPaused) return;
+  pausePendingUntil = 0;
+  reflectPaused(p);
+}
+function reflectPaused(p) {
+  capPaused = p;
+  const b = $("pause-btn");
+  if (b) { b.textContent = p ? "▶" : "⏸"; b.title = p ? "Resume capture" : "Pause capture"; }
+  $("dot").classList.toggle("paused", p);
+  if (p) $("dot").classList.remove("live");
+  updateMetaText();
+}
+async function togglePause() {
+  const next = !capPaused;
+  pausePendingUntil = Date.now() + 3000; // hold our choice until snapshots catch up
+  reflectPaused(next); // optimistic; snapshots confirm
+  try {
+    await fetch("/api/capture", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ paused: next }),
+    });
+  } catch (_) { /* ignore; next snapshot reconciles */ }
+}
+$("pause-btn").onclick = togglePause;
+
 // ---- capture interface picker (top-right chip → dropdown, daemon API) ----
 let ifaceCur = "", ifaceSel = "", ifaceOpts = [];
 function updateMetaText() {
+  if (capPaused) { $("meta").textContent = "paused"; return; }
   const cur = ifaceCur || "live";
   $("meta").textContent = ifaceSel ? cur : ("auto · " + cur);
 }

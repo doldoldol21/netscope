@@ -34,6 +34,8 @@ type LiveSupervisor struct {
 	active   string             // interface currently being captured
 	cancel   context.CancelFunc // cancels the running source to force a re-open
 	onActive func(string)       // notified when the active interface (re)opens
+	paused   bool               // when true the Run loop closes capture and waits
+	resumeCh chan struct{}      // wakes a paused Run loop on resume
 }
 
 // SetOnInterface registers a callback invoked with the active interface name
@@ -49,7 +51,7 @@ func (ls *LiveSupervisor) SetOnInterface(fn func(string)) {
 // it across network changes. prefPath (optional) persists a runtime interface
 // choice so it survives daemon restarts; a saved choice overrides an empty iface.
 func NewLiveSupervisor(iface string, dns *dnscache.Cache, prefPath string) *LiveSupervisor {
-	ls := &LiveSupervisor{dns: dns, prefPath: prefPath, pref: iface}
+	ls := &LiveSupervisor{dns: dns, prefPath: prefPath, pref: iface, resumeCh: make(chan struct{}, 1)}
 	if iface == "" {
 		if saved := ls.loadPref(); saved != "" {
 			ls.pref = saved
@@ -95,6 +97,21 @@ func (ls *LiveSupervisor) Run(ctx context.Context, out chan<- types.Flow) error 
 	for {
 		if ctx.Err() != nil {
 			return ctx.Err()
+		}
+
+		// Paused: capture is closed (no pcap handle, no CPU) until resumed.
+		ls.mu.Lock()
+		paused := ls.paused
+		ls.mu.Unlock()
+		if paused {
+			log.Printf("capture: paused")
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-ls.resumeCh:
+				log.Printf("capture: resumed")
+				continue
+			}
 		}
 
 		iface, err := ls.resolve()
@@ -187,6 +204,36 @@ func (ls *LiveSupervisor) SetPreferredInterface(name string) error {
 		c() // drop the current source; the Run loop re-opens on the new interface
 	}
 	return nil
+}
+
+// Paused reports whether live capture is currently suspended.
+func (ls *LiveSupervisor) Paused() bool {
+	ls.mu.Lock()
+	defer ls.mu.Unlock()
+	return ls.paused
+}
+
+// SetPaused suspends or resumes live capture. Pausing closes the pcap handle
+// (no packets, no CPU) until resumed; resuming re-opens on the active interface.
+func (ls *LiveSupervisor) SetPaused(p bool) {
+	ls.mu.Lock()
+	if ls.paused == p {
+		ls.mu.Unlock()
+		return
+	}
+	ls.paused = p
+	c := ls.cancel
+	ls.mu.Unlock()
+	if p {
+		if c != nil {
+			c() // drop the live source; the Run loop then blocks at the top
+		}
+	} else {
+		select {
+		case ls.resumeCh <- struct{}{}: // wake the paused Run loop
+		default:
+		}
+	}
 }
 
 // ListInterfaces returns the capturable interfaces, marking the active one.
