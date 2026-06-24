@@ -407,12 +407,13 @@ document.querySelectorAll(".tabs").forEach((tabs) => {
   });
 });
 
-// ============================================================ metered / tethering
-// Tracks data usage on interfaces the user marks as "metered" (a tethered phone),
-// against an optional monthly budget. The daemon sums per-interface daily bytes
-// since the billing-cycle start; this just renders and edits the config.
-let meteredData = { plans: [], interfaces: [] };
-let meteredEditing = null; // iface being edited, "" for the add form, or null
+// ============================================================ network data usage
+// Every interface the daemon has captured on auto-appears with its usage this
+// billing cycle (no manual registration). A tethered phone is flagged so you can
+// see shared-data usage at a glance. Optionally attach a label + monthly budget
+// to any network to get a progress bar and over-budget warning.
+let meteredData = { networks: [] };
+let meteredEditing = null; // iface whose budget form is open, or null
 
 function gib(bytes) { return (Number(bytes) / (1024 ** 3)); }
 function cycleDateStr(unix) {
@@ -422,26 +423,19 @@ function cycleDateStr(unix) {
 
 async function loadMetered() {
   try {
-    meteredData = (await fetchJSON(`${API}/api/metered`)) || { plans: [], interfaces: [] };
+    meteredData = (await fetchJSON(`${API}/api/metered`)) || { networks: [] };
   } catch (_) { return; } // endpoint unavailable (older daemon)
   renderMetered();
 }
 
-function meteredFormHTML(plan) {
-  // plan: existing meteredPlan (edit) or null (add). Interface is a <select> when
-  // adding, fixed when editing.
-  const ifaces = meteredData.interfaces || [];
-  const cur = plan ? plan.iface : (ifaces.find((i) => i.active) || {}).name || (ifaces[0] || {}).name || "";
-  const opts = ifaces.map((i) => `<option value="${esc(i.name)}"${i.name === cur ? " selected" : ""}>${esc(i.display || i.name)}${i.active ? " · active" : ""}${i.tether ? " · 📱 tethering?" : ""}</option>`).join("");
-  const ifaceField = plan
-    ? `<span class="m-iface">${esc(plan.iface)}</span><input type="hidden" id="m-iface" value="${esc(plan.iface)}">`
-    : `<select id="m-iface">${opts || `<option value="">no interfaces</option>`}</select>`;
-  const label = plan ? esc(plan.label) : "";
-  const budget = plan && plan.budgetBytes ? gib(plan.budgetBytes).toFixed(1) : "";
-  const day = plan ? plan.cycleStartDay || 1 : 1;
+function meteredFormHTML(n) {
+  // Budget form for one (fixed) interface n.
+  const label = esc(n.label || "");
+  const budget = n.budgetBytes ? gib(n.budgetBytes).toFixed(1) : "";
+  const day = n.cycleStartDay || 1;
   return `<div class="m-form">
-    <div class="m-row">${ifaceField}
-      <input id="m-label" type="text" placeholder="label (e.g. SKT)" value="${label}" maxlength="24">
+    <div class="m-row">
+      <input id="m-label" type="text" placeholder="label (e.g. SKT plan)" value="${label}" maxlength="24">
     </div>
     <div class="m-row">
       <label>budget <input id="m-budget" type="number" min="0" step="0.5" placeholder="GB" value="${budget}"> GB</label>
@@ -454,56 +448,51 @@ function meteredFormHTML(plan) {
   </div>`;
 }
 
-function meteredCardHTML(p) {
-  const used = Number(p.usedBytes);
-  const has = p.budgetBytes > 0;
-  const pct = has ? Math.min(100, 100 * used / p.budgetBytes) : 0;
+function meteredCardHTML(n) {
+  const used = Number(n.usedBytes);
+  const has = n.budgetBytes > 0;
+  const pct = has ? Math.min(100, 100 * used / n.budgetBytes) : 0;
   const usedStr = fmtBytes(used).str;
-  const budStr = has ? fmtBytes(p.budgetBytes).str : "no budget";
-  const cls = p.overBudget ? " over" : (has && pct >= 80 ? " warn" : "");
-  // Friendly name + tether hint come straight from the plan (the daemon resolves
-  // macOS names like "iPhone USB" live, so they stay stable even mid Wi-Fi↔tether
-  // switch when the interface briefly has no IP).
-  const friendly = p.friendly && p.friendly !== p.iface ? p.friendly : "";
-  const ifaceLabel = friendly ? `${esc(friendly)} (${esc(p.iface)})` : esc(p.iface);
-  const tetherBadge = p.tether ? ` <span class="chip">📱 tethering</span>` : "";
+  const cls = n.overBudget ? " over" : (has && pct >= 80 ? " warn" : "");
+  const friendly = n.friendly && n.friendly !== n.iface ? n.friendly : "";
+  const ifaceLabel = friendly ? `${esc(friendly)} (${esc(n.iface)})` : esc(n.iface);
+  const badges = `${n.tether ? ` <span class="chip">📱 tethering</span>` : ""}${n.active ? ` <span class="chip">live</span>` : ""}`;
+  const editing = meteredEditing === n.iface;
   return `<div class="m-card${cls}">
     <div class="m-head">
-      <span class="m-name">${esc(p.label || friendly || p.iface)}</span>${tetherBadge}
-      <span class="m-sub">${ifaceLabel} · cycle from ${cycleDateStr(p.cycleStart)}</span>
-      <span class="m-edit" data-edit="${esc(p.iface)}" title="Edit">✎</span>
-      <span class="m-edit" data-remove="${esc(p.iface)}" title="Stop tracking">✕</span>
+      <span class="m-name">${esc(n.label || friendly || n.iface)}</span>${badges}
+      <span class="m-sub">${ifaceLabel} · since ${cycleDateStr(n.cycleStart)}</span>
+      <span class="m-edit" data-edit="${esc(n.iface)}" title="${n.configured ? "Edit budget" : "Set a budget"}">${n.configured ? "✎" : "＋ budget"}</span>
+      ${n.configured ? `<span class="m-edit" data-clear="${esc(n.iface)}" title="Clear budget">✕</span>` : ""}
     </div>
-    <div class="m-usage">${usedStr} <small>/ ${budStr}</small>${p.overBudget ? ` <span class="chip over">over budget</span>` : ""}</div>
+    <div class="m-usage">${usedStr}${has ? ` <small>/ ${fmtBytes(n.budgetBytes).str}</small>` : ""}${n.overBudget ? ` <span class="chip over">over budget</span>` : ""}</div>
     ${has ? `<div class="usebar m-bar"><i style="width:${pct.toFixed(1)}%"></i></div>` : ""}
+    ${editing ? meteredFormHTML(n) : ""}
   </div>`;
 }
 
 function renderMetered() {
   const el = $("metered");
   if (!el) return;
-  const plans = meteredData.plans || [];
-  let html = plans.map(meteredCardHTML).join("");
-  if (meteredEditing !== null) {
-    const plan = meteredEditing ? plans.find((p) => p.iface === meteredEditing) : null;
-    html += meteredFormHTML(plan);
-  } else if (!plans.length) {
-    html += `<div class="state">No metered interfaces. Tether your phone, then “＋ metered”.</div>`;
+  const nets = meteredData.networks || [];
+  if (!nets.length) {
+    el.innerHTML = `<div class="state">No network usage recorded yet. Browse a little and it'll appear here.</div>`;
+    return;
   }
-  el.innerHTML = html;
+  el.innerHTML = nets.map(meteredCardHTML).join("");
   wireMetered();
 }
 
 function wireMetered() {
   const el = $("metered");
   el.querySelectorAll("[data-edit]").forEach((b) => b.onclick = () => { meteredEditing = b.dataset.edit; renderMetered(); });
-  el.querySelectorAll("[data-remove]").forEach((b) => b.onclick = async () => {
-    await postJSON(`${API}/api/metered`, { iface: b.dataset.remove, metered: false });
-    await loadMetered();
+  el.querySelectorAll("[data-clear]").forEach((b) => b.onclick = async () => {
+    await postJSON(`${API}/api/metered`, { iface: b.dataset.clear, metered: false });
+    meteredEditing = null; await loadMetered();
   });
   const save = $("m-save");
   if (save) save.onclick = async () => {
-    const iface = ($("m-iface").value || "").trim();
+    const iface = meteredEditing;
     if (!iface) { meteredEditing = null; return renderMetered(); }
     const gbVal = parseFloat($("m-budget").value) || 0;
     const day = Math.max(1, Math.min(28, parseInt($("m-day").value, 10) || 1));
@@ -518,10 +507,6 @@ function wireMetered() {
   if (cancel) cancel.onclick = () => { meteredEditing = null; renderMetered(); };
 }
 
-(() => {
-  const add = $("metered-add");
-  if (add) add.onclick = () => { meteredEditing = ""; renderMetered(); };
-})();
 loadMetered();
 // Refresh usage on its own timer (independent of the live snapshot path), every
 // 5s, but never while editing (that would wipe the open form) or while hidden.

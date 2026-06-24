@@ -191,6 +191,26 @@ func (s *Store) AddIfaceUsage(iface string, day int64, rx, tx uint64) error {
 	return err
 }
 
+// IfacesWithUsage returns the distinct interfaces that have any usage recorded
+// on or after sinceDay (unix seconds at local midnight) — used to auto-list
+// networks without the user having to register them.
+func (s *Store) IfacesWithUsage(sinceDay int64) ([]string, error) {
+	rows, err := s.db.Query(`SELECT DISTINCT iface FROM iface_usage WHERE day >= ? ORDER BY iface`, sinceDay)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var s string
+		if err := rows.Scan(&s); err != nil {
+			return nil, err
+		}
+		out = append(out, s)
+	}
+	return out, rows.Err()
+}
+
 // IfaceUsageSince returns total rx/tx bytes for an interface on or after the
 // given day (unix seconds at local midnight) — i.e. usage in the current cycle.
 func (s *Store) IfaceUsageSince(iface string, sinceDay int64) (rx, tx uint64, err error) {

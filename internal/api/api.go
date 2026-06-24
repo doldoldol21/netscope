@@ -68,11 +68,15 @@ func (s *Server) Handler() http.Handler {
 	return mux
 }
 
-// meteredPlan is one metered interface with its current-cycle usage.
-type meteredPlan struct {
+// netUsage is one network's data usage for the current cycle. Every interface
+// that has recorded any traffic auto-appears; Configured/Label/Budget are the
+// optional user overlay (a data plan with a monthly budget).
+type netUsage struct {
 	Iface         string `json:"iface"`
 	Friendly      string `json:"friendly"` // macOS friendly name, resolved live
 	Tether        bool   `json:"tether"`
+	Active        bool   `json:"active"` // currently the capturing interface
+	Configured    bool   `json:"configured"`
 	Label         string `json:"label"`
 	BudgetBytes   uint64 `json:"budgetBytes"`
 	CycleStartDay int    `json:"cycleStartDay"`
@@ -81,10 +85,15 @@ type meteredPlan struct {
 	OverBudget    bool   `json:"overBudget"`
 }
 
-// handleMetered: GET returns metered interfaces (with cycle usage) plus the list
-// of available interfaces; POST sets/clears a metered interface.
+// defaultCycleDay is the billing-cycle reset day for interfaces the user hasn't
+// configured — usage is shown for the calendar month.
+const defaultCycleDay = 1
+
+// handleMetered: GET auto-lists every network with recorded usage this cycle,
+// overlaying any per-interface budget config; POST sets/clears a budget config.
 //
 //	POST body: {"iface":"en5","metered":true,"label":"SKT","budgetBytes":5368709120,"cycleStartDay":1}
+//	(metered:false clears the budget overlay; the network still auto-shows usage)
 func (s *Server) handleMetered(w http.ResponseWriter, r *http.Request) {
 	if s.metered == nil || s.store == nil {
 		http.Error(w, "metered tracking unavailable", http.StatusServiceUnavailable)
@@ -117,26 +126,66 @@ func (s *Server) handleMetered(w http.ResponseWriter, r *http.Request) {
 	}
 
 	now := time.Now()
-	plans := []meteredPlan{}
-	for iface, p := range s.metered.Plans() {
-		cs := metered.CycleStart(now, p.CycleStartDay)
+	cfg := s.metered.Plans()
+
+	// The set of networks to show: every interface with usage in the last ~35
+	// days (auto) ∪ any explicitly configured one.
+	seen := map[string]bool{}
+	var order []string
+	add := func(iface string) {
+		if iface == "" || seen[iface] {
+			return
+		}
+		seen[iface] = true
+		order = append(order, iface)
+	}
+	recent := metered.CycleStart(now, defaultCycleDay)
+	if d := time.Unix(recent, 0).AddDate(0, -1, 0).Unix(); true { // also include last month's tail
+		if ifaces, err := s.store.IfacesWithUsage(d); err == nil {
+			for _, i := range ifaces {
+				add(i)
+			}
+		}
+	}
+	for iface := range cfg {
+		add(iface)
+	}
+
+	active := ""
+	if s.cap != nil {
+		for _, i := range s.cap.ListInterfaces() {
+			if i.Active {
+				active = i.Name
+			}
+		}
+	}
+
+	out := []netUsage{}
+	for _, iface := range order {
+		p, configured := cfg[iface]
+		day := p.CycleStartDay
+		if !configured || day <= 0 {
+			day = defaultCycleDay
+		}
+		cs := metered.CycleStart(now, day)
 		rx, tx, _ := s.store.IfaceUsageSince(iface, cs)
 		used := rx + tx
 		friendly, tether := capture.FriendlyName(iface) // stable across up/down
-		plans = append(plans, meteredPlan{
-			Iface: iface, Friendly: friendly, Tether: tether,
-			Label: p.Label, BudgetBytes: p.BudgetBytes,
-			CycleStartDay: p.CycleStartDay, UsedBytes: used, CycleStart: cs,
+		out = append(out, netUsage{
+			Iface: iface, Friendly: friendly, Tether: tether, Active: iface == active,
+			Configured: configured, Label: p.Label, BudgetBytes: p.BudgetBytes,
+			CycleStartDay: day, UsedBytes: used, CycleStart: cs,
 			OverBudget: p.BudgetBytes > 0 && used >= p.BudgetBytes,
 		})
 	}
-	sort.Slice(plans, func(i, j int) bool { return plans[i].Iface < plans[j].Iface })
-
-	var ifaces []types.NetIface
-	if s.cap != nil {
-		ifaces = s.cap.ListInterfaces()
-	}
-	writeJSON(w, map[string]any{"plans": plans, "interfaces": ifaces})
+	// Tethered networks first, then by usage descending.
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Tether != out[j].Tether {
+			return out[i].Tether
+		}
+		return out[i].UsedBytes > out[j].UsedBytes
+	})
+	writeJSON(w, map[string]any{"networks": out})
 }
 
 // handleConnections returns the live connections active within the last window
