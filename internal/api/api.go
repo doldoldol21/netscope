@@ -13,6 +13,7 @@ import (
 
 	"github.com/doldoldol21/netscope/internal/buildinfo"
 	"github.com/doldoldol21/netscope/internal/engine"
+	"github.com/doldoldol21/netscope/internal/metered"
 	"github.com/doldoldol21/netscope/internal/storage"
 	"github.com/doldoldol21/netscope/internal/update"
 	"github.com/doldoldol21/netscope/pkg/types"
@@ -34,12 +35,16 @@ type Server struct {
 	store   *storage.Store
 	updater *update.Checker
 	cap     Capturer
+	metered *metered.Store // nil if metered tracking is unconfigured
 }
 
 // NewServer builds a Server. store, updater and capturer may be nil.
 func NewServer(eng *engine.Engine, store *storage.Store, updater *update.Checker, capturer Capturer) *Server {
 	return &Server{eng: eng, store: store, updater: updater, cap: capturer}
 }
+
+// SetMetered enables the metered-interface (tethering data) endpoints.
+func (s *Server) SetMetered(m *metered.Store) { s.metered = m }
 
 // Handler returns the API handler. netscope is app-only: the dashboard UI is
 // served by the native app (which embeds internal/webui) — the daemon exposes
@@ -58,7 +63,75 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/ratehist", s.handleRateHist)
 	mux.HandleFunc("/api/capture", s.handleCapture)
 	mux.HandleFunc("/api/connections", s.handleConnections)
+	mux.HandleFunc("/api/metered", s.handleMetered)
 	return mux
+}
+
+// meteredPlan is one metered interface with its current-cycle usage.
+type meteredPlan struct {
+	Iface         string `json:"iface"`
+	Label         string `json:"label"`
+	BudgetBytes   uint64 `json:"budgetBytes"`
+	CycleStartDay int    `json:"cycleStartDay"`
+	UsedBytes     uint64 `json:"usedBytes"`
+	CycleStart    int64  `json:"cycleStart"` // unix seconds (local midnight)
+	OverBudget    bool   `json:"overBudget"`
+}
+
+// handleMetered: GET returns metered interfaces (with cycle usage) plus the list
+// of available interfaces; POST sets/clears a metered interface.
+//
+//	POST body: {"iface":"en5","metered":true,"label":"SKT","budgetBytes":5368709120,"cycleStartDay":1}
+func (s *Server) handleMetered(w http.ResponseWriter, r *http.Request) {
+	if s.metered == nil || s.store == nil {
+		http.Error(w, "metered tracking unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	if r.Method == http.MethodPost {
+		var body struct {
+			Iface         string `json:"iface"`
+			Metered       bool   `json:"metered"`
+			Label         string `json:"label"`
+			BudgetBytes   uint64 `json:"budgetBytes"`
+			CycleStartDay int    `json:"cycleStartDay"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Iface == "" {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+		var err error
+		if body.Metered {
+			err = s.metered.Set(body.Iface, metered.Plan{
+				Label: body.Label, BudgetBytes: body.BudgetBytes, CycleStartDay: body.CycleStartDay,
+			})
+		} else {
+			err = s.metered.Remove(body.Iface)
+		}
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+
+	now := time.Now()
+	plans := []meteredPlan{}
+	for iface, p := range s.metered.Plans() {
+		cs := metered.CycleStart(now, p.CycleStartDay)
+		rx, tx, _ := s.store.IfaceUsageSince(iface, cs)
+		used := rx + tx
+		plans = append(plans, meteredPlan{
+			Iface: iface, Label: p.Label, BudgetBytes: p.BudgetBytes,
+			CycleStartDay: p.CycleStartDay, UsedBytes: used, CycleStart: cs,
+			OverBudget: p.BudgetBytes > 0 && used >= p.BudgetBytes,
+		})
+	}
+	sort.Slice(plans, func(i, j int) bool { return plans[i].Iface < plans[j].Iface })
+
+	var ifaces []types.NetIface
+	if s.cap != nil {
+		ifaces = s.cap.ListInterfaces()
+	}
+	writeJSON(w, map[string]any{"plans": plans, "interfaces": ifaces})
 }
 
 // handleConnections returns the live connections active within the last window

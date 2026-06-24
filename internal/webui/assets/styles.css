@@ -309,3 +309,29 @@ tr.clickable:hover td { background: var(--panel-2); }
   font: 500 11.5px/1.3 var(--sans);
   max-width: 260px; white-space: normal; pointer-events: none;
 }
+
+/* ---- metered / tethering ---- */
+#metered { padding: 8px 14px 14px; display: flex; flex-direction: column; gap: 10px; }
+.m-card { padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel-2); }
+.m-card.warn { border-color: color-mix(in srgb, orange 50%, var(--line)); }
+.m-card.over { border-color: color-mix(in srgb, #f04438 60%, var(--line)); }
+.m-head { display: flex; align-items: center; gap: 8px; }
+.m-name { font-weight: 600; }
+.m-sub { color: var(--muted); font-size: 11px; }
+.m-edit { cursor: pointer; color: var(--muted); padding: 0 3px; }
+.m-edit:first-of-type { margin-left: auto; }
+.m-edit:hover { color: var(--fg); }
+.m-usage { margin-top: 6px; font-variant-numeric: tabular-nums; }
+.m-usage small { color: var(--muted); }
+.m-bar { max-width: none; height: 6px; margin-top: 6px; }
+.m-card.over .m-bar > i { background: #f04438; }
+.chip.over { background: color-mix(in srgb, #f04438 22%, var(--panel-2)); color: #f04438; border-color: transparent; }
+.m-form { padding: 10px 12px; border: 1px dashed var(--line); border-radius: var(--radius); display: flex; flex-direction: column; gap: 8px; }
+.m-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.m-row label { font-size: 12px; color: var(--fg-dim); display: flex; align-items: center; gap: 5px; }
+.m-form input, .m-form select { background: var(--panel-3); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; font: inherit; }
+.m-form input[type="number"] { width: 70px; }
+.m-form #m-label { flex: 1; min-width: 120px; }
+.m-iface { font-weight: 600; }
+.m-actions { justify-content: flex-end; }
+.mini.ghost { background: transparent; }

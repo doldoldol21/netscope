@@ -407,6 +407,118 @@ document.querySelectorAll(".tabs").forEach((tabs) => {
   });
 });
 
+// ============================================================ metered / tethering
+// Tracks data usage on interfaces the user marks as "metered" (a tethered phone),
+// against an optional monthly budget. The daemon sums per-interface daily bytes
+// since the billing-cycle start; this just renders and edits the config.
+let meteredData = { plans: [], interfaces: [] };
+let meteredEditing = null; // iface being edited, "" for the add form, or null
+let meteredLastFetch = 0;
+
+function gib(bytes) { return (Number(bytes) / (1024 ** 3)); }
+function cycleDateStr(unix) {
+  const d = new Date(unix * 1000);
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+async function loadMetered() {
+  try {
+    meteredData = (await fetchJSON(`${API}/api/metered`)) || { plans: [], interfaces: [] };
+  } catch (_) { return; } // endpoint unavailable (older daemon)
+  renderMetered();
+}
+
+function meteredFormHTML(plan) {
+  // plan: existing meteredPlan (edit) or null (add). Interface is a <select> when
+  // adding, fixed when editing.
+  const ifaces = meteredData.interfaces || [];
+  const cur = plan ? plan.iface : (ifaces.find((i) => i.active) || {}).name || (ifaces[0] || {}).name || "";
+  const opts = ifaces.map((i) => `<option value="${esc(i.name)}"${i.name === cur ? " selected" : ""}>${esc(i.display || i.name)}${i.active ? " · active" : ""}</option>`).join("");
+  const ifaceField = plan
+    ? `<span class="m-iface">${esc(plan.iface)}</span><input type="hidden" id="m-iface" value="${esc(plan.iface)}">`
+    : `<select id="m-iface">${opts || `<option value="">no interfaces</option>`}</select>`;
+  const label = plan ? esc(plan.label) : "";
+  const budget = plan && plan.budgetBytes ? gib(plan.budgetBytes).toFixed(1) : "";
+  const day = plan ? plan.cycleStartDay || 1 : 1;
+  return `<div class="m-form">
+    <div class="m-row">${ifaceField}
+      <input id="m-label" type="text" placeholder="label (e.g. SKT)" value="${label}" maxlength="24">
+    </div>
+    <div class="m-row">
+      <label>budget <input id="m-budget" type="number" min="0" step="0.5" placeholder="GB" value="${budget}"> GB</label>
+      <label>resets day <input id="m-day" type="number" min="1" max="28" value="${day}"></label>
+    </div>
+    <div class="m-row m-actions">
+      <button class="mini" id="m-save">Save</button>
+      <button class="mini ghost" id="m-cancel">Cancel</button>
+    </div>
+  </div>`;
+}
+
+function meteredCardHTML(p) {
+  const used = Number(p.usedBytes);
+  const has = p.budgetBytes > 0;
+  const pct = has ? Math.min(100, 100 * used / p.budgetBytes) : 0;
+  const usedStr = fmtBytes(used).str;
+  const budStr = has ? fmtBytes(p.budgetBytes).str : "no budget";
+  const cls = p.overBudget ? " over" : (has && pct >= 80 ? " warn" : "");
+  return `<div class="m-card${cls}">
+    <div class="m-head">
+      <span class="m-name">${esc(p.label || p.iface)}</span>
+      <span class="m-sub">${esc(p.iface)} · cycle from ${cycleDateStr(p.cycleStart)}</span>
+      <span class="m-edit" data-edit="${esc(p.iface)}" title="Edit">✎</span>
+      <span class="m-edit" data-remove="${esc(p.iface)}" title="Stop tracking">✕</span>
+    </div>
+    <div class="m-usage">${usedStr} <small>/ ${budStr}</small>${p.overBudget ? ` <span class="chip over">over budget</span>` : ""}</div>
+    ${has ? `<div class="usebar m-bar"><i style="width:${pct.toFixed(1)}%"></i></div>` : ""}
+  </div>`;
+}
+
+function renderMetered() {
+  const el = $("metered");
+  if (!el) return;
+  const plans = meteredData.plans || [];
+  let html = plans.map(meteredCardHTML).join("");
+  if (meteredEditing !== null) {
+    const plan = meteredEditing ? plans.find((p) => p.iface === meteredEditing) : null;
+    html += meteredFormHTML(plan);
+  } else if (!plans.length) {
+    html += `<div class="state">No metered interfaces. Tether your phone, then “＋ metered”.</div>`;
+  }
+  el.innerHTML = html;
+  wireMetered();
+}
+
+function wireMetered() {
+  const el = $("metered");
+  el.querySelectorAll("[data-edit]").forEach((b) => b.onclick = () => { meteredEditing = b.dataset.edit; renderMetered(); });
+  el.querySelectorAll("[data-remove]").forEach((b) => b.onclick = async () => {
+    await postJSON(`${API}/api/metered`, { iface: b.dataset.remove, metered: false });
+    await loadMetered();
+  });
+  const save = $("m-save");
+  if (save) save.onclick = async () => {
+    const iface = ($("m-iface").value || "").trim();
+    if (!iface) { meteredEditing = null; return renderMetered(); }
+    const gbVal = parseFloat($("m-budget").value) || 0;
+    const day = Math.max(1, Math.min(28, parseInt($("m-day").value, 10) || 1));
+    await postJSON(`${API}/api/metered`, {
+      iface, metered: true, label: ($("m-label").value || "").trim(),
+      budgetBytes: Math.round(gbVal * (1024 ** 3)), cycleStartDay: day,
+    });
+    meteredEditing = null;
+    await loadMetered();
+  };
+  const cancel = $("m-cancel");
+  if (cancel) cancel.onclick = () => { meteredEditing = null; renderMetered(); };
+}
+
+(() => {
+  const add = $("metered-add");
+  if (add) add.onclick = () => { meteredEditing = ""; renderMetered(); };
+})();
+loadMetered();
+
 // ============================================================ theme
 // "auto" follows the OS (prefers-color-scheme); light/dark force it via
 // <html data-theme>. Chosen in the popover's settings and persisted server-side
@@ -772,6 +884,10 @@ function renderSnapshot(s) {
   const tnow = Date.now();
   if (tnow - connsLastFetch > 2000) { connsLastFetch = tnow; refreshConnections(); }
 
+  // Metered usage changes slowly; refresh ~every 20s, but never while the user
+  // is editing a plan (that would wipe the open form).
+  if (meteredEditing === null && tnow - meteredLastFetch > 20000) { meteredLastFetch = tnow; loadMetered(); }
+
   if (chartMode === "live") drawChart(); // don't clobber a history view
   drawSpark("spark-total", tvar("--accent"));
 }
@@ -831,6 +947,12 @@ async function fetchJSON(url) {
   const r = await fetch(url, { cache: "no-store" });
   if (!r.ok) throw new Error(r.status);
   return r.json();
+}
+
+async function postJSON(url, body) {
+  const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  if (!r.ok) throw new Error(r.status);
+  return r.text();
 }
 
 let es = null;

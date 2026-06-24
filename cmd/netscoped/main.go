@@ -26,6 +26,7 @@ import (
 	"github.com/doldoldol21/netscope/internal/dnscache"
 	"github.com/doldoldol21/netscope/internal/engine"
 	"github.com/doldoldol21/netscope/internal/ipc"
+	"github.com/doldoldol21/netscope/internal/metered"
 	"github.com/doldoldol21/netscope/internal/resolver"
 	"github.com/doldoldol21/netscope/internal/revdns"
 	"github.com/doldoldol21/netscope/internal/storage"
@@ -192,7 +193,12 @@ func run(iface, pcapFile string, demoMode bool, sock, dbPath string, noStore boo
 	if err != nil {
 		return fmt.Errorf("listen on %s: %w", sock, err)
 	}
-	srv := &http.Server{Handler: api.NewServer(eng, store, updater, capturer).Handler()}
+	apiSrv := api.NewServer(eng, store, updater, capturer)
+	// Metered/tethering data tracking: config sits next to the DB (root-owned).
+	if dbPath != "" && store != nil {
+		apiSrv.SetMetered(metered.Open(filepath.Join(filepath.Dir(dbPath), "metered.json")))
+	}
+	srv := &http.Server{Handler: apiSrv.Handler()}
 	go func() {
 		<-ctx.Done()
 		shutCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)

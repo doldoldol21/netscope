@@ -43,6 +43,17 @@ CREATE TABLE IF NOT EXISTS domain_samples (
 	PRIMARY KEY (bucket, domain, app)
 );
 CREATE INDEX IF NOT EXISTS idx_domain_bucket ON domain_samples(bucket);
+
+-- Per-interface daily byte totals, for metered/tethering data tracking. Kept at
+-- day granularity (one row per interface per local day) so a billing cycle's
+-- usage is a cheap SUM and the table stays tiny (~31 rows/interface/month).
+CREATE TABLE IF NOT EXISTS iface_usage (
+	iface TEXT    NOT NULL,
+	day   INTEGER NOT NULL,           -- unix seconds at local midnight
+	rx    INTEGER NOT NULL DEFAULT 0,
+	tx    INTEGER NOT NULL DEFAULT 0,
+	PRIMARY KEY (iface, day)
+);
 `
 
 // Open opens (creating if needed) the SQLite database at path and applies the
@@ -165,6 +176,29 @@ func (s *Store) FlushDomains(bucket int64, domains []types.DomainStat) error {
 		}
 	}
 	return tx.Commit()
+}
+
+// AddIfaceUsage folds rx/tx bytes into the given interface's daily total. day is
+// unix seconds at local midnight. A no-op when iface is empty or both are zero.
+func (s *Store) AddIfaceUsage(iface string, day int64, rx, tx uint64) error {
+	if iface == "" || (rx == 0 && tx == 0) {
+		return nil
+	}
+	_, err := s.db.Exec(`
+		INSERT INTO iface_usage (iface, day, rx, tx) VALUES (?, ?, ?, ?)
+		ON CONFLICT(iface, day) DO UPDATE SET rx = rx + excluded.rx, tx = tx + excluded.tx`,
+		iface, day, rx, tx)
+	return err
+}
+
+// IfaceUsageSince returns total rx/tx bytes for an interface on or after the
+// given day (unix seconds at local midnight) — i.e. usage in the current cycle.
+func (s *Store) IfaceUsageSince(iface string, sinceDay int64) (rx, tx uint64, err error) {
+	row := s.db.QueryRow(`
+		SELECT COALESCE(SUM(rx),0), COALESCE(SUM(tx),0) FROM iface_usage
+		WHERE iface = ? AND day >= ?`, iface, sinceDay)
+	err = row.Scan(&rx, &tx)
+	return
 }
 
 // Apps returns per-app totals over [since, until), ranked by total bytes.

@@ -9,6 +9,33 @@ import (
 	"github.com/doldoldol21/netscope/pkg/types"
 )
 
+func TestIfaceUsage(t *testing.T) {
+	s := openTemp(t)
+	// Two days of usage on en5, one on en0.
+	if err := s.AddIfaceUsage("en5", 1000, 100, 50); err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	_ = s.AddIfaceUsage("en5", 1000, 10, 5) // same day accumulates
+	_ = s.AddIfaceUsage("en5", 2000, 200, 100)
+	_ = s.AddIfaceUsage("en0", 2000, 999, 999)
+	// Empty iface / zero bytes are no-ops.
+	_ = s.AddIfaceUsage("", 2000, 1, 1)
+	_ = s.AddIfaceUsage("en5", 3000, 0, 0)
+
+	rx, tx, err := s.IfaceUsageSince("en5", 1000)
+	if err != nil {
+		t.Fatalf("since: %v", err)
+	}
+	if rx != 310 || tx != 155 { // (100+10+200) / (50+5+100)
+		t.Errorf("usage since 1000 = rx %d tx %d, want 310/155", rx, tx)
+	}
+	// Cycle boundary excludes the earlier day.
+	rx, tx, _ = s.IfaceUsageSince("en5", 2000)
+	if rx != 200 || tx != 100 {
+		t.Errorf("usage since 2000 = rx %d tx %d, want 200/100", rx, tx)
+	}
+}
+
 // TestOpenQuarantinesCorruptDB verifies a corrupt database file is moved aside
 // and a fresh, usable one is created — rather than failing Open() forever (which
 // would brick the daemon in a launchd KeepAlive crash loop).
