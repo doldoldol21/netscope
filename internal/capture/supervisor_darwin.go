@@ -349,6 +349,7 @@ func Interfaces() []types.NetIface {
 	if err != nil {
 		return nil
 	}
+	meta := interfaceMeta() // macOS friendly names ("Wi-Fi", "iPhone USB") by BSD name
 	var out []types.NetIface
 	for _, ifi := range ifaces {
 		if ifi.Flags&net.FlagLoopback != 0 {
@@ -365,10 +366,18 @@ func Interfaces() []types.NetIface {
 		if ip == "" {
 			continue // skip interfaces with no usable address
 		}
+		m := meta[ifi.Name]
+		friendly := m.friendly
+		if friendly == "" {
+			friendly = ifi.Name
+		}
 		out = append(out, types.NetIface{
-			Name:    ifi.Name,
-			Display: ifi.Name + " (" + ip + ")",
-			Up:      ifi.Flags&net.FlagUp != 0,
+			Name:     ifi.Name,
+			Display:  friendly + " (" + ip + ")",
+			Friendly: friendly,
+			Kind:     m.kind,
+			Tether:   m.tether,
+			Up:       ifi.Flags&net.FlagUp != 0,
 		})
 	}
 	return out

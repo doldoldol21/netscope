@@ -432,7 +432,7 @@ function meteredFormHTML(plan) {
   // adding, fixed when editing.
   const ifaces = meteredData.interfaces || [];
   const cur = plan ? plan.iface : (ifaces.find((i) => i.active) || {}).name || (ifaces[0] || {}).name || "";
-  const opts = ifaces.map((i) => `<option value="${esc(i.name)}"${i.name === cur ? " selected" : ""}>${esc(i.display || i.name)}${i.active ? " · active" : ""}</option>`).join("");
+  const opts = ifaces.map((i) => `<option value="${esc(i.name)}"${i.name === cur ? " selected" : ""}>${esc(i.display || i.name)}${i.active ? " · active" : ""}${i.tether ? " · 📱 tethering?" : ""}</option>`).join("");
   const ifaceField = plan
     ? `<span class="m-iface">${esc(plan.iface)}</span><input type="hidden" id="m-iface" value="${esc(plan.iface)}">`
     : `<select id="m-iface">${opts || `<option value="">no interfaces</option>`}</select>`;
@@ -461,10 +461,15 @@ function meteredCardHTML(p) {
   const usedStr = fmtBytes(used).str;
   const budStr = has ? fmtBytes(p.budgetBytes).str : "no budget";
   const cls = p.overBudget ? " over" : (has && pct >= 80 ? " warn" : "");
+  // Friendly name + tether hint from the interface list (the daemon resolves
+  // macOS names like "iPhone USB"; the plan itself only stores the BSD name).
+  const meta = (meteredData.interfaces || []).find((i) => i.name === p.iface) || {};
+  const ifaceLabel = meta.friendly ? `${esc(meta.friendly)} (${esc(p.iface)})` : esc(p.iface);
+  const tetherBadge = meta.tether ? ` <span class="chip">📱 tethering</span>` : "";
   return `<div class="m-card${cls}">
     <div class="m-head">
-      <span class="m-name">${esc(p.label || p.iface)}</span>
-      <span class="m-sub">${esc(p.iface)} · cycle from ${cycleDateStr(p.cycleStart)}</span>
+      <span class="m-name">${esc(p.label || meta.friendly || p.iface)}</span>${tetherBadge}
+      <span class="m-sub">${ifaceLabel} · cycle from ${cycleDateStr(p.cycleStart)}</span>
       <span class="m-edit" data-edit="${esc(p.iface)}" title="Edit">✎</span>
       <span class="m-edit" data-remove="${esc(p.iface)}" title="Stop tracking">✕</span>
     </div>

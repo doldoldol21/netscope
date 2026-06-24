@@ -84,10 +84,13 @@ func (d DomainStat) Total() uint64 { return d.RxBytes + d.TxBytes }
 
 // NetIface describes a capturable network interface for the settings UI.
 type NetIface struct {
-	Name    string `json:"name"`    // e.g. "en0"
-	Display string `json:"display"` // e.g. "en0 (192.168.0.5)"
-	Up      bool   `json:"up"`
-	Active  bool   `json:"active"` // currently being captured
+	Name     string `json:"name"`     // e.g. "en0"
+	Display  string `json:"display"`  // e.g. "Wi-Fi (192.168.0.5)" — friendly name + IP
+	Friendly string `json:"friendly"` // macOS localized name, e.g. "Wi-Fi", "iPhone USB"
+	Kind     string `json:"kind"`     // "wifi" | "ethernet" | "tether" | "other"
+	Tether   bool   `json:"tether"`   // heuristic: looks like phone tethering (USB/hotspot)
+	Up       bool   `json:"up"`
+	Active   bool   `json:"active"` // currently being captured
 }
 
 // RatePoint is one per-second throughput sample (for seeding the live chart).
