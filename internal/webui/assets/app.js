@@ -528,7 +528,7 @@ let themeMode = "auto";
 // forced style resolution — doing it on every snapshot (for the chart/sparkline)
 // was needless main-thread work since the values only change on a theme switch.
 // Cache them and refresh only when the theme actually changes.
-const THEME_VARS = ["--line", "--muted", "--rx", "--tx", "--accent", "--mono"];
+const THEME_VARS = ["--line", "--muted", "--rx", "--tx", "--accent", "--mono", "--sans"];
 let themeCache = null;
 function refreshThemeCache() {
   const css = getComputedStyle(document.body);
@@ -758,14 +758,14 @@ function drawHistChart() {
   const padL = 56, padB = 18, padT = 8, padR = 6;
   const plotW = w - padL - padR, plotH = h - padT - padB;
   if (!histPoints.length) {
-    g.fillStyle = cMuted; g.font = "12px " + css.getPropertyValue("--sans");
+    g.fillStyle = cMuted; g.font = "12px " + tvar("--sans");
     g.textAlign = "center"; g.textBaseline = "middle";
     g.fillText("no traffic in this range", w / 2, h / 2);
     return;
   }
   const peak = Math.max(1, ...histPoints.map((p) => Math.max(Number(p.rxBytes), Number(p.txBytes))));
   const top = niceMax(peak);
-  g.font = "10px " + css.getPropertyValue("--mono"); g.textBaseline = "middle";
+  g.font = "10px " + tvar("--mono"); g.textBaseline = "middle";
   for (let i = 0; i <= 4; i++) {
     const y = padT + (plotH * i) / 4;
     g.strokeStyle = cLine; g.globalAlpha = 0.5; g.beginPath();
@@ -1080,7 +1080,7 @@ function drawDrillChart(points) {
   const cRx = tvar("--rx");
   const cTx = tvar("--tx");
   if (!points.length) {
-    g.fillStyle = cMuted; g.font = "12px " + css.getPropertyValue("--sans");
+    g.fillStyle = cMuted; g.font = "12px " + tvar("--sans");
     g.textAlign = "center"; g.textBaseline = "middle";
     g.fillText("no traffic in this range", w / 2, h / 2);
     return;
@@ -1089,7 +1089,7 @@ function drawDrillChart(points) {
   const plotW = w - padL - padR, plotH = h - padT - padB;
   const peak = Math.max(1, ...points.map((p) => Math.max(Number(p.rxBytes), Number(p.txBytes))));
   const top = niceMax(peak);
-  g.font = "10px " + css.getPropertyValue("--mono"); g.textBaseline = "middle";
+  g.font = "10px " + tvar("--mono"); g.textBaseline = "middle";
   for (let i = 0; i <= 4; i++) {
     const y = padT + (plotH * i) / 4;
     g.strokeStyle = cLine; g.globalAlpha = 0.5; g.beginPath();
