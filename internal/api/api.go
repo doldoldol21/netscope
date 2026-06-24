@@ -6,6 +6,7 @@ package api
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"sort"
 	"strconv"
@@ -106,9 +107,22 @@ func (s *Server) handleNetUsage(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	// Interfaces that currently exist on the host (incl. down ones).
+	exists := map[string]bool{}
+	if ifs, err := net.Interfaces(); err == nil {
+		for _, i := range ifs {
+			exists[i.Name] = true
+		}
+	}
 	out := []netUsage{}
 	for _, u := range rows {
 		friendly, tether := capture.FriendlyName(u.Iface) // stable across up/down
+		// Hide ghost interfaces — ones that no longer exist and have no friendly
+		// name (e.g. a transient en7 from a past session). Keep currently-present
+		// ones and any with a resolved name (a just-unplugged tether).
+		if !exists[u.Iface] && friendly == u.Iface {
+			continue
+		}
 		out = append(out, netUsage{
 			Iface: u.Iface, Friendly: friendly, Tether: tether,
 			Active: u.Iface == active, RxBytes: u.Rx, TxBytes: u.Tx,
