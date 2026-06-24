@@ -9,6 +9,9 @@
         <string>{{.OutputFilename}}</string>
         <key>CFBundleIdentifier</key>
         <string>io.netscope.app</string>
+        <!-- Menu-bar utility (RunCat/AlDente-style): no Dock icon, not in the
+             Cmd-Tab switcher. The dashboard is a floating window of an accessory
+             app. -->
         <key>LSUIElement</key>
         <true/>
         <key>CFBundleVersion</key>

@@ -13,6 +13,7 @@ package engine
 
 import (
 	"context"
+	"log"
 	"net"
 	"sort"
 	"sync"
@@ -107,6 +108,26 @@ type domAcc struct {
 
 type domKey struct{ domain, app string }
 
+// connKey identifies a live connection: an app talking to a remote endpoint.
+// Ephemeral local ports to the same endpoint collapse into one entry.
+type connKey struct {
+	proto      types.Protocol
+	app        string
+	remoteIP   string
+	remotePort uint16
+}
+
+type connAcc struct {
+	host      string
+	path      string
+	category  string
+	country   string
+	rx        uint64
+	tx        uint64
+	firstSeen time.Time
+	lastSeen  time.Time
+}
+
 // Engine owns the accumulators and coordinates flushing/snapshots.
 type Engine struct {
 	cfg   Config
@@ -122,6 +143,8 @@ type Engine struct {
 	sessApps    map[string]*appAcc
 	sessDomains map[domKey]*domAcc
 	sessStart   time.Time
+	// Live connections (app ↔ remote endpoint), for the "Live connections" view.
+	conns map[connKey]*connAcc
 
 	// Monotonic lifetime totals, used to derive instantaneous rates.
 	totalRx uint64
@@ -133,6 +156,7 @@ type Engine struct {
 
 	ifaceMu sync.Mutex
 	iface   string // capture interface, updatable as the supervisor re-opens
+	paused  bool   // surfaced in snapshots so the UI can show "paused"
 
 	rateRx, rateTx uint64
 	rateAt         time.Time
@@ -146,6 +170,19 @@ func (e *Engine) SetInterface(name string) {
 	e.ifaceMu.Lock()
 	e.iface = name
 	e.ifaceMu.Unlock()
+}
+
+// SetPaused records whether capture is suspended, for snapshot reporting.
+func (e *Engine) SetPaused(p bool) {
+	e.ifaceMu.Lock()
+	e.paused = p
+	e.ifaceMu.Unlock()
+}
+
+func (e *Engine) isPaused() bool {
+	e.ifaceMu.Lock()
+	defer e.ifaceMu.Unlock()
+	return e.paused
 }
 
 func (e *Engine) currentIface() string {
@@ -168,6 +205,7 @@ func New(cfg Config, res Resolver, dns *dnscache.Cache, store *storage.Store) *E
 		winDomains:  make(map[domKey]*domAcc),
 		sessApps:    make(map[string]*appAcc),
 		sessDomains: make(map[domKey]*domAcc),
+		conns:       make(map[connKey]*connAcc),
 		nowFn:       time.Now,
 		iface:       cfg.Interface,
 	}
@@ -211,7 +249,7 @@ func (e *Engine) Run(ctx context.Context, flows <-chan types.Flow) error {
 				e.flush()
 				return nil
 			}
-			e.ingest(f)
+			e.safeIngest(f)
 		case <-flushT.C:
 			e.flush()
 		case <-snapT.C:
@@ -244,6 +282,19 @@ func (e *Engine) maintainStore() {
 }
 
 // ingest attributes a single flow and folds it into both accumulator sets.
+// safeIngest wraps ingest so a panic on a single malformed flow (a parser edge
+// case, an unexpected nil) drops that one packet instead of crashing the whole
+// daemon — which would lose all in-memory session state and force a launchd
+// restart. The hot path's cost is just a deferred recover.
+func (e *Engine) safeIngest(f types.Flow) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("engine: recovered from panic ingesting flow: %v", r)
+		}
+	}()
+	e.ingest(f)
+}
+
 func (e *Engine) ingest(f types.Flow) {
 	proc, ok := types.Process{Name: "unknown"}, false
 	if e.res != nil {
@@ -280,6 +331,27 @@ func (e *Engine) ingest(f types.Flow) {
 	defer e.mu.Unlock()
 	applyTo(e.winApps, e.winDomains, f, proc, host, cat, country, now)
 	applyTo(e.sessApps, e.sessDomains, f, proc, host, cat, country, now)
+
+	ck := connKey{proto: f.Proto, app: proc.Name, remoteIP: f.RemoteIP, remotePort: f.RemotePort}
+	c := e.conns[ck]
+	if c == nil {
+		c = &connAcc{host: host, path: proc.Path, category: cat, country: country, firstSeen: now}
+		e.conns[ck] = c
+	}
+	if c.country == "" && country != "" {
+		c.country = country
+	}
+	if c.host == "" || c.host == ck.remoteIP {
+		c.host = host // upgrade to a hostname once DNS resolves
+	}
+	c.lastSeen = now
+	switch f.Direction {
+	case types.DirIn:
+		c.rx += f.Bytes
+	case types.DirOut:
+		c.tx += f.Bytes
+	}
+
 	switch f.Direction {
 	case types.DirIn:
 		e.totalRx += f.Bytes
@@ -417,6 +489,7 @@ func (e *Engine) updateSnapshot() {
 		TxPerSec:     txps,
 		ActiveApps:   active,
 		Interface:    e.currentIface(),
+		Paused:       e.isPaused(),
 	}
 	e.snapMu.Lock()
 	e.snapshot = snap
@@ -444,6 +517,15 @@ func (e *Engine) RateHistory() []types.RatePoint {
 // pruneLocked drops session entries idle beyond SessionHorizon to bound memory.
 // Caller holds e.mu. No-op when the horizon is zero.
 func (e *Engine) pruneLocked(now time.Time) {
+	// Connections are short-lived by nature; drop ones idle beyond connTTL so the
+	// live view reflects what's actually open, and the map can't grow unbounded.
+	// This runs regardless of SessionHorizon.
+	cTTL := now.Add(-connTTL)
+	for k, c := range e.conns {
+		if c.lastSeen.Before(cTTL) {
+			delete(e.conns, k)
+		}
+	}
 	if e.cfg.SessionHorizon <= 0 {
 		return
 	}
@@ -458,6 +540,39 @@ func (e *Engine) pruneLocked(now time.Time) {
 			delete(e.sessDomains, k)
 		}
 	}
+}
+
+// connTTL bounds how long an idle connection lingers in the live-connections map.
+const connTTL = 90 * time.Second
+
+// Connections returns connections seen within activeWithin, most-active first.
+// activeWithin <= 0 returns all tracked (un-pruned) connections.
+func (e *Engine) Connections(activeWithin time.Duration) []types.Connection {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	now := e.nowFn()
+	out := make([]types.Connection, 0, len(e.conns))
+	for k, c := range e.conns {
+		if activeWithin > 0 && c.lastSeen.Before(now.Add(-activeWithin)) {
+			continue
+		}
+		out = append(out, types.Connection{
+			Proto:      k.proto,
+			App:        k.app,
+			Path:       c.path,
+			Host:       c.host,
+			RemoteIP:   k.remoteIP,
+			RemotePort: k.remotePort,
+			Country:    c.country,
+			Category:   c.category,
+			RxBytes:    c.rx,
+			TxBytes:    c.tx,
+			FirstSeen:  c.firstSeen,
+			LastSeen:   c.lastSeen,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Total() > out[j].Total() })
+	return out
 }
 
 // Snapshot returns the most recent live snapshot.

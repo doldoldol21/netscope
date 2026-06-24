@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/doldoldol21/netscope/internal/dnscache"
@@ -18,6 +19,14 @@ import (
 // ifaceWatchInterval is how often the supervisor re-checks the default route
 // (in auto mode) and how long it backs off between failed capture re-opens.
 const ifaceWatchInterval = 5 * time.Second
+
+// stallTimeout is how long capture may emit zero flows before the supervisor
+// assumes the pcap handle has gone dead (the classic case: a laptop sleeps and
+// wakes on the *same* Wi-Fi, so the interface name never changes and the route
+// watcher never fires, yet the old BPF handle silently returns no packets). The
+// watchdog then cancels the source to force a clean re-open. A false positive on
+// a genuinely idle interface just causes a cheap, seamless reconnect.
+const stallTimeout = 90 * time.Second
 
 // LiveSupervisor keeps live capture pinned to the active interface. A long-lived
 // daemon outlives network changes — Wi-Fi↔Ethernet switches, VPNs coming up,
@@ -34,6 +43,8 @@ type LiveSupervisor struct {
 	active   string             // interface currently being captured
 	cancel   context.CancelFunc // cancels the running source to force a re-open
 	onActive func(string)       // notified when the active interface (re)opens
+	paused   bool               // when true the Run loop closes capture and waits
+	resumeCh chan struct{}      // wakes a paused Run loop on resume
 }
 
 // SetOnInterface registers a callback invoked with the active interface name
@@ -49,7 +60,7 @@ func (ls *LiveSupervisor) SetOnInterface(fn func(string)) {
 // it across network changes. prefPath (optional) persists a runtime interface
 // choice so it survives daemon restarts; a saved choice overrides an empty iface.
 func NewLiveSupervisor(iface string, dns *dnscache.Cache, prefPath string) *LiveSupervisor {
-	ls := &LiveSupervisor{dns: dns, prefPath: prefPath, pref: iface}
+	ls := &LiveSupervisor{dns: dns, prefPath: prefPath, pref: iface, resumeCh: make(chan struct{}, 1)}
 	if iface == "" {
 		if saved := ls.loadPref(); saved != "" {
 			ls.pref = saved
@@ -97,6 +108,21 @@ func (ls *LiveSupervisor) Run(ctx context.Context, out chan<- types.Flow) error 
 			return ctx.Err()
 		}
 
+		// Paused: capture is closed (no pcap handle, no CPU) until resumed.
+		ls.mu.Lock()
+		paused := ls.paused
+		ls.mu.Unlock()
+		if paused {
+			log.Printf("capture: paused")
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-ls.resumeCh:
+				log.Printf("capture: resumed")
+				continue
+			}
+		}
+
 		iface, err := ls.resolve()
 		if err != nil || iface == "" {
 			log.Printf("capture: no usable interface yet; retrying in %s", ifaceWatchInterval)
@@ -127,7 +153,12 @@ func (ls *LiveSupervisor) Run(ctx context.Context, out chan<- types.Flow) error 
 		if auto {
 			go ls.watch(runCtx, iface, cancel)
 		}
-		err = src.Run(runCtx, out)
+		// Forward flows through a stall watchdog: if capture goes silent for
+		// stallTimeout (a dead handle after sleep/wake on the same interface),
+		// cancel so the loop re-opens. monOut tracks last-activity per flow.
+		monOut, lastFlow := monitored(runCtx, out)
+		go ls.watchStall(runCtx, iface, cancel, lastFlow)
+		err = src.Run(runCtx, monOut)
 		cancel()
 		ls.mu.Lock()
 		ls.cancel = nil
@@ -145,6 +176,62 @@ func (ls *LiveSupervisor) Run(ctx context.Context, out chan<- types.Flow) error 
 		}
 		if !sleep(ctx, time.Second) {
 			return ctx.Err()
+		}
+	}
+}
+
+// monitored returns a channel to hand to the capture source plus a pointer that
+// holds the unix-nano timestamp of the most recent flow. A forwarder goroutine
+// (tied to ctx) copies flows to out and stamps lastFlow, so the supervisor can
+// tell whether capture is still producing without touching the hot decode path.
+func monitored(ctx context.Context, out chan<- types.Flow) (chan<- types.Flow, *int64) {
+	in := make(chan types.Flow, 64)
+	lastFlow := new(int64)
+	atomic.StoreInt64(lastFlow, time.Now().UnixNano())
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case f := <-in:
+				atomic.StoreInt64(lastFlow, time.Now().UnixNano())
+				select {
+				case <-ctx.Done():
+					return
+				case out <- f:
+				}
+			}
+		}
+	}()
+	return in, lastFlow
+}
+
+// watchStall re-opens capture if no flow has arrived for stallTimeout. This
+// recovers the sleep/wake-on-same-interface case where the route watcher never
+// fires but the pcap handle is dead. The lastFlow timestamp is reset when the
+// source first opens, so a quiet-but-healthy interface only triggers an
+// occasional (cheap) reconnect, never a tight loop.
+func (ls *LiveSupervisor) watchStall(ctx context.Context, iface string, cancel context.CancelFunc, lastFlow *int64) {
+	t := time.NewTicker(stallTimeout / 3)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			// Don't count a paused source as stalled — it's silent on purpose.
+			ls.mu.Lock()
+			paused := ls.paused
+			ls.mu.Unlock()
+			if paused {
+				continue
+			}
+			last := time.Unix(0, atomic.LoadInt64(lastFlow))
+			if time.Since(last) >= stallTimeout {
+				log.Printf("capture: no flows on %s for %s; re-opening (suspected dead handle after sleep/wake)", iface, stallTimeout)
+				cancel()
+				return
+			}
 		}
 	}
 }
@@ -187,6 +274,36 @@ func (ls *LiveSupervisor) SetPreferredInterface(name string) error {
 		c() // drop the current source; the Run loop re-opens on the new interface
 	}
 	return nil
+}
+
+// Paused reports whether live capture is currently suspended.
+func (ls *LiveSupervisor) Paused() bool {
+	ls.mu.Lock()
+	defer ls.mu.Unlock()
+	return ls.paused
+}
+
+// SetPaused suspends or resumes live capture. Pausing closes the pcap handle
+// (no packets, no CPU) until resumed; resuming re-opens on the active interface.
+func (ls *LiveSupervisor) SetPaused(p bool) {
+	ls.mu.Lock()
+	if ls.paused == p {
+		ls.mu.Unlock()
+		return
+	}
+	ls.paused = p
+	c := ls.cancel
+	ls.mu.Unlock()
+	if p {
+		if c != nil {
+			c() // drop the live source; the Run loop then blocks at the top
+		}
+	} else {
+		select {
+		case ls.resumeCh <- struct{}{}: // wake the paused Run loop
+		default:
+		}
+	}
 }
 
 // ListInterfaces returns the capturable interfaces, marking the active one.

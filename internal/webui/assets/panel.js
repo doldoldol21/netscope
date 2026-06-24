@@ -22,6 +22,9 @@ function hue(s) { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.
 const spark = $("spark"), sx = spark.getContext("2d"), hist = [], MAXP = 80;
 function drawSpark() {
   const dpr = window.devicePixelRatio || 1, r = spark.getBoundingClientRect();
+  // While the popover is hidden the canvas has no layout size; skip so we don't
+  // blank it to nothing (which made the graph "disappear" until the next tick).
+  if (r.width < 1 || r.height < 1) return;
   spark.width = r.width * dpr; spark.height = r.height * dpr; sx.setTransform(dpr, 0, 0, dpr, 0, 0);
   const w = r.width, h = r.height; sx.clearRect(0, 0, w, h);
   if (hist.length < 2) return;
@@ -39,12 +42,15 @@ function drawSpark() {
   line("rx", "#3fb950"); line("tx", "#f0883e");
 }
 
+const setText = (el, s) => { if (el && el.textContent !== s) el.textContent = s; };
+let appsSig = "";
 function render(s) {
-  $("dot").classList.add("live");
+  applyPausedFromSnapshot(!!s.paused);
+  if (!capPaused) $("dot").classList.add("live");
   if (s.interface) { ifaceCur = s.interface; updateMetaText(); }
-  $("rx").textContent = fmtRate(s.rxPerSec);
-  $("tx").textContent = fmtRate(s.txPerSec);
-  if (s.activeApps != null) $("active").textContent = s.activeApps + " active";
+  setText($("rx"), fmtRate(s.rxPerSec));
+  setText($("tx"), fmtRate(s.txPerSec));
+  if (s.activeApps != null) setText($("active"), s.activeApps + " active");
 
   hist.push({ rx: Number(s.rxPerSec) || 0, tx: Number(s.txPerSec) || 0 });
   while (hist.length > MAXP) hist.shift();
@@ -52,14 +58,17 @@ function render(s) {
 
   const apps = (s.apps || []).slice(0, 6);
   const el = $("apps");
-  if (!apps.length) { el.innerHTML = '<li class="empty">waiting for traffic…</li>'; return; }
-  el.innerHTML = apps.map((a) => {
+  if (!apps.length) { if (appsSig !== "empty") { el.innerHTML = '<li class="empty">waiting for traffic…</li>'; appsSig = "empty"; } return; }
+  const html = apps.map((a) => {
     const name = a.name || "unknown";
     const total = Number(a.rxBytes) + Number(a.txBytes);
     return `<li><span class="sw" style="background:hsl(${hue(name)} 55% 58%)"></span>` +
       `<span class="nm" title="${esc(a.path || name)}">${esc(name)}</span>` +
       `<span class="by">${fmtBytes(total)}</span></li>`;
   }).join("");
+  // Skip the rebuild when nothing changed — the popover list re-`innerHTML`d
+  // every second, flickering the rows.
+  if (html !== appsSig) { el.innerHTML = html; appsSig = html; }
 }
 
 function setDisconnected() { $("dot").classList.remove("live"); $("meta").textContent = "reconnecting…"; }
@@ -94,10 +103,29 @@ function connect() {
   };
 }
 function disconnect() { if (es) { es.close(); es = null; } }
+
+// Seed the sparkline from the daemon's recent per-second history so the graph is
+// continuous on (re)open instead of starting blank — the popover only collects
+// live points while visible, so without this it has gaps for the time it was
+// closed. Live messages append after.
+async function seedSpark() {
+  try {
+    const r = await fetch("/api/ratehist");
+    if (!r.ok) return;
+    const pts = await r.json();
+    if (!Array.isArray(pts) || !pts.length) return;
+    hist.length = 0;
+    for (const p of pts.slice(-MAXP)) {
+      hist.push({ rx: Number(p.rxPerSec) || 0, tx: Number(p.txPerSec) || 0 });
+    }
+    drawSpark();
+  } catch (_) { /* daemon not ready */ }
+}
 // nsLive(true|false): start/stop the live stream + today's-total polling.
 window.nsLive = (on) => {
   wantLive = !!on;
   if (on) {
+    seedSpark(); // continuous history on (re)open, then live appends
     connect();
     loadToday();
     if (!todayTimer) todayTimer = setInterval(loadToday, 15000);
@@ -127,13 +155,61 @@ function openSettings() {
     r.EventsEmit("netscope:getalerts");  // Go replies on "netscope:alerts"
     r.EventsEmit("netscope:getupdate");  // Go replies on "netscope:update"
     r.EventsEmit("netscope:getmenubar"); // Go replies on "netscope:menubar"
+    r.EventsEmit("netscope:gettheme");   // Go replies on "netscope:theme"
   }
   $("settings").classList.add("show");
 }
 
+// ---- theme (shared with the dashboard; persisted server-side) ----
+function applyTheme(mode) {
+  const m = ["auto", "light", "dark"].includes(mode) ? mode : "auto";
+  if (m === "auto") document.documentElement.removeAttribute("data-theme");
+  else document.documentElement.setAttribute("data-theme", m);
+  const sel = $("set-theme");
+  if (sel) sel.value = m;
+}
+$("set-theme").onchange = (e) => {
+  const v = e.currentTarget.value;
+  applyTheme(v);
+  const r = rt();
+  if (r.EventsEmit) r.EventsEmit("netscope:settheme", v);
+};
+
+// ---- pause/resume capture (daemon closes the pcap handle while paused) ----
+let capPaused = false;
+let pausePendingUntil = 0; // ignore stale snapshots right after a manual toggle
+// A snapshot generated just before our POST landed still reports the old state;
+// during the pending window keep our optimistic value until snapshots agree.
+function applyPausedFromSnapshot(p) {
+  if (Date.now() < pausePendingUntil && p !== capPaused) return;
+  pausePendingUntil = 0;
+  reflectPaused(p);
+}
+function reflectPaused(p) {
+  capPaused = p;
+  const b = $("pause-btn");
+  if (b) { b.textContent = p ? "▶" : "⏸"; b.title = p ? "Resume capture" : "Pause capture"; }
+  $("dot").classList.toggle("paused", p);
+  if (p) $("dot").classList.remove("live");
+  updateMetaText();
+}
+async function togglePause() {
+  const next = !capPaused;
+  pausePendingUntil = Date.now() + 3000; // hold our choice until snapshots catch up
+  reflectPaused(next); // optimistic; snapshots confirm
+  try {
+    await fetch("/api/capture", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ paused: next }),
+    });
+  } catch (_) { /* ignore; next snapshot reconciles */ }
+}
+$("pause-btn").onclick = togglePause;
+
 // ---- capture interface picker (top-right chip → dropdown, daemon API) ----
 let ifaceCur = "", ifaceSel = "", ifaceOpts = [];
 function updateMetaText() {
+  if (capPaused) { $("meta").textContent = "paused"; return; }
   const cur = ifaceCur || "live";
   $("meta").textContent = ifaceSel ? cur : ("auto · " + cur);
 }
@@ -265,6 +341,7 @@ window.addEventListener("DOMContentLoaded", () => {
     window.runtime.EventsOn("netscope:show", () => { /* already on panel */ });
     window.runtime.EventsOn("netscope:alerts", (cfg) => fillSettings(cfg));
     window.runtime.EventsOn("netscope:menubar", (cfg) => fillMenuBar(cfg));
+    window.runtime.EventsOn("netscope:theme", (t) => applyTheme(t));
     window.runtime.EventsOn("netscope:update", (st) => renderUpdate(st));
     window.runtime.EventsOn("netscope:updateerror", () => {
       $("upd-status").textContent = "Update failed — try again";
@@ -272,8 +349,11 @@ window.addEventListener("DOMContentLoaded", () => {
       const now = $("upd-now");
       now.textContent = "Update & Restart"; now.disabled = false;
     });
-    // Ask for cached update status so the banner can appear on launch.
-    if (window.runtime.EventsEmit) window.runtime.EventsEmit("netscope:getupdate");
+    // Ask for cached update status + theme so the popover styles itself on launch.
+    if (window.runtime.EventsEmit) {
+      window.runtime.EventsEmit("netscope:getupdate");
+      window.runtime.EventsEmit("netscope:gettheme");
+    }
   }
 });
 

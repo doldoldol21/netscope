@@ -24,6 +24,8 @@ type Capturer interface {
 	ListInterfaces() []types.NetIface
 	PreferredInterface() string // "" means auto-detect
 	SetPreferredInterface(name string) error
+	Paused() bool
+	SetPaused(p bool)
 }
 
 // Server wires the engine (live), store (history) and update checker to HTTP.
@@ -54,7 +56,48 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/health", s.handleHealth)
 	mux.HandleFunc("/api/interfaces", s.handleInterfaces)
 	mux.HandleFunc("/api/ratehist", s.handleRateHist)
+	mux.HandleFunc("/api/capture", s.handleCapture)
+	mux.HandleFunc("/api/connections", s.handleConnections)
 	return mux
+}
+
+// handleConnections returns the live connections active within the last window
+// (default 15s; ?window=<seconds>), most-active first.
+func (s *Server) handleConnections(w http.ResponseWriter, r *http.Request) {
+	window := 15 * time.Second
+	if q := r.URL.Query().Get("window"); q != "" {
+		if n, err := strconv.Atoi(q); err == nil && n > 0 {
+			window = time.Duration(n) * time.Second
+		}
+	}
+	writeJSON(w, s.eng.Connections(window))
+}
+
+// handleCapture reports (GET) or sets (POST {"paused":true}) whether live
+// capture is suspended. Pausing closes the pcap handle until resumed.
+func (s *Server) handleCapture(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost {
+		if s.cap == nil {
+			http.Error(w, "capture control not supported by this source", http.StatusNotImplemented)
+			return
+		}
+		var body struct {
+			Paused bool `json:"paused"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+		s.cap.SetPaused(body.Paused)
+		s.eng.SetPaused(body.Paused)
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	paused := false
+	if s.cap != nil {
+		paused = s.cap.Paused()
+	}
+	writeJSON(w, map[string]any{"paused": paused})
 }
 
 // handleRateHist returns the recent per-second throughput samples, so the

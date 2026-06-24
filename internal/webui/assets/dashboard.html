@@ -22,7 +22,10 @@
     <div class="rate rx"><span class="arrow">▼</span><span class="v" id="rxps">0</span><span class="l">down</span></div>
     <div class="rate tx"><span class="arrow">▲</span><span class="v" id="txps">0</span><span class="l">up</span></div>
   </div>
-  <button class="hdr-btn" id="export-all" title="Export apps + domains (current range) as JSON">⤓ Export</button>
+  <button class="hdr-btn" id="pause-btn" aria-label="Pause capture"
+          data-tip="Pause capture" data-tip-down>⏸ Pause</button>
+  <button class="hdr-btn" id="export-all" aria-label="Export"
+          data-tip="Export as JSON" data-tip-down>⤓ Export</button>
 </header>
 
 <main>
@@ -116,6 +119,17 @@
       <div id="domains"></div>
     </div>
   </section>
+
+  <!-- live connections (what's open right now) -->
+  <section class="panel full">
+    <header>
+      <h2>Live connections</h2>
+      <input class="search" id="conns-search" type="search" placeholder="filter host, app, country…"
+             autocapitalize="off" autocorrect="off" spellcheck="false" autocomplete="off" />
+      <span class="hint" id="conns-hint">active in the last 15s</span>
+    </header>
+    <div id="conns"></div>
+  </section>
 </main>
 
 <!-- per-app drill-down overlay -->
@@ -129,8 +143,10 @@
         <button data-range="week">week</button>
       </div>
       <span class="spacer"></span>
-      <button class="iconbtn" id="drill-export" title="Export this app's domains as CSV">⤓</button>
-      <button class="drill-x" id="drill-close" title="Close (Esc)">✕</button>
+      <button class="iconbtn" id="drill-export" aria-label="Export this app's domains as CSV"
+              data-tip="Export CSV" data-tip-down>⤓</button>
+      <button class="drill-x" id="drill-close" aria-label="Close"
+              data-tip="Close (Esc)" data-tip-down>✕</button>
     </header>
     <div class="drill-body">
       <div class="drill-totals" id="drill-totals"></div>
@@ -145,6 +161,7 @@
   <span id="version">netscope</span> · all data stays on this machine · <kbd>R</kbd> refresh history · <kbd>L</kbd> jump to session
 </footer>
 
+<script src="tooltip.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

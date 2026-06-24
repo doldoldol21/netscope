@@ -29,14 +29,25 @@
   --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", Segoe UI, sans-serif;
 }
 
+/* Light theme variables. Applied two ways: automatically when the OS is light
+   and the user hasn't forced a theme (prefers-color-scheme), or explicitly via
+   [data-theme="light"]. [data-theme="dark"] keeps the dark defaults above and is
+   excluded from the auto rule so a user override always wins. */
 @media (prefers-color-scheme: light) {
-  :root {
+  :root:not([data-theme="dark"]) {
     color-scheme: light;
-    --bg: #f6f8fa; --bg-grad: none; --panel: #ffffff; --panel-2: #f3f5f8;
-    --panel-3: #eaeef2; --line: #d8dee4; --line-soft: #e6eaef; --fg: #1f2328;
-    --fg-dim: #57606a; --muted: #818b98; --accent: #0969da; --ai-bg: #f3eeff;
-    --ai-line: #d8c7ff; --shadow: 0 1px 2px #0000000d, 0 8px 24px -18px #0003;
+    --bg: #e9ecf1; --bg-grad: none; --panel: #f2f4f8; --panel-2: #e9edf3;
+    --panel-3: #dfe4ec; --line: #d2d8e1; --line-soft: #dee3ea; --fg: #2b303a;
+    --fg-dim: #5a626d; --muted: #8a93a0; --accent: #0969da; --ai-bg: #ece6fb;
+    --ai-line: #d4c6f5; --shadow: 0 1px 2px #00000010, 0 8px 24px -18px #00000026;
   }
+}
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f6f8fa; --bg-grad: none; --panel: #ffffff; --panel-2: #f3f5f8;
+  --panel-3: #eaeef2; --line: #d8dee4; --line-soft: #e6eaef; --fg: #1f2328;
+  --fg-dim: #57606a; --muted: #818b98; --accent: #0969da; --ai-bg: #f3eeff;
+  --ai-line: #d8c7ff; --shadow: 0 1px 2px #0000000d, 0 8px 24px -18px #0003;
 }
 
 * { box-sizing: border-box; }
@@ -130,8 +141,8 @@ main > * { max-width: 1340px; width: 100%; margin-inline: auto; }
    width:100% table) — the chart panel only dodged this via its fixed-height
    canvas. Let the track size to content, and re-clip the rounded corners on the
    inner table holder instead. */
-.panel.full:has(#countries) { overflow: visible; }
-#countries { overflow: hidden; border-bottom-left-radius: var(--radius); border-bottom-right-radius: var(--radius); }
+.panel.full:has(#countries), .panel.full:has(#conns) { overflow: visible; }
+#countries, #conns { overflow: hidden; border-bottom-left-radius: var(--radius); border-bottom-right-radius: var(--radius); }
 .chart-wrap { position: relative; padding: 8px 6px 4px; }
 canvas#chart { display: block; width: 100%; height: 200px; }
 .chart-legend { display: flex; gap: 16px; padding: 4px 12px 10px; font-size: 11.5px; color: var(--fg-dim); }
@@ -150,6 +161,11 @@ canvas#chart { display: block; width: 100%; height: 200px; }
 .tbl th, .tbl td { padding: 8px 14px; text-align: left; }
 .tbl th { font-size: 10.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; font-weight: 500; cursor: pointer; user-select: none; white-space: nowrap; }
 .tbl th.num, .tbl td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* The half-width grid panels are tight; trim cell padding so all numeric columns
+   (incl. Total) fit instead of overflowing and clipping on the right. */
+.grid .tbl th, .grid .tbl td { padding-left: 8px; padding-right: 8px; }
+.grid .tbl th:first-child, .grid .tbl td:first-child { padding-left: 12px; }
+.grid .tbl th:last-child, .grid .tbl td:last-child { padding-right: 12px; }
 .tbl th .caret { opacity: 0; font-size: 9px; }
 .tbl th.sorted .caret { opacity: 1; }
 .tbl tbody tr { border-top: 1px solid var(--line-soft); transition: background .12s; }
@@ -157,6 +173,12 @@ canvas#chart { display: block; width: 100%; height: 200px; }
 .tbl td.rank { color: var(--muted); font: 500 11px/1 var(--mono); width: 26px; }
 .cell-name { display: flex; align-items: center; gap: 9px; min-width: 0; }
 .cell-name .swatch { width: 9px; height: 9px; border-radius: 3px; flex: none; }
+/* per-app live trend sparkline column — kept narrow so the Apps panel (half the
+   grid) still has room for the ↓/↑/total numbers (a wide column clipped them). */
+.spark-col { width: 44px; padding-left: 6px; padding-right: 8px; }
+.spark-svg { display: block; width: 36px; height: 15px; opacity: .85; }
+/* In the half-width grid panels, let the name ellipsize sooner so numbers fit. */
+.grid .cell-name .label { max-width: 180px; }
 /* App rows: a fixed icon slot with the colored dot centered behind, and the real
    macOS app icon layered on top (it removes itself on load error → dot shows). */
 .cell-ico { position: relative; width: 16px; height: 16px; flex: none; }
@@ -262,6 +284,7 @@ tr.clickable:hover td { background: var(--panel-2); }
   font: 600 12px/1 var(--sans); padding: 7px 13px; transition: .15s; --wails-draggable: no-drag; }
 .hdr-btn:hover { color: var(--fg); border-color: var(--accent); }
 .hdr-btn:active { transform: translateY(1px); }
+.hdr-btn.on { color: var(--tx); border-color: var(--tx); background: var(--tx-soft); }
 
 /* panel search/filter box */
 .search {
@@ -274,3 +297,15 @@ tr.clickable:hover td { background: var(--panel-2); }
 .search:focus { outline: none; border-color: var(--accent); width: 200px; }
 .search::-webkit-search-cancel-button { -webkit-appearance: none; height: 12px; width: 12px;
   background: var(--muted); mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M3 3l6 6M9 3l-6 6' stroke='black' stroke-width='1.6'/%3E%3C/svg%3E") center/contain no-repeat; cursor: pointer; }
+
+/* ---- custom tooltips: a single #ns-tip element is positioned by JS (tooltip.js)
+   and appended to <body>, so position:fixed escapes every overflow:hidden panel
+   (which clipped the old ::after approach) and is clamped to the viewport. ---- */
+#ns-tip {
+  position: fixed; z-index: 9999; display: none;
+  background: #0b0e16; color: var(--fg); border: 1px solid var(--line);
+  box-shadow: 0 8px 22px -8px #000;
+  padding: 5px 9px; border-radius: 7px;
+  font: 500 11.5px/1.3 var(--sans);
+  max-width: 260px; white-space: normal; pointer-events: none;
+}

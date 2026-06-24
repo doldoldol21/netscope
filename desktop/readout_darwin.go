@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -92,7 +93,14 @@ func startMenuBarReadout(client *http.Client) {
 				readoutMu.Unlock()
 				renderReadout()
 			} else {
-				setStatusText("") // daemon unreachable: icon only
+				// Daemon unreachable: clear the cached rates so the icon
+				// animation falls back to idle instead of forever animating at
+				// the last-seen throughput (a dead daemon would otherwise look
+				// like steady mid-traffic).
+				readoutMu.Lock()
+				lastRx, lastTx, lastTotalBps = "", "", 0
+				readoutMu.Unlock()
+				setStatusText("") // icon only
 			}
 			time.Sleep(readoutInterval)
 		}
@@ -220,6 +228,49 @@ func saveReadoutStyle() {
 	if b, err := json.MarshalIndent(p, "", "  "); err == nil {
 		_ = os.WriteFile(readoutPath, b, 0o644)
 	}
+}
+
+// themePath is where the dashboard's theme choice is persisted, alongside the
+// other GUI prefs (menubar.json, alert config).
+func themePath() string {
+	cp := alerts.ConfigPath()
+	if cp == "" {
+		return ""
+	}
+	return filepath.Join(filepath.Dir(cp), "theme")
+}
+
+// loadTheme returns the persisted dashboard theme ("auto" if unset/invalid).
+func loadTheme() string {
+	p := themePath()
+	if p == "" {
+		return "auto"
+	}
+	b, err := os.ReadFile(p)
+	if err != nil {
+		return "auto"
+	}
+	switch t := strings.TrimSpace(string(b)); t {
+	case "light", "dark", "auto":
+		return t
+	default:
+		return "auto"
+	}
+}
+
+// saveTheme persists the dashboard theme choice (ignored if invalid).
+func saveTheme(theme string) {
+	switch theme {
+	case "light", "dark", "auto":
+	default:
+		return
+	}
+	p := themePath()
+	if p == "" {
+		return
+	}
+	_ = os.MkdirAll(filepath.Dir(p), 0o755)
+	_ = os.WriteFile(p, []byte(theme), 0o644)
 }
 
 func fetchRates(client *http.Client) (rx, tx float64, ok bool) {

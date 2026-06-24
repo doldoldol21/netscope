@@ -16,6 +16,9 @@ function fmtBytes(n) {
 }
 const fmtRate = (n) => { const b = fmtBytes(n); return b.str + "/s"; };
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+// setText assigns textContent only when it changed, avoiding a needless repaint
+// of cells that re-render the same value each snapshot.
+const setText = (el, s) => { if (el && el.textContent !== s) el.textContent = s; };
 
 // stable color per name
 function hueOf(s) {
@@ -46,7 +49,7 @@ const MAXP = 120;
 
 // ============================================================ tables
 // filterState holds the per-panel search query (matches name/domain/app/cat/country).
-const filterState = { apps: "", domains: "" };
+const filterState = { apps: "", domains: "", conns: "" };
 function matchFilter(it, target, q) {
   if (target === "apps") {
     return (it.name || "").toLowerCase().includes(q) || (it.path || "").toLowerCase().includes(q);
@@ -72,9 +75,11 @@ function tableHTML(items, target) {
   });
   const max = Math.max(1, ...sorted.map((x) => Number(x.rxBytes) + Number(x.txBytes)));
 
+  const spark = isApps && rangeState[target] === "session"; // live per-app trend
   const head = `<thead><tr>
     <th></th>
     <th data-key="name">${isApps ? "App" : "Domain"}</th>
+    ${spark ? `<th class="spark-col">Trend</th>` : ""}
     <th class="num ${th("down", target)}" data-key="down">↓ Down<span class="caret">▼</span></th>
     <th class="num ${th("up", target)}" data-key="up">↑ Up<span class="caret">▼</span></th>
     <th class="num ${th("total", target)}" data-key="total">Total<span class="caret">▼</span></th>
@@ -101,6 +106,7 @@ function tableHTML(items, target) {
         ${ico}
         <span class="label" title="${esc(isApps ? (it.path || name) : name)}">${isApps ? "" : flagChip(it.country)}${esc(name)}${sub}${cat}</span>
       </div><div class="usebar"><i style="width:${(100 * total / max).toFixed(1)}%"></i></div></td>
+      ${spark ? `<td class="spark-col">${sparkSVG((appHist.get(name) || {}).pts)}</td>` : ""}
       <td class="num rx">${fmtBytes(it.rxBytes).str}</td>
       <td class="num tx">${fmtBytes(it.txBytes).str}</td>
       <td class="num">${fmtBytes(total).str}</td>
@@ -108,6 +114,54 @@ function tableHTML(items, target) {
   });
   return `<table class="tbl">${head}<tbody>${rows}</tbody></table>`;
 }
+// Per-app live throughput history (client-side): each snapshot we diff an app's
+// cumulative session bytes to get a per-tick delta, building a small ring buffer
+// for the row's mini sparkline. No backend change needed.
+const appHist = new Map(); // name -> { prev: number, pts: number[] }
+const SPARK_PTS = 24;
+function updateAppHist(apps) {
+  const seen = new Set();
+  for (const a of apps || []) {
+    const name = a.name || "unknown";
+    seen.add(name);
+    const total = Number(a.rxBytes) + Number(a.txBytes);
+    let h = appHist.get(name);
+    if (!h) { h = { prev: total, pts: [] }; appHist.set(name, h); }
+    const delta = Math.max(0, total - h.prev);
+    h.prev = total;
+    h.pts.push(delta);
+    if (h.pts.length > SPARK_PTS) h.pts.shift();
+  }
+  for (const k of appHist.keys()) if (!seen.has(k)) appHist.delete(k); // drop gone apps
+}
+
+// sparkSVG renders a tiny throughput trend as an inline SVG polyline (cheap to
+// update every second, unlike a per-row canvas).
+// sparkPoints returns just the polyline "points" string (or "" if too few
+// points), so the live patch path can update an existing polyline's attribute
+// instead of re-parsing a whole SVG subtree every second.
+function sparkPoints(pts) {
+  if (!pts || pts.length < 2) return "";
+  const w = 60, h = 16, max = Math.max(1, ...pts), step = w / (pts.length - 1);
+  return pts.map((v, i) => `${(i * step).toFixed(1)},${(h - 1 - (v / max) * (h - 2)).toFixed(1)}`).join(" ");
+}
+function sparkSVG(pts) {
+  const d = sparkPoints(pts);
+  if (!d) return "";
+  return `<svg class="spark-svg" viewBox="0 0 60 16" preserveAspectRatio="none" aria-hidden="true">` +
+    `<polyline points="${d}" fill="none" stroke="var(--accent)" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/></svg>`;
+}
+// setSparkCell updates a row's trend cell in place: patch the existing
+// polyline's points (cheap) and only rebuild the SVG when it first appears or
+// disappears.
+function setSparkCell(cell, pts) {
+  const d = sparkPoints(pts);
+  const line = cell.querySelector("polyline");
+  if (d && line) { if (line.getAttribute("points") !== d) line.setAttribute("points", d); return; }
+  const html = sparkSVG(pts);
+  if (cell.innerHTML !== html) cell.innerHTML = html;
+}
+
 const th = (key, target) => sortState[target].key === key ? "sorted" : "";
 function sortVal(x, key) {
   if (key === "down") return Number(x.rxBytes);
@@ -139,7 +193,7 @@ function renderPanel(target) {
   const el = $(target);
   const tbody = el.querySelector("tbody");
   if (tbody && liveSig[target] === sig && tbody.children.length === sorted.length) {
-    patchRows(tbody, sorted); // same rows: just update numbers + bar widths
+    patchRows(tbody, sorted, target); // same rows: just update numbers + bar widths
     return;
   }
   el.innerHTML = tableHTML(items, target); // structure changed: rebuild
@@ -148,18 +202,30 @@ function renderPanel(target) {
 }
 
 // patchRows updates the numeric cells and bar widths of existing rows in place.
-function patchRows(tbody, sorted) {
+function patchRows(tbody, sorted, target) {
   const max = Math.max(1, ...sorted.map((x) => Number(x.rxBytes) + Number(x.txBytes)));
+  const spark = target === "apps" && rangeState.apps === "session";
   for (let i = 0; i < sorted.length; i++) {
     const it = sorted[i], tr = tbody.children[i];
     if (!tr) continue;
     const total = Number(it.rxBytes) + Number(it.txBytes);
     const nums = tr.querySelectorAll("td.num");
-    if (nums[0]) nums[0].textContent = fmtBytes(it.rxBytes).str;
-    if (nums[1]) nums[1].textContent = fmtBytes(it.txBytes).str;
-    if (nums[2]) nums[2].textContent = fmtBytes(total).str;
+    // Only write when the formatted value actually changed: assigning identical
+    // text still triggers a repaint of the tabular-nums cell every tick.
+    setText(nums[0], fmtBytes(it.rxBytes).str);
+    setText(nums[1], fmtBytes(it.txBytes).str);
+    setText(nums[2], fmtBytes(total).str);
     const bar = tr.querySelector(".usebar i");
-    if (bar) bar.style.width = (100 * total / max).toFixed(1) + "%";
+    if (bar) {
+      const wpct = (100 * total / max).toFixed(1) + "%";
+      // Skip identical width writes: with the .45s width transition, rewriting
+      // the same value every second kept the bars perpetually mid-animation.
+      if (bar.style.width !== wpct) bar.style.width = wpct;
+    }
+    if (spark) {
+      const cell = tr.querySelector(".spark-col");
+      if (cell) setSparkCell(cell, (appHist.get(it.name || "unknown") || {}).pts);
+    }
   }
 }
 
@@ -241,12 +307,18 @@ function countriesHTML(domains) {
     <th class="num">↓ Down</th><th class="num">↑ Up</th><th class="num">Total</th></tr></thead>
     <tbody>${rows}</tbody></table>`;
 }
+let countriesSig = "";
 function renderCountries() {
   const el = $("countries"); // tolerate a stale cached HTML without this panel
-  if (el && rangeState.countries === "session") el.innerHTML = countriesHTML(liveDomains);
+  if (!el || rangeState.countries !== "session") return;
+  const html = countriesHTML(liveDomains);
+  // Skip rebuild when unchanged: countries re-derived the same table every
+  // second, restarting bar transitions and dropping hover.
+  if (html !== countriesSig) { el.innerHTML = html; countriesSig = html; }
 }
 async function loadCountries(range) {
   const el = $("countries");
+  countriesSig = ""; // history view: force a clean rebuild when back to live
   if (!el.querySelector(".tbl")) el.innerHTML = skeletonTable();
   try {
     const data = await fetchJSON(`${API}/api/domains?range=${range}`);
@@ -255,6 +327,68 @@ async function loadCountries(range) {
   } catch (e) {
     el.innerHTML = `<div class="state">failed to load</div>`;
   }
+}
+
+// ============================================================ live connections
+let connsList = []; // last fetched connections
+let connsBusy = false;
+let connsLastFetch = 0;
+
+function connMatch(c, q) {
+  return (c.host || "").toLowerCase().includes(q) || (c.app || "").toLowerCase().includes(q) ||
+    (c.country || "").toLowerCase().includes(q) || (c.category || "").toLowerCase().includes(q) ||
+    (c.remoteIP || "").toLowerCase().includes(q) || String(c.remotePort).includes(q);
+}
+
+function connsHTML(list) {
+  let items = list || [];
+  const q = filterState.conns.toLowerCase();
+  if (q) items = items.filter((c) => connMatch(c, q));
+  if (!items.length) {
+    return `<div class="state">${q ? `no matches for “${esc(q)}”` : "no active connections"}</div>`;
+  }
+  const max = Math.max(1, ...items.map((c) => Number(c.rxBytes) + Number(c.txBytes)));
+  const rows = items.slice(0, 100).map((c) => {
+    const total = Number(c.rxBytes) + Number(c.txBytes);
+    const host = c.host || c.remoteIP;
+    const ico = `<span class="cell-ico"><span class="swatch" style="background:${swatchColor(c.app)}"></span>` +
+      `<img class="app-ico" alt="" loading="lazy" onerror="this.remove()" ` +
+      `src="/appicon?path=${encodeURIComponent(c.path || "")}&name=${encodeURIComponent(c.app || "")}"></span>`;
+    return `<tr>
+      <td><div class="cell-name">${ico}<span class="label" title="${esc(c.app)}">${esc(c.app || "unknown")}</span></div></td>
+      <td><div class="cell-name"><span class="flag">${flagEmoji(c.country)}</span>
+        <span class="label" title="${esc(host)}:${c.remotePort}">${esc(host)}<small>:${c.remotePort}</small></span></div></td>
+      <td><span class="chip">${esc(c.proto)}</span></td>
+      <td><div class="usebar"><i style="width:${(100 * total / max).toFixed(1)}%"></i></div></td>
+      <td class="num rx">${fmtBytes(c.rxBytes).str}</td>
+      <td class="num tx">${fmtBytes(c.txBytes).str}</td>
+      <td class="num">${fmtBytes(total).str}</td>
+    </tr>`;
+  }).join("");
+  return `<table class="tbl"><thead><tr>
+    <th>App</th><th>Remote</th><th>Proto</th><th></th>
+    <th class="num">↓ Down</th><th class="num">↑ Up</th><th class="num">Total</th>
+  </tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+let connsSig = "";
+function renderConns() {
+  const el = $("conns");
+  if (!el) return;
+  const html = connsHTML(connsList);
+  // Skip the rebuild when the rendered markup is identical — re-`innerHTML`ing
+  // 100 rows of <img> icons every refresh dropped hover and re-ran lazy-load.
+  if (html !== connsSig) { el.innerHTML = html; connsSig = html; }
+}
+
+async function refreshConnections() {
+  if (connsBusy) return;
+  connsBusy = true;
+  try {
+    connsList = (await fetchJSON(`${API}/api/connections?window=15`)) || [];
+    renderConns();
+  } catch (_) { /* daemon not ready */ }
+  finally { connsBusy = false; }
 }
 
 // range tabs
@@ -272,6 +406,58 @@ document.querySelectorAll(".tabs").forEach((tabs) => {
     };
   });
 });
+
+// ============================================================ theme
+// "auto" follows the OS (prefers-color-scheme); light/dark force it via
+// <html data-theme>. Chosen in the popover's settings and persisted server-side
+// (/theme); we poll so a change made in the popover reflects here while open.
+let themeMode = "auto";
+// Theme colors are read from CSS custom properties, but getComputedStyle is a
+// forced style resolution — doing it on every snapshot (for the chart/sparkline)
+// was needless main-thread work since the values only change on a theme switch.
+// Cache them and refresh only when the theme actually changes.
+const THEME_VARS = ["--line", "--muted", "--rx", "--tx", "--accent", "--mono"];
+let themeCache = null;
+function refreshThemeCache() {
+  const css = getComputedStyle(document.body);
+  themeCache = {};
+  for (const v of THEME_VARS) themeCache[v] = css.getPropertyValue(v).trim();
+}
+function tvar(name) {
+  if (!themeCache) refreshThemeCache();
+  return themeCache[name] !== undefined ? themeCache[name] : getComputedStyle(document.body).getPropertyValue(name).trim();
+}
+function applyTheme(mode) {
+  const next = ["auto", "light", "dark"].includes(mode) ? mode : "auto";
+  if (next === themeMode) return;
+  themeMode = next;
+  if (themeMode === "auto") document.documentElement.removeAttribute("data-theme");
+  else document.documentElement.setAttribute("data-theme", themeMode);
+  refreshThemeCache(); // resolved colors changed with the theme
+  if (chartMode === "live") drawChart(); else drawHistChart(); // recolor canvas
+}
+async function loadTheme() {
+  try {
+    const d = await fetchJSON(`${API}/theme`);
+    applyTheme((d && d.theme) || "auto");
+  } catch (_) { /* keep current */ }
+}
+// The GUI pushes theme changes instantly via dashEvalJS(); this is the hook.
+window.nsApplyTheme = applyTheme;
+loadTheme(); // initial (covers a theme set before this window opened)
+// In "auto" mode the OS can flip light/dark at runtime; refresh the cached
+// colors and recolor the canvas when it does.
+window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
+  if (themeMode !== "auto") return;
+  refreshThemeCache();
+  if (chartMode === "live") drawChart(); else drawHistChart();
+});
+
+// live-connections search box (separate: not a tableHTML target)
+(() => {
+  const box = $("conns-search");
+  if (box) box.oninput = () => { filterState.conns = box.value.trim(); renderConns(); };
+})();
 
 // search/filter boxes — re-render the current range (live or cached history)
 ["apps", "domains"].forEach((target) => {
@@ -314,8 +500,10 @@ let hoverIdx = -1;
 function sizeCanvas(c) {
   const r = c.getBoundingClientRect();
   const dpr = window.devicePixelRatio || 1;
-  c.width = Math.max(1, r.width * dpr);
-  c.height = Math.max(1, r.height * dpr);
+  const W = Math.max(1, Math.round(r.width * dpr)), H = Math.max(1, Math.round(r.height * dpr));
+  // Only reassign width/height when it actually changed: setting either clears
+  // and reallocates the backing bitmap, so doing it every frame is wasteful.
+  if (c.width !== W || c.height !== H) { c.width = W; c.height = H; }
   const g = c.getContext("2d");
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
   return { w: r.width, h: r.height, g };
@@ -334,17 +522,16 @@ function drawChart() {
   g.clearRect(0, 0, w, h);
   const padL = 52, padB = 18, padT = 8, padR = 6;
   const plotW = w - padL - padR, plotH = h - padT - padB;
-  const css = getComputedStyle(document.body);
-  const cLine = css.getPropertyValue("--line").trim();
-  const cMuted = css.getPropertyValue("--muted").trim();
-  const cRx = css.getPropertyValue("--rx").trim();
-  const cTx = css.getPropertyValue("--tx").trim();
+  const cLine = tvar("--line");
+  const cMuted = tvar("--muted");
+  const cRx = tvar("--rx");
+  const cTx = tvar("--tx");
 
   const peak = Math.max(1, ...rateHist.map((p) => Math.max(p.rx, p.tx)));
   const top = niceMax(peak);
 
   // gridlines + y labels
-  g.font = "10px " + css.getPropertyValue("--mono");
+  g.font = "10px " + tvar("--mono");
   g.textBaseline = "middle";
   for (let i = 0; i <= 4; i++) {
     const y = padT + (plotH * i) / 4;
@@ -452,11 +639,10 @@ async function loadHistChart(range) {
 function drawHistChart() {
   const { w, h, g } = sizeCanvas(chart);
   g.clearRect(0, 0, w, h);
-  const css = getComputedStyle(document.body);
-  const cLine = css.getPropertyValue("--line").trim();
-  const cMuted = css.getPropertyValue("--muted").trim();
-  const cRx = css.getPropertyValue("--rx").trim();
-  const cTx = css.getPropertyValue("--tx").trim();
+  const cLine = tvar("--line");
+  const cMuted = tvar("--muted");
+  const cRx = tvar("--rx");
+  const cTx = tvar("--tx");
   const padL = 56, padB = 18, padT = 8, padR = 6;
   const plotW = w - padL - padR, plotH = h - padT - padB;
   if (!histPoints.length) {
@@ -506,6 +692,14 @@ function drawHistChart() {
   $("chart-peak").textContent = "peak " + fmtBytes(peak).str + "/bucket";
 }
 
+// Coalesce hover redraws to one per animation frame: mousemove fires far faster
+// than the display refresh, and each drawChart is a full clear + gradient fills.
+let chartRaf = 0;
+function scheduleChart() {
+  if (chartRaf) return;
+  chartRaf = requestAnimationFrame(() => { chartRaf = 0; drawChart(); });
+}
+
 chart.addEventListener("mousemove", (e) => {
   if (chartMode !== "live") return; // hover crosshair is for the live view only
   const r = chart.getBoundingClientRect();
@@ -524,7 +718,7 @@ chart.addEventListener("mousemove", (e) => {
       <div style="color:var(--rx)">▼ <b>${fmtRate(p.rx)}</b></div>
       <div style="color:var(--tx)">▲ <b>${fmtRate(p.tx)}</b></div>`;
   }
-  drawChart();
+  scheduleChart();
 });
 chart.addEventListener("mouseleave", () => { hoverIdx = -1; tip.style.opacity = 0; if (chartMode === "live") drawChart(); });
 window.addEventListener("resize", () => { chartMode === "live" ? drawChart() : drawHistChart(); });
@@ -546,21 +740,47 @@ function drawSpark(id, color) {
 }
 
 // ============================================================ live wiring
+let lastSnap = null;
 function onSnapshot(s) {
-  const since = s.sessionStart ? sessionAge(s.sessionStart) : "";
-  setStatus("live", (s.interface || "—") + " · capturing" + (since ? " · session " + since : ""));
-  $("rxps").textContent = fmtRate(s.rxPerSec);
-  $("txps").textContent = fmtRate(s.txPerSec);
+  lastSnap = s;
+  // Always keep lightweight state current so the view is correct the instant
+  // the window is shown again — but skip the expensive DOM work while hidden.
   liveApps = s.apps || [];
+  updateAppHist(liveApps);
   liveDomains = s.domains || [];
-  $("c-active").textContent = (s.activeApps != null ? s.activeApps : liveApps.length);
-  renderPanel("apps"); renderPanel("domains"); renderCountries();
-
   rateHist.push({ t: new Date(s.time).getTime() || Date.now(), rx: Number(s.rxPerSec) || 0, tx: Number(s.txPerSec) || 0 });
   while (rateHist.length > MAXP) rateHist.shift();
-  if (chartMode === "live") drawChart(); // don't clobber a history view
-  drawSpark("spark-total", getComputedStyle(document.body).getPropertyValue("--accent").trim());
+  if (document.hidden) return; // dashboard occluded/minimized: don't render
+  renderSnapshot(s);
 }
+
+// renderSnapshot does the per-tick DOM updates and chart draws. Split out from
+// onSnapshot so it can be skipped while hidden and replayed on re-show.
+function renderSnapshot(s) {
+  applyPausedFromSnapshot(!!s.paused);
+  const since = s.sessionStart ? sessionAge(s.sessionStart) : "";
+  const state = capPaused
+    ? (s.interface || "—") + " · paused"
+    : (s.interface || "—") + " · capturing" + (since ? " · session " + since : "");
+  setStatus(capPaused ? "paused" : "live", state);
+  setText($("rxps"), fmtRate(s.rxPerSec));
+  setText($("txps"), fmtRate(s.txPerSec));
+  setText($("c-active"), String(s.activeApps != null ? s.activeApps : liveApps.length));
+  renderPanel("apps"); renderPanel("domains"); renderCountries();
+
+  // Refresh live connections at most ~every 2s (snapshots arrive ~1s).
+  const tnow = Date.now();
+  if (tnow - connsLastFetch > 2000) { connsLastFetch = tnow; refreshConnections(); }
+
+  if (chartMode === "live") drawChart(); // don't clobber a history view
+  drawSpark("spark-total", tvar("--accent"));
+}
+
+// When the dashboard becomes visible again, immediately repaint from the latest
+// snapshot so it doesn't show a frame of stale data until the next tick.
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden && lastSnap) renderSnapshot(lastSnap);
+});
 
 function sessionAge(iso) {
   const start = new Date(iso).getTime();
@@ -573,9 +793,37 @@ function sessionAge(iso) {
   return `${s}s`;
 }
 
+// ---- pause/resume capture (daemon closes the pcap handle while paused) ----
+let capPaused = false;
+let pausePendingUntil = 0; // ignore stale snapshots right after a manual toggle
+// A snapshot generated just before our POST landed still reports the old state;
+// during the pending window keep our optimistic value until snapshots agree.
+function applyPausedFromSnapshot(p) {
+  if (Date.now() < pausePendingUntil && p !== capPaused) return;
+  pausePendingUntil = 0;
+  reflectPaused(p);
+}
+function reflectPaused(p) {
+  capPaused = p;
+  const b = $("pause-btn");
+  if (b) { b.textContent = p ? "▶ Resume" : "⏸ Pause"; b.title = p ? "Resume capture" : "Pause capture"; b.classList.toggle("on", p); }
+}
+async function togglePause() {
+  const next = !capPaused;
+  pausePendingUntil = Date.now() + 3000; // hold our choice until snapshots catch up
+  reflectPaused(next); // optimistic; snapshots reconcile
+  try {
+    await fetch(`${API}/api/capture`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ paused: next }),
+    });
+  } catch (_) { /* ignore; next snapshot reconciles */ }
+}
+$("pause-btn").onclick = togglePause;
+
 function setStatus(kind, text) {
   const dot = $("dot");
-  dot.className = "dot " + (kind === "live" ? "live" : kind === "warn" ? "warn" : "");
+  dot.className = "dot " + (kind === "live" ? "live" : kind === "warn" || kind === "paused" ? "warn" : "");
   $("status-text").textContent = text;
 }
 
@@ -705,11 +953,10 @@ function drawDrillChart(points) {
   const c = $("drill-chart");
   const { w, h, g } = sizeCanvas(c);
   g.clearRect(0, 0, w, h);
-  const css = getComputedStyle(document.body);
-  const cLine = css.getPropertyValue("--line").trim();
-  const cMuted = css.getPropertyValue("--muted").trim();
-  const cRx = css.getPropertyValue("--rx").trim();
-  const cTx = css.getPropertyValue("--tx").trim();
+  const cLine = tvar("--line");
+  const cMuted = tvar("--muted");
+  const cRx = tvar("--rx");
+  const cTx = tvar("--tx");
   if (!points.length) {
     g.fillStyle = cMuted; g.font = "12px " + css.getPropertyValue("--sans");
     g.textAlign = "center"; g.textBaseline = "middle";
