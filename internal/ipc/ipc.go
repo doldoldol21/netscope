@@ -77,6 +77,14 @@ func Listen(sock string) (net.Listener, error) {
 		return nil, err
 	}
 	secureSocket(sock)
+	// At boot the daemon (a system LaunchDaemon) binds the socket before anyone
+	// logs in, so /dev/console is still owned by root and the socket gets locked
+	// to root:0600 — unreachable by the user's app once they log in. Keep
+	// re-applying ownership as the console user appears (and across fast user
+	// switching) so the app can always connect without a re-prompt.
+	if os.Geteuid() == 0 {
+		go keepSocketOwned(sock)
+	}
 	return ln, nil
 }
 
@@ -90,6 +98,30 @@ func secureSocket(sock string) {
 		}
 	}
 	_ = os.Chmod(sock, 0o600)
+}
+
+// keepSocketOwned periodically re-chowns the socket to the current console user.
+// This recovers the boot-before-login case (socket bound while only root is
+// "logged in") and handles fast user switching, so the active user's app can
+// always reach the daemon. It runs for the daemon's lifetime; the poll is cheap.
+func keepSocketOwned(sock string) {
+	for range time.Tick(2 * time.Second) {
+		uid, gid, ok := targetUser()
+		// Only hand the socket to a real (non-root) console user; before login
+		// targetUser() resolves to root, which we leave alone and retry later.
+		if !ok || uid == 0 {
+			continue
+		}
+		fi, err := os.Stat(sock)
+		if err != nil {
+			return // socket gone (daemon shutting down) — stop polling
+		}
+		if st, ok := fi.Sys().(*syscall.Stat_t); ok && int(st.Uid) == uid {
+			continue // already owned by the active user
+		}
+		_ = os.Chown(sock, uid, gid)
+		_ = os.Chmod(sock, 0o600)
+	}
 }
 
 // targetUser determines which user should own the socket: the sudo invoker if
