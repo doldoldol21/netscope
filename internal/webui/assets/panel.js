@@ -42,13 +42,15 @@ function drawSpark() {
   line("rx", "#3fb950"); line("tx", "#f0883e");
 }
 
+const setText = (el, s) => { if (el && el.textContent !== s) el.textContent = s; };
+let appsSig = "";
 function render(s) {
   applyPausedFromSnapshot(!!s.paused);
   if (!capPaused) $("dot").classList.add("live");
   if (s.interface) { ifaceCur = s.interface; updateMetaText(); }
-  $("rx").textContent = fmtRate(s.rxPerSec);
-  $("tx").textContent = fmtRate(s.txPerSec);
-  if (s.activeApps != null) $("active").textContent = s.activeApps + " active";
+  setText($("rx"), fmtRate(s.rxPerSec));
+  setText($("tx"), fmtRate(s.txPerSec));
+  if (s.activeApps != null) setText($("active"), s.activeApps + " active");
 
   hist.push({ rx: Number(s.rxPerSec) || 0, tx: Number(s.txPerSec) || 0 });
   while (hist.length > MAXP) hist.shift();
@@ -56,14 +58,17 @@ function render(s) {
 
   const apps = (s.apps || []).slice(0, 6);
   const el = $("apps");
-  if (!apps.length) { el.innerHTML = '<li class="empty">waiting for traffic…</li>'; return; }
-  el.innerHTML = apps.map((a) => {
+  if (!apps.length) { if (appsSig !== "empty") { el.innerHTML = '<li class="empty">waiting for traffic…</li>'; appsSig = "empty"; } return; }
+  const html = apps.map((a) => {
     const name = a.name || "unknown";
     const total = Number(a.rxBytes) + Number(a.txBytes);
     return `<li><span class="sw" style="background:hsl(${hue(name)} 55% 58%)"></span>` +
       `<span class="nm" title="${esc(a.path || name)}">${esc(name)}</span>` +
       `<span class="by">${fmtBytes(total)}</span></li>`;
   }).join("");
+  // Skip the rebuild when nothing changed — the popover list re-`innerHTML`d
+  // every second, flickering the rows.
+  if (html !== appsSig) { el.innerHTML = html; appsSig = html; }
 }
 
 function setDisconnected() { $("dot").classList.remove("live"); $("meta").textContent = "reconnecting…"; }
