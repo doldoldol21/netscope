@@ -191,34 +191,32 @@ func (s *Store) AddIfaceUsage(iface string, day int64, rx, tx uint64) error {
 	return err
 }
 
-// IfacesWithUsage returns the distinct interfaces that have any usage recorded
-// on or after sinceDay (unix seconds at local midnight) — used to auto-list
-// networks without the user having to register them.
-func (s *Store) IfacesWithUsage(sinceDay int64) ([]string, error) {
-	rows, err := s.db.Query(`SELECT DISTINCT iface FROM iface_usage WHERE day >= ? ORDER BY iface`, sinceDay)
+// IfaceUsage is one interface's total rx/tx over a queried range.
+type IfaceUsage struct {
+	Iface string
+	Rx    uint64
+	Tx    uint64
+}
+
+// IfaceUsageAllSince returns per-interface totals for every interface with usage
+// on or after sinceDay (unix seconds at local midnight), most-used first.
+func (s *Store) IfaceUsageAllSince(sinceDay int64) ([]IfaceUsage, error) {
+	rows, err := s.db.Query(`
+		SELECT iface, SUM(rx), SUM(tx) FROM iface_usage
+		WHERE day >= ? GROUP BY iface ORDER BY SUM(rx)+SUM(tx) DESC`, sinceDay)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []string
+	var out []IfaceUsage
 	for rows.Next() {
-		var s string
-		if err := rows.Scan(&s); err != nil {
+		var u IfaceUsage
+		if err := rows.Scan(&u.Iface, &u.Rx, &u.Tx); err != nil {
 			return nil, err
 		}
-		out = append(out, s)
+		out = append(out, u)
 	}
 	return out, rows.Err()
-}
-
-// IfaceUsageSince returns total rx/tx bytes for an interface on or after the
-// given day (unix seconds at local midnight) — i.e. usage in the current cycle.
-func (s *Store) IfaceUsageSince(iface string, sinceDay int64) (rx, tx uint64, err error) {
-	row := s.db.QueryRow(`
-		SELECT COALESCE(SUM(rx),0), COALESCE(SUM(tx),0) FROM iface_usage
-		WHERE iface = ? AND day >= ?`, iface, sinceDay)
-	err = row.Scan(&rx, &tx)
-	return
 }
 
 // Apps returns per-app totals over [since, until), ranked by total bytes.

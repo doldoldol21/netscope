@@ -14,7 +14,6 @@ import (
 	"github.com/doldoldol21/netscope/internal/buildinfo"
 	"github.com/doldoldol21/netscope/internal/capture"
 	"github.com/doldoldol21/netscope/internal/engine"
-	"github.com/doldoldol21/netscope/internal/metered"
 	"github.com/doldoldol21/netscope/internal/storage"
 	"github.com/doldoldol21/netscope/internal/update"
 	"github.com/doldoldol21/netscope/pkg/types"
@@ -36,16 +35,12 @@ type Server struct {
 	store   *storage.Store
 	updater *update.Checker
 	cap     Capturer
-	metered *metered.Store // nil if metered tracking is unconfigured
 }
 
 // NewServer builds a Server. store, updater and capturer may be nil.
 func NewServer(eng *engine.Engine, store *storage.Store, updater *update.Checker, capturer Capturer) *Server {
 	return &Server{eng: eng, store: store, updater: updater, cap: capturer}
 }
-
-// SetMetered enables the metered-interface (tethering data) endpoints.
-func (s *Server) SetMetered(m *metered.Store) { s.metered = m }
 
 // Handler returns the API handler. netscope is app-only: the dashboard UI is
 // served by the native app (which embeds internal/webui) — the daemon exposes
@@ -64,93 +59,45 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/ratehist", s.handleRateHist)
 	mux.HandleFunc("/api/capture", s.handleCapture)
 	mux.HandleFunc("/api/connections", s.handleConnections)
-	mux.HandleFunc("/api/metered", s.handleMetered)
+	mux.HandleFunc("/api/netusage", s.handleNetUsage)
 	return mux
 }
 
-// netUsage is one network's data usage for the current cycle. Every interface
-// that has recorded any traffic auto-appears; Configured/Label/Budget are the
-// optional user overlay (a data plan with a monthly budget).
+// netUsage is one network's data usage over the requested range. Every interface
+// that recorded traffic auto-appears; tethered phones are flagged.
 type netUsage struct {
-	Iface         string `json:"iface"`
-	Friendly      string `json:"friendly"` // macOS friendly name, resolved live
-	Tether        bool   `json:"tether"`
-	Active        bool   `json:"active"` // currently the capturing interface
-	Configured    bool   `json:"configured"`
-	Label         string `json:"label"`
-	BudgetBytes   uint64 `json:"budgetBytes"`
-	CycleStartDay int    `json:"cycleStartDay"`
-	UsedBytes     uint64 `json:"usedBytes"`
-	CycleStart    int64  `json:"cycleStart"` // unix seconds (local midnight)
-	OverBudget    bool   `json:"overBudget"`
+	Iface    string `json:"iface"`
+	Friendly string `json:"friendly"` // macOS friendly name, resolved live
+	Tether   bool   `json:"tether"`
+	Active   bool   `json:"active"`  // currently the capturing interface
+	RxBytes  uint64 `json:"rxBytes"`
+	TxBytes  uint64 `json:"txBytes"`
 }
 
-// defaultCycleDay is the billing-cycle reset day for interfaces the user hasn't
-// configured — usage is shown for the calendar month.
-const defaultCycleDay = 1
-
-// handleMetered: GET auto-lists every network with recorded usage this cycle,
-// overlaying any per-interface budget config; POST sets/clears a budget config.
-//
-//	POST body: {"iface":"en5","metered":true,"label":"SKT","budgetBytes":5368709120,"cycleStartDay":1}
-//	(metered:false clears the budget overlay; the network still auto-shows usage)
-func (s *Server) handleMetered(w http.ResponseWriter, r *http.Request) {
-	if s.metered == nil || s.store == nil {
-		http.Error(w, "metered tracking unavailable", http.StatusServiceUnavailable)
+// handleNetUsage lists per-network data usage over ?range=today|week|month
+// (default today), most-used first. Networks auto-appear from recorded usage;
+// no manual registration.
+func (s *Server) handleNetUsage(w http.ResponseWriter, r *http.Request) {
+	if s.store == nil {
+		http.Error(w, "usage history unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	if r.Method == http.MethodPost {
-		var body struct {
-			Iface         string `json:"iface"`
-			Metered       bool   `json:"metered"`
-			Label         string `json:"label"`
-			BudgetBytes   uint64 `json:"budgetBytes"`
-			CycleStartDay int    `json:"cycleStartDay"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Iface == "" {
-			http.Error(w, "bad request", http.StatusBadRequest)
-			return
-		}
-		var err error
-		if body.Metered {
-			err = s.metered.Set(body.Iface, metered.Plan{
-				Label: body.Label, BudgetBytes: body.BudgetBytes, CycleStartDay: body.CycleStartDay,
-			})
-		} else {
-			err = s.metered.Remove(body.Iface)
-		}
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-	}
-
 	now := time.Now()
-	cfg := s.metered.Plans()
-
-	// The set of networks to show: every interface with usage in the last ~35
-	// days (auto) ∪ any explicitly configured one.
-	seen := map[string]bool{}
-	var order []string
-	add := func(iface string) {
-		if iface == "" || seen[iface] {
-			return
-		}
-		seen[iface] = true
-		order = append(order, iface)
-	}
-	recent := metered.CycleStart(now, defaultCycleDay)
-	if d := time.Unix(recent, 0).AddDate(0, -1, 0).Unix(); true { // also include last month's tail
-		if ifaces, err := s.store.IfacesWithUsage(d); err == nil {
-			for _, i := range ifaces {
-				add(i)
-			}
-		}
-	}
-	for iface := range cfg {
-		add(iface)
+	y, m, d := now.Date()
+	midnight := time.Date(y, m, d, 0, 0, 0, 0, now.Location())
+	since := midnight
+	switch r.URL.Query().Get("range") {
+	case "week":
+		since = midnight.AddDate(0, 0, -6) // last 7 days incl. today
+	case "month":
+		since = midnight.AddDate(0, 0, -29) // last 30 days
 	}
 
+	rows, err := s.store.IfaceUsageAllSince(since.Unix())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 	active := ""
 	if s.cap != nil {
 		for _, i := range s.cap.ListInterfaces() {
@@ -159,33 +106,15 @@ func (s *Server) handleMetered(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-
 	out := []netUsage{}
-	for _, iface := range order {
-		p, configured := cfg[iface]
-		day := p.CycleStartDay
-		if !configured || day <= 0 {
-			day = defaultCycleDay
-		}
-		cs := metered.CycleStart(now, day)
-		rx, tx, _ := s.store.IfaceUsageSince(iface, cs)
-		used := rx + tx
-		friendly, tether := capture.FriendlyName(iface) // stable across up/down
+	for _, u := range rows {
+		friendly, tether := capture.FriendlyName(u.Iface) // stable across up/down
 		out = append(out, netUsage{
-			Iface: iface, Friendly: friendly, Tether: tether, Active: iface == active,
-			Configured: configured, Label: p.Label, BudgetBytes: p.BudgetBytes,
-			CycleStartDay: day, UsedBytes: used, CycleStart: cs,
-			OverBudget: p.BudgetBytes > 0 && used >= p.BudgetBytes,
+			Iface: u.Iface, Friendly: friendly, Tether: tether,
+			Active: u.Iface == active, RxBytes: u.Rx, TxBytes: u.Tx,
 		})
 	}
-	// Tethered networks first, then by usage descending.
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].Tether != out[j].Tether {
-			return out[i].Tether
-		}
-		return out[i].UsedBytes > out[j].UsedBytes
-	})
-	writeJSON(w, map[string]any{"networks": out})
+	writeJSON(w, out)
 }
 
 // handleConnections returns the live connections active within the last window

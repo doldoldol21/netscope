@@ -22,19 +22,31 @@ func TestIfaceUsage(t *testing.T) {
 	_ = s.AddIfaceUsage("", 2000, 1, 1)
 	_ = s.AddIfaceUsage("en5", 3000, 0, 0)
 
-	rx, tx, err := s.IfaceUsageSince("en5", 1000)
-	if err != nil {
-		t.Fatalf("since: %v", err)
+	byIface := func(sinceDay int64) map[string]storageUsage {
+		rows, err := s.IfaceUsageAllSince(sinceDay)
+		if err != nil {
+			t.Fatalf("all since %d: %v", sinceDay, err)
+		}
+		m := map[string]storageUsage{}
+		for _, u := range rows {
+			m[u.Iface] = storageUsage{u.Rx, u.Tx}
+		}
+		return m
 	}
-	if rx != 310 || tx != 155 { // (100+10+200) / (50+5+100)
-		t.Errorf("usage since 1000 = rx %d tx %d, want 310/155", rx, tx)
+	all := byIface(1000)
+	if all["en5"] != (storageUsage{310, 155}) { // (100+10+200)/(50+5+100)
+		t.Errorf("en5 since 1000 = %+v, want {310 155}", all["en5"])
 	}
-	// Cycle boundary excludes the earlier day.
-	rx, tx, _ = s.IfaceUsageSince("en5", 2000)
-	if rx != 200 || tx != 100 {
-		t.Errorf("usage since 2000 = rx %d tx %d, want 200/100", rx, tx)
+	if all["en0"] != (storageUsage{999, 999}) {
+		t.Errorf("en0 since 1000 = %+v, want {999 999}", all["en0"])
+	}
+	// Day boundary excludes the earlier day.
+	if got := byIface(2000)["en5"]; got != (storageUsage{200, 100}) {
+		t.Errorf("en5 since 2000 = %+v, want {200 100}", got)
 	}
 }
+
+type storageUsage struct{ rx, tx uint64 }
 
 // TestOpenQuarantinesCorruptDB verifies a corrupt database file is moved aside
 // and a fresh, usable one is created — rather than failing Open() forever (which

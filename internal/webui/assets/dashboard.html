@@ -94,9 +94,14 @@
   <section class="panel full">
     <header>
       <h2>Network data usage</h2>
-      <span class="hint">per network, this billing cycle · tethering flagged · estimate (±few %)</span>
+      <div class="tabs" data-target="netusage">
+        <button data-range="today" class="active">today</button>
+        <button data-range="week">week</button>
+        <button data-range="month">month</button>
+      </div>
+      <span class="hint">per network · tethering flagged · estimate (±few %)</span>
     </header>
-    <div id="metered"></div>
+    <div id="netusage"></div>
   </section>
 
   <!-- apps + domains -->

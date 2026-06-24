@@ -400,7 +400,8 @@ document.querySelectorAll(".tabs").forEach((tabs) => {
       btn.classList.add("active");
       rangeState[target] = btn.dataset.range;
       const live = btn.dataset.range === "session";
-      if (target === "countries") { live ? renderCountries() : loadCountries(btn.dataset.range); }
+      if (target === "netusage") { netUsageSig = ""; loadNetUsage(btn.dataset.range); }
+      else if (target === "countries") { live ? renderCountries() : loadCountries(btn.dataset.range); }
       else if (live) renderPanel(target);
       else loadHistory(target, btn.dataset.range);
     };
@@ -408,111 +409,59 @@ document.querySelectorAll(".tabs").forEach((tabs) => {
 });
 
 // ============================================================ network data usage
-// Every interface the daemon has captured on auto-appears with its usage this
-// billing cycle (no manual registration). A tethered phone is flagged so you can
-// see shared-data usage at a glance. Optionally attach a label + monthly budget
-// to any network to get a progress bar and over-budget warning.
-let meteredData = { networks: [] };
-let meteredEditing = null; // iface whose budget form is open, or null
+// Every interface the daemon has captured on auto-appears with its usage over the
+// selected range (today/week/month), most-used first. A tethered phone is flagged
+// so shared/carrier data is visible at a glance. Treated like the apps/domains
+// panels: a ranked table behind range tabs.
+rangeState.netusage = "today";
+let netUsage = [];
 
-function gib(bytes) { return (Number(bytes) / (1024 ** 3)); }
-function cycleDateStr(unix) {
-  const d = new Date(unix * 1000);
-  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-}
-
-async function loadMetered() {
-  try {
-    meteredData = (await fetchJSON(`${API}/api/metered`)) || { networks: [] };
-  } catch (_) { return; } // endpoint unavailable (older daemon)
-  renderMetered();
-}
-
-function meteredFormHTML(n) {
-  // Budget form for one (fixed) interface n.
-  const label = esc(n.label || "");
-  const budget = n.budgetBytes ? gib(n.budgetBytes).toFixed(1) : "";
-  const day = n.cycleStartDay || 1;
-  return `<div class="m-form">
-    <div class="m-row">
-      <input id="m-label" type="text" placeholder="label (e.g. SKT plan)" value="${label}" maxlength="24">
-    </div>
-    <div class="m-row">
-      <label>budget <input id="m-budget" type="number" min="0" step="0.5" placeholder="GB" value="${budget}"> GB</label>
-      <label>resets day <input id="m-day" type="number" min="1" max="28" value="${day}"></label>
-    </div>
-    <div class="m-row m-actions">
-      <button class="mini" id="m-save">Save</button>
-      <button class="mini ghost" id="m-cancel">Cancel</button>
-    </div>
-  </div>`;
-}
-
-function meteredCardHTML(n) {
-  const used = Number(n.usedBytes);
-  const has = n.budgetBytes > 0;
-  const pct = has ? Math.min(100, 100 * used / n.budgetBytes) : 0;
-  const usedStr = fmtBytes(used).str;
-  const cls = n.overBudget ? " over" : (has && pct >= 80 ? " warn" : "");
-  const friendly = n.friendly && n.friendly !== n.iface ? n.friendly : "";
-  const ifaceLabel = friendly ? `${esc(friendly)} (${esc(n.iface)})` : esc(n.iface);
-  const badges = `${n.tether ? ` <span class="chip">📱 tethering</span>` : ""}${n.active ? ` <span class="chip">live</span>` : ""}`;
-  const editing = meteredEditing === n.iface;
-  return `<div class="m-card${cls}">
-    <div class="m-head">
-      <span class="m-name">${esc(n.label || friendly || n.iface)}</span>${badges}
-      <span class="m-sub">${ifaceLabel} · since ${cycleDateStr(n.cycleStart)}</span>
-      <span class="m-edit" data-edit="${esc(n.iface)}" title="${n.configured ? "Edit budget" : "Set a budget"}">${n.configured ? "✎" : "＋ budget"}</span>
-      ${n.configured ? `<span class="m-edit" data-clear="${esc(n.iface)}" title="Clear budget">✕</span>` : ""}
-    </div>
-    <div class="m-usage">${usedStr}${has ? ` <small>/ ${fmtBytes(n.budgetBytes).str}</small>` : ""}${n.overBudget ? ` <span class="chip over">over budget</span>` : ""}</div>
-    ${has ? `<div class="usebar m-bar"><i style="width:${pct.toFixed(1)}%"></i></div>` : ""}
-    ${editing ? meteredFormHTML(n) : ""}
-  </div>`;
-}
-
-function renderMetered() {
-  const el = $("metered");
-  if (!el) return;
-  const nets = meteredData.networks || [];
+function netUsageHTML(list) {
+  const nets = list || [];
   if (!nets.length) {
-    el.innerHTML = `<div class="state">No network usage recorded yet. Browse a little and it'll appear here.</div>`;
-    return;
+    return `<div class="state">No network usage in this range yet.</div>`;
   }
-  el.innerHTML = nets.map(meteredCardHTML).join("");
-  wireMetered();
+  const max = Math.max(1, ...nets.map((n) => Number(n.rxBytes) + Number(n.txBytes)));
+  const rows = nets.map((n, i) => {
+    const total = Number(n.rxBytes) + Number(n.txBytes);
+    const friendly = n.friendly && n.friendly !== n.iface ? n.friendly : n.iface;
+    const badges = `${n.tether ? ` <span class="chip">📱 tethering</span>` : ""}${n.active ? ` <span class="chip">live</span>` : ""}`;
+    return `<tr>
+      <td class="rank">${i + 1}</td>
+      <td><div class="cell-name">
+        <span class="label" title="${esc(n.iface)}">${esc(friendly)}${badges}</span>
+      </div><div class="usebar"><i style="width:${(100 * total / max).toFixed(1)}%"></i></div></td>
+      <td class="num rx">${fmtBytes(n.rxBytes).str}</td>
+      <td class="num tx">${fmtBytes(n.txBytes).str}</td>
+      <td class="num">${fmtBytes(total).str}</td>
+    </tr>`;
+  }).join("");
+  return `<table class="tbl"><thead><tr><th></th><th>Network</th>
+    <th class="num">↓ Down</th><th class="num">↑ Up</th><th class="num">Total</th></tr></thead>
+    <tbody>${rows}</tbody></table>`;
 }
 
-function wireMetered() {
-  const el = $("metered");
-  el.querySelectorAll("[data-edit]").forEach((b) => b.onclick = () => { meteredEditing = b.dataset.edit; renderMetered(); });
-  el.querySelectorAll("[data-clear]").forEach((b) => b.onclick = async () => {
-    await postJSON(`${API}/api/metered`, { iface: b.dataset.clear, metered: false });
-    meteredEditing = null; await loadMetered();
-  });
-  const save = $("m-save");
-  if (save) save.onclick = async () => {
-    const iface = meteredEditing;
-    if (!iface) { meteredEditing = null; return renderMetered(); }
-    const gbVal = parseFloat($("m-budget").value) || 0;
-    const day = Math.max(1, Math.min(28, parseInt($("m-day").value, 10) || 1));
-    await postJSON(`${API}/api/metered`, {
-      iface, metered: true, label: ($("m-label").value || "").trim(),
-      budgetBytes: Math.round(gbVal * (1024 ** 3)), cycleStartDay: day,
-    });
-    meteredEditing = null;
-    await loadMetered();
-  };
-  const cancel = $("m-cancel");
-  if (cancel) cancel.onclick = () => { meteredEditing = null; renderMetered(); };
+let netUsageSig = "";
+function renderNetUsage() {
+  const el = $("netusage");
+  if (!el) return;
+  const html = netUsageHTML(netUsage);
+  if (html !== netUsageSig) { el.innerHTML = html; netUsageSig = html; }
 }
 
-loadMetered();
-// Refresh usage on its own timer (independent of the live snapshot path), every
-// 5s, but never while editing (that would wipe the open form) or while hidden.
-setInterval(() => {
-  if (meteredEditing === null && !document.hidden) loadMetered();
-}, 5000);
+async function loadNetUsage(range) {
+  const el = $("netusage");
+  if (!el) return;
+  try {
+    netUsage = (await fetchJSON(`${API}/api/netusage?range=${range || rangeState.netusage}`)) || [];
+    renderNetUsage();
+  } catch (_) { /* older daemon / not ready */ }
+}
+
+loadNetUsage("today");
+// Refresh the current range on its own timer (independent of the live snapshot
+// path), every 5s, skipped while hidden.
+setInterval(() => { if (!document.hidden) loadNetUsage(rangeState.netusage); }, 5000);
 
 // ============================================================ theme
 // "auto" follows the OS (prefers-color-scheme); light/dark force it via
@@ -940,11 +889,6 @@ async function fetchJSON(url) {
   return r.json();
 }
 
-async function postJSON(url, body) {
-  const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-  if (!r.ok) throw new Error(r.status);
-  return r.text();
-}
 
 let es = null;
 function connect() {
