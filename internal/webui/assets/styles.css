@@ -105,6 +105,10 @@ main {
   scrollbar-gutter: stable;
 }
 main > * { max-width: 1340px; width: 100%; margin-inline: auto; }
+/* Live stream dropped (daemon down): dim + desaturate the content so the frozen
+   last snapshot doesn't read as current. The header status still shows
+   "reconnecting…"; data un-dims the instant the stream resumes. */
+body.stale main { opacity: .5; filter: saturate(.55); transition: opacity .25s, filter .25s; pointer-events: none; }
 .cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
 .card {
   background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);

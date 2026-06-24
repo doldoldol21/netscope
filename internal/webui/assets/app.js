@@ -890,12 +890,32 @@ async function fetchJSON(url) {
 }
 
 
+// Stale indicator: when the live stream drops (daemon restart/crash), the last
+// snapshot would otherwise sit there looking current. After a short grace (to
+// ignore brief blips) dim the content and blank the live rates so it's clearly
+// not live; clear it the moment data flows again.
+let staleTimer = 0;
+function markFresh() {
+  if (staleTimer) { clearTimeout(staleTimer); staleTimer = 0; }
+  document.body.classList.remove("stale");
+}
+function scheduleStale() {
+  if (staleTimer || document.body.classList.contains("stale")) return;
+  staleTimer = setTimeout(() => {
+    staleTimer = 0;
+    document.body.classList.add("stale");
+    setText($("rxps"), "—");
+    setText($("txps"), "—");
+  }, 1500);
+}
+
 let es = null;
 function connect() {
   setStatus("warn", "connecting…");
   es = new EventSource(`${API}/api/live`);
-  es.onmessage = (e) => { try { onSnapshot(JSON.parse(e.data)); } catch (_) {} };
-  es.onerror = () => { setStatus("warn", "reconnecting…"); es.close(); setTimeout(connect, 2000); };
+  es.onopen = () => markFresh();
+  es.onmessage = (e) => { markFresh(); try { onSnapshot(JSON.parse(e.data)); } catch (_) {} };
+  es.onerror = () => { setStatus("warn", "reconnecting…"); scheduleStale(); es.close(); setTimeout(connect, 2000); };
 }
 
 // keyboard shortcuts
