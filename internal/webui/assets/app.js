@@ -357,16 +357,16 @@ function connsHTML(list) {
     return `<tr>
       <td><div class="cell-name">${ico}<span class="label" title="${esc(c.app)}">${esc(c.app || "unknown")}</span></div></td>
       <td><div class="cell-name"><span class="flag">${flagEmoji(c.country)}</span>
-        <span class="label" title="${esc(host)}:${c.remotePort}">${esc(host)}<small>:${c.remotePort}</small></span></div></td>
+        <span class="label" title="${esc(host)}:${c.remotePort}">${esc(host)}<small>:${c.remotePort}</small></span></div>
+        <div class="usebar"><i style="width:${(100 * total / max).toFixed(1)}%"></i></div></td>
       <td><span class="chip">${esc(c.proto)}</span></td>
-      <td><div class="usebar"><i style="width:${(100 * total / max).toFixed(1)}%"></i></div></td>
       <td class="num rx">${fmtBytes(c.rxBytes).str}</td>
       <td class="num tx">${fmtBytes(c.txBytes).str}</td>
       <td class="num">${fmtBytes(total).str}</td>
     </tr>`;
   }).join("");
   return `<table class="tbl"><thead><tr>
-    <th>App</th><th>Remote</th><th>Proto</th><th></th>
+    <th>App</th><th>Remote</th><th>Proto</th>
     <th class="num">↓ Down</th><th class="num">↑ Up</th><th class="num">Total</th>
   </tr></thead><tbody>${rows}</tbody></table>`;
 }
