@@ -12,9 +12,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"net"
 	"net/http"
 	"os"
+	"regexp"
+	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/doldoldol21/netscope/internal/buildinfo"
@@ -266,9 +270,24 @@ func startLoopbackUI(proxy http.Handler) string {
 	// old asset with a freshly-built one (which left, e.g., new app.js calling
 	// into HTML that the cache hadn't updated). Embedded assets carry no
 	// modtime, so without this the WebView caches heuristically.
+	//
+	// no-store alone isn't enough: WKWebView still serves cached subresources
+	// (styles.css/app.js) across launches, so a freshly-built dashboard showed
+	// stale CSS/JS. Stamp a per-launch version onto local css/js refs in served
+	// HTML so each launch fetches them fresh.
+	ver := strconv.Itoa(os.Getpid())
+	assetRef := regexp.MustCompile(`(href|src)="([^":?]+\.(?:css|js))"`)
 	files := http.FileServer(http.FS(webui.FS()))
 	mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
+		if name := strings.TrimPrefix(r.URL.Path, "/"); strings.HasSuffix(name, ".html") {
+			if b, err := fs.ReadFile(webui.FS(), name); err == nil {
+				b = assetRef.ReplaceAll(b, []byte(`$1="$2?v=`+ver+`"`))
+				w.Header().Set("Content-Type", "text/html; charset=utf-8")
+				_, _ = w.Write(b)
+				return
+			}
+		}
 		files.ServeHTTP(w, r)
 	}))
 	go func() { _ = http.Serve(ln, mux) }()
