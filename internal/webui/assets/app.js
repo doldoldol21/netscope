@@ -357,16 +357,16 @@ function connsHTML(list) {
     return `<tr>
       <td><div class="cell-name">${ico}<span class="label" title="${esc(c.app)}">${esc(c.app || "unknown")}</span></div></td>
       <td><div class="cell-name"><span class="flag">${flagEmoji(c.country)}</span>
-        <span class="label" title="${esc(host)}:${c.remotePort}">${esc(host)}<small>:${c.remotePort}</small></span></div></td>
+        <span class="label" title="${esc(host)}:${c.remotePort}">${esc(host)}<small>:${c.remotePort}</small></span></div>
+        <div class="usebar"><i style="width:${(100 * total / max).toFixed(1)}%"></i></div></td>
       <td><span class="chip">${esc(c.proto)}</span></td>
-      <td><div class="usebar"><i style="width:${(100 * total / max).toFixed(1)}%"></i></div></td>
       <td class="num rx">${fmtBytes(c.rxBytes).str}</td>
       <td class="num tx">${fmtBytes(c.txBytes).str}</td>
       <td class="num">${fmtBytes(total).str}</td>
     </tr>`;
   }).join("");
   return `<table class="tbl"><thead><tr>
-    <th>App</th><th>Remote</th><th>Proto</th><th></th>
+    <th>App</th><th>Remote</th><th>Proto</th>
     <th class="num">↓ Down</th><th class="num">↑ Up</th><th class="num">Total</th>
   </tr></thead><tbody>${rows}</tbody></table>`;
 }
@@ -400,12 +400,68 @@ document.querySelectorAll(".tabs").forEach((tabs) => {
       btn.classList.add("active");
       rangeState[target] = btn.dataset.range;
       const live = btn.dataset.range === "session";
-      if (target === "countries") { live ? renderCountries() : loadCountries(btn.dataset.range); }
+      if (target === "netusage") { netUsageSig = ""; loadNetUsage(btn.dataset.range); }
+      else if (target === "countries") { live ? renderCountries() : loadCountries(btn.dataset.range); }
       else if (live) renderPanel(target);
       else loadHistory(target, btn.dataset.range);
     };
   });
 });
+
+// ============================================================ network data usage
+// Every interface the daemon has captured on auto-appears with its usage over the
+// selected range (today/week/month), most-used first. A tethered phone is flagged
+// so shared/carrier data is visible at a glance. Treated like the apps/domains
+// panels: a ranked table behind range tabs.
+rangeState.netusage = "today";
+let netUsage = [];
+
+function netUsageHTML(list) {
+  const nets = list || [];
+  if (!nets.length) {
+    return `<div class="state">No network usage in this range yet.</div>`;
+  }
+  const max = Math.max(1, ...nets.map((n) => Number(n.rxBytes) + Number(n.txBytes)));
+  const rows = nets.map((n, i) => {
+    const total = Number(n.rxBytes) + Number(n.txBytes);
+    const friendly = n.friendly && n.friendly !== n.iface ? n.friendly : n.iface;
+    const badges = `${n.tether ? ` <span class="chip">📱 tethering</span>` : ""}${n.active ? ` <span class="chip">live</span>` : ""}`;
+    return `<tr>
+      <td class="rank">${i + 1}</td>
+      <td><div class="cell-name">
+        <span class="label" title="${esc(n.iface)}">${esc(friendly)}${badges}</span>
+      </div><div class="usebar"><i style="width:${(100 * total / max).toFixed(1)}%"></i></div></td>
+      <td class="num rx">${fmtBytes(n.rxBytes).str}</td>
+      <td class="num tx">${fmtBytes(n.txBytes).str}</td>
+      <td class="num">${fmtBytes(total).str}</td>
+    </tr>`;
+  }).join("");
+  return `<table class="tbl"><thead><tr><th></th><th>Network</th>
+    <th class="num">↓ Down</th><th class="num">↑ Up</th><th class="num">Total</th></tr></thead>
+    <tbody>${rows}</tbody></table>`;
+}
+
+let netUsageSig = "";
+function renderNetUsage() {
+  const el = $("netusage");
+  if (!el) return;
+  const html = netUsageHTML(netUsage);
+  if (html !== netUsageSig) { el.innerHTML = html; netUsageSig = html; }
+}
+
+async function loadNetUsage(range) {
+  const el = $("netusage");
+  if (!el) return;
+  try {
+    netUsage = (await fetchJSON(`${API}/api/netusage?range=${range || rangeState.netusage}`)) || [];
+    renderNetUsage();
+  } catch (_) { /* older daemon / not ready */ }
+}
+
+loadNetUsage("today");
+// Refresh the current range on its own timer (independent of the live snapshot
+// path), every 5s, skipped while hidden.
+setInterval(() => { if (!document.hidden) loadNetUsage(rangeState.netusage); }, 5000);
 
 // ============================================================ theme
 // "auto" follows the OS (prefers-color-scheme); light/dark force it via
@@ -416,7 +472,7 @@ let themeMode = "auto";
 // forced style resolution — doing it on every snapshot (for the chart/sparkline)
 // was needless main-thread work since the values only change on a theme switch.
 // Cache them and refresh only when the theme actually changes.
-const THEME_VARS = ["--line", "--muted", "--rx", "--tx", "--accent", "--mono"];
+const THEME_VARS = ["--line", "--muted", "--rx", "--tx", "--accent", "--mono", "--sans"];
 let themeCache = null;
 function refreshThemeCache() {
   const css = getComputedStyle(document.body);
@@ -646,14 +702,14 @@ function drawHistChart() {
   const padL = 56, padB = 18, padT = 8, padR = 6;
   const plotW = w - padL - padR, plotH = h - padT - padB;
   if (!histPoints.length) {
-    g.fillStyle = cMuted; g.font = "12px " + css.getPropertyValue("--sans");
+    g.fillStyle = cMuted; g.font = "12px " + tvar("--sans");
     g.textAlign = "center"; g.textBaseline = "middle";
     g.fillText("no traffic in this range", w / 2, h / 2);
     return;
   }
   const peak = Math.max(1, ...histPoints.map((p) => Math.max(Number(p.rxBytes), Number(p.txBytes))));
   const top = niceMax(peak);
-  g.font = "10px " + css.getPropertyValue("--mono"); g.textBaseline = "middle";
+  g.font = "10px " + tvar("--mono"); g.textBaseline = "middle";
   for (let i = 0; i <= 4; i++) {
     const y = padT + (plotH * i) / 4;
     g.strokeStyle = cLine; g.globalAlpha = 0.5; g.beginPath();
@@ -833,6 +889,7 @@ async function fetchJSON(url) {
   return r.json();
 }
 
+
 let es = null;
 function connect() {
   setStatus("warn", "connecting…");
@@ -958,7 +1015,7 @@ function drawDrillChart(points) {
   const cRx = tvar("--rx");
   const cTx = tvar("--tx");
   if (!points.length) {
-    g.fillStyle = cMuted; g.font = "12px " + css.getPropertyValue("--sans");
+    g.fillStyle = cMuted; g.font = "12px " + tvar("--sans");
     g.textAlign = "center"; g.textBaseline = "middle";
     g.fillText("no traffic in this range", w / 2, h / 2);
     return;
@@ -967,7 +1024,7 @@ function drawDrillChart(points) {
   const plotW = w - padL - padR, plotH = h - padT - padB;
   const peak = Math.max(1, ...points.map((p) => Math.max(Number(p.rxBytes), Number(p.txBytes))));
   const top = niceMax(peak);
-  g.font = "10px " + css.getPropertyValue("--mono"); g.textBaseline = "middle";
+  g.font = "10px " + tvar("--mono"); g.textBaseline = "middle";
   for (let i = 0; i <= 4; i++) {
     const y = padT + (plotH * i) / 4;
     g.strokeStyle = cLine; g.globalAlpha = 0.5; g.beginPath();

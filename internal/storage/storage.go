@@ -43,6 +43,17 @@ CREATE TABLE IF NOT EXISTS domain_samples (
 	PRIMARY KEY (bucket, domain, app)
 );
 CREATE INDEX IF NOT EXISTS idx_domain_bucket ON domain_samples(bucket);
+
+-- Per-interface daily byte totals, for metered/tethering data tracking. Kept at
+-- day granularity (one row per interface per local day) so a billing cycle's
+-- usage is a cheap SUM and the table stays tiny (~31 rows/interface/month).
+CREATE TABLE IF NOT EXISTS iface_usage (
+	iface TEXT    NOT NULL,
+	day   INTEGER NOT NULL,           -- unix seconds at local midnight
+	rx    INTEGER NOT NULL DEFAULT 0,
+	tx    INTEGER NOT NULL DEFAULT 0,
+	PRIMARY KEY (iface, day)
+);
 `
 
 // Open opens (creating if needed) the SQLite database at path and applies the
@@ -165,6 +176,47 @@ func (s *Store) FlushDomains(bucket int64, domains []types.DomainStat) error {
 		}
 	}
 	return tx.Commit()
+}
+
+// AddIfaceUsage folds rx/tx bytes into the given interface's daily total. day is
+// unix seconds at local midnight. A no-op when iface is empty or both are zero.
+func (s *Store) AddIfaceUsage(iface string, day int64, rx, tx uint64) error {
+	if iface == "" || (rx == 0 && tx == 0) {
+		return nil
+	}
+	_, err := s.db.Exec(`
+		INSERT INTO iface_usage (iface, day, rx, tx) VALUES (?, ?, ?, ?)
+		ON CONFLICT(iface, day) DO UPDATE SET rx = rx + excluded.rx, tx = tx + excluded.tx`,
+		iface, day, rx, tx)
+	return err
+}
+
+// IfaceUsage is one interface's total rx/tx over a queried range.
+type IfaceUsage struct {
+	Iface string
+	Rx    uint64
+	Tx    uint64
+}
+
+// IfaceUsageAllSince returns per-interface totals for every interface with usage
+// on or after sinceDay (unix seconds at local midnight), most-used first.
+func (s *Store) IfaceUsageAllSince(sinceDay int64) ([]IfaceUsage, error) {
+	rows, err := s.db.Query(`
+		SELECT iface, SUM(rx), SUM(tx) FROM iface_usage
+		WHERE day >= ? GROUP BY iface ORDER BY SUM(rx)+SUM(tx) DESC`, sinceDay)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []IfaceUsage
+	for rows.Next() {
+		var u IfaceUsage
+		if err := rows.Scan(&u.Iface, &u.Rx, &u.Tx); err != nil {
+			return nil, err
+		}
+		out = append(out, u)
+	}
+	return out, rows.Err()
 }
 
 // Apps returns per-app totals over [since, until), ranked by total bytes.

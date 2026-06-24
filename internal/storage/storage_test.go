@@ -9,6 +9,45 @@ import (
 	"github.com/doldoldol21/netscope/pkg/types"
 )
 
+func TestIfaceUsage(t *testing.T) {
+	s := openTemp(t)
+	// Two days of usage on en5, one on en0.
+	if err := s.AddIfaceUsage("en5", 1000, 100, 50); err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	_ = s.AddIfaceUsage("en5", 1000, 10, 5) // same day accumulates
+	_ = s.AddIfaceUsage("en5", 2000, 200, 100)
+	_ = s.AddIfaceUsage("en0", 2000, 999, 999)
+	// Empty iface / zero bytes are no-ops.
+	_ = s.AddIfaceUsage("", 2000, 1, 1)
+	_ = s.AddIfaceUsage("en5", 3000, 0, 0)
+
+	byIface := func(sinceDay int64) map[string]storageUsage {
+		rows, err := s.IfaceUsageAllSince(sinceDay)
+		if err != nil {
+			t.Fatalf("all since %d: %v", sinceDay, err)
+		}
+		m := map[string]storageUsage{}
+		for _, u := range rows {
+			m[u.Iface] = storageUsage{u.Rx, u.Tx}
+		}
+		return m
+	}
+	all := byIface(1000)
+	if all["en5"] != (storageUsage{310, 155}) { // (100+10+200)/(50+5+100)
+		t.Errorf("en5 since 1000 = %+v, want {310 155}", all["en5"])
+	}
+	if all["en0"] != (storageUsage{999, 999}) {
+		t.Errorf("en0 since 1000 = %+v, want {999 999}", all["en0"])
+	}
+	// Day boundary excludes the earlier day.
+	if got := byIface(2000)["en5"]; got != (storageUsage{200, 100}) {
+		t.Errorf("en5 since 2000 = %+v, want {200 100}", got)
+	}
+}
+
+type storageUsage struct{ rx, tx uint64 }
+
 // TestOpenQuarantinesCorruptDB verifies a corrupt database file is moved aside
 // and a fresh, usable one is created — rather than failing Open() forever (which
 // would brick the daemon in a launchd KeepAlive crash loop).

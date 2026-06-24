@@ -6,12 +6,14 @@ package api
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"sort"
 	"strconv"
 	"time"
 
 	"github.com/doldoldol21/netscope/internal/buildinfo"
+	"github.com/doldoldol21/netscope/internal/capture"
 	"github.com/doldoldol21/netscope/internal/engine"
 	"github.com/doldoldol21/netscope/internal/storage"
 	"github.com/doldoldol21/netscope/internal/update"
@@ -58,7 +60,75 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/ratehist", s.handleRateHist)
 	mux.HandleFunc("/api/capture", s.handleCapture)
 	mux.HandleFunc("/api/connections", s.handleConnections)
+	mux.HandleFunc("/api/netusage", s.handleNetUsage)
 	return mux
+}
+
+// netUsage is one network's data usage over the requested range. Every interface
+// that recorded traffic auto-appears; tethered phones are flagged.
+type netUsage struct {
+	Iface    string `json:"iface"`
+	Friendly string `json:"friendly"` // macOS friendly name, resolved live
+	Tether   bool   `json:"tether"`
+	Active   bool   `json:"active"` // currently the capturing interface
+	RxBytes  uint64 `json:"rxBytes"`
+	TxBytes  uint64 `json:"txBytes"`
+}
+
+// handleNetUsage lists per-network data usage over ?range=today|week|month
+// (default today), most-used first. Networks auto-appear from recorded usage;
+// no manual registration.
+func (s *Server) handleNetUsage(w http.ResponseWriter, r *http.Request) {
+	if s.store == nil {
+		http.Error(w, "usage history unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	now := time.Now()
+	y, m, d := now.Date()
+	midnight := time.Date(y, m, d, 0, 0, 0, 0, now.Location())
+	since := midnight
+	switch r.URL.Query().Get("range") {
+	case "week":
+		since = midnight.AddDate(0, 0, -6) // last 7 days incl. today
+	case "month":
+		since = midnight.AddDate(0, 0, -29) // last 30 days
+	}
+
+	rows, err := s.store.IfaceUsageAllSince(since.Unix())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	active := ""
+	if s.cap != nil {
+		for _, i := range s.cap.ListInterfaces() {
+			if i.Active {
+				active = i.Name
+			}
+		}
+	}
+	// Interfaces that currently exist on the host (incl. down ones).
+	exists := map[string]bool{}
+	if ifs, err := net.Interfaces(); err == nil {
+		for _, i := range ifs {
+			exists[i.Name] = true
+		}
+	}
+	out := []netUsage{}
+	for _, u := range rows {
+		friendly, tether := capture.FriendlyName(u.Iface) // stable across up/down
+		// Hide ghost interfaces — ones that no longer exist and have no friendly
+		// name (e.g. a transient en7 from a past session). Keep currently-present
+		// ones and any with a resolved name (a just-unplugged tether).
+		if !exists[u.Iface] && friendly == u.Iface {
+			continue
+		}
+		out = append(out, netUsage{
+			Iface: u.Iface, Friendly: friendly, Tether: tether,
+			Active: u.Iface == active, RxBytes: u.Rx, TxBytes: u.Tx,
+		})
+	}
+	writeJSON(w, out)
 }
 
 // handleConnections returns the live connections active within the last window

@@ -410,6 +410,25 @@ func (e *Engine) flush() {
 	bucket := e.nowFn().Truncate(e.cfg.Bucket).Unix()
 	_ = e.store.FlushApps(bucket, apps)
 	_ = e.store.FlushDomains(bucket, domains)
+
+	// Attribute this bucket's bytes to the capturing interface for metered/
+	// tethering tracking. Capture is single-interface at a time, so the whole
+	// bucket belongs to the current one. Stored at day granularity.
+	var rx, tx uint64
+	for _, a := range apps {
+		rx += a.RxBytes
+		tx += a.TxBytes
+	}
+	if iface := e.currentIface(); iface != "" {
+		_ = e.store.AddIfaceUsage(iface, dayStart(e.nowFn()), rx, tx)
+	}
+}
+
+// dayStart returns unix seconds at the local midnight of t — the day key used
+// for per-interface usage rows.
+func dayStart(t time.Time) int64 {
+	y, m, d := t.Date()
+	return time.Date(y, m, d, 0, 0, 0, 0, t.Location()).Unix()
 }
 
 func appsSlice(m map[string]*appAcc) []types.AppTraffic {

@@ -43,3 +43,7 @@ func (s *Source) SetPaused(p bool)                        {}
 
 // LocalIPs returns no addresses on unsupported platforms.
 func LocalIPs() []string { return nil }
+
+// FriendlyName has no SystemConfiguration equivalent off macOS; return the BSD
+// name unchanged.
+func FriendlyName(bsd string) (string, bool) { return bsd, false }
