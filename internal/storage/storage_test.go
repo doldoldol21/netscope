@@ -1,12 +1,38 @@
 package storage
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/doldoldol21/netscope/pkg/types"
 )
+
+// TestOpenQuarantinesCorruptDB verifies a corrupt database file is moved aside
+// and a fresh, usable one is created — rather than failing Open() forever (which
+// would brick the daemon in a launchd KeepAlive crash loop).
+func TestOpenQuarantinesCorruptDB(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.db")
+	// Write a file that looks like a DB by name but is not valid SQLite.
+	if err := os.WriteFile(path, []byte("this is not a sqlite database, it is garbage"), 0o644); err != nil {
+		t.Fatalf("seed corrupt file: %v", err)
+	}
+	s, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open should recover from a corrupt file, got: %v", err)
+	}
+	defer s.Close()
+	// The corrupt original must have been quarantined.
+	if _, err := os.Stat(path + ".corrupt"); err != nil {
+		t.Errorf("expected quarantined %s.corrupt, stat err: %v", path, err)
+	}
+	// The fresh DB must be usable.
+	if err := s.FlushApps(1, []types.AppTraffic{{Name: "x", RxBytes: 1}}); err != nil {
+		t.Errorf("fresh DB not usable after recovery: %v", err)
+	}
+}
 
 func openTemp(t *testing.T) *Store {
 	t.Helper()

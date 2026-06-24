@@ -13,6 +13,7 @@ package engine
 
 import (
 	"context"
+	"log"
 	"net"
 	"sort"
 	"sync"
@@ -248,7 +249,7 @@ func (e *Engine) Run(ctx context.Context, flows <-chan types.Flow) error {
 				e.flush()
 				return nil
 			}
-			e.ingest(f)
+			e.safeIngest(f)
 		case <-flushT.C:
 			e.flush()
 		case <-snapT.C:
@@ -281,6 +282,19 @@ func (e *Engine) maintainStore() {
 }
 
 // ingest attributes a single flow and folds it into both accumulator sets.
+// safeIngest wraps ingest so a panic on a single malformed flow (a parser edge
+// case, an unexpected nil) drops that one packet instead of crashing the whole
+// daemon — which would lose all in-memory session state and force a launchd
+// restart. The hot path's cost is just a deferred recover.
+func (e *Engine) safeIngest(f types.Flow) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("engine: recovered from panic ingesting flow: %v", r)
+		}
+	}()
+	e.ingest(f)
+}
+
 func (e *Engine) ingest(f types.Flow) {
 	proc, ok := types.Process{Name: "unknown"}, false
 	if e.res != nil {
