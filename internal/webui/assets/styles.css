@@ -122,11 +122,9 @@ main > * { max-width: 1340px; width: 100%; margin-inline: auto; }
 .panel h2 { font-size: 12px; font-weight: 600; color: var(--fg-dim); text-transform: uppercase; letter-spacing: .7px; margin: 0; }
 .panel .hint { font-size: 11px; color: var(--muted); }
 /* Range tabs always sit at the right edge of a panel header, regardless of what
-   else (hint, search) is in it — they're the last child + this auto margin. */
-.panel > header .tabs { margin-left: auto; }
-/* A search box fills the middle so tabs stay pinned right. */
-.panel > header .search { flex: 1 1 auto; min-width: 0; }
-.panel > header .search + .tabs { margin-left: 10px; }
+   else (hint, search) precedes them — auto margin eats all the free space. The
+   !important guards against more specific overrides (e.g. #chart-tabs). */
+.panel > header .tabs { margin-left: auto !important; }
 
 /* segmented range tabs */
 .tabs { display: inline-flex; gap: 2px; padding: 2px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; margin-left: auto; }
