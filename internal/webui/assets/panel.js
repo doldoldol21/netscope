@@ -22,6 +22,9 @@ function hue(s) { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.
 const spark = $("spark"), sx = spark.getContext("2d"), hist = [], MAXP = 80;
 function drawSpark() {
   const dpr = window.devicePixelRatio || 1, r = spark.getBoundingClientRect();
+  // While the popover is hidden the canvas has no layout size; skip so we don't
+  // blank it to nothing (which made the graph "disappear" until the next tick).
+  if (r.width < 1 || r.height < 1) return;
   spark.width = r.width * dpr; spark.height = r.height * dpr; sx.setTransform(dpr, 0, 0, dpr, 0, 0);
   const w = r.width, h = r.height; sx.clearRect(0, 0, w, h);
   if (hist.length < 2) return;
@@ -95,10 +98,29 @@ function connect() {
   };
 }
 function disconnect() { if (es) { es.close(); es = null; } }
+
+// Seed the sparkline from the daemon's recent per-second history so the graph is
+// continuous on (re)open instead of starting blank — the popover only collects
+// live points while visible, so without this it has gaps for the time it was
+// closed. Live messages append after.
+async function seedSpark() {
+  try {
+    const r = await fetch("/api/ratehist");
+    if (!r.ok) return;
+    const pts = await r.json();
+    if (!Array.isArray(pts) || !pts.length) return;
+    hist.length = 0;
+    for (const p of pts.slice(-MAXP)) {
+      hist.push({ rx: Number(p.rxPerSec) || 0, tx: Number(p.txPerSec) || 0 });
+    }
+    drawSpark();
+  } catch (_) { /* daemon not ready */ }
+}
 // nsLive(true|false): start/stop the live stream + today's-total polling.
 window.nsLive = (on) => {
   wantLive = !!on;
   if (on) {
+    seedSpark(); // continuous history on (re)open, then live appends
     connect();
     loadToday();
     if (!todayTimer) todayTimer = setInterval(loadToday, 15000);

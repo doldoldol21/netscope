@@ -116,7 +116,13 @@ func installDaemon(netscoped, sock string) error {
 	script := strings.Join([]string{
 		fmt.Sprintf("/usr/bin/install -m 644 -o root -g wheel '%s' '%s'", tmp.Name(), plistPath),
 		"/bin/mkdir -p /var/run/netscope",
-		fmt.Sprintf("/bin/launchctl bootstrap system '%s' 2>/dev/null || /bin/launchctl load '%s'", plistPath, plistPath),
+		// Bootout any existing (possibly stuck or wrongly-owned) instance first,
+		// then bootstrap fresh — so re-running this actually restarts the daemon
+		// rather than no-op'ing on an already-loaded service. kickstart -k is a
+		// belt-and-suspenders force-restart if it was already loaded.
+		fmt.Sprintf("/bin/launchctl bootout system '%s' 2>/dev/null || true", plistPath),
+		fmt.Sprintf("/bin/launchctl bootstrap system '%s' 2>/dev/null || /bin/launchctl load '%s' 2>/dev/null || true", plistPath, plistPath),
+		fmt.Sprintf("/bin/launchctl kickstart -k system/%s 2>/dev/null || true", label),
 	}, " && ")
 
 	return runPrivileged(script, "netscope wants to install its capture helper.")
