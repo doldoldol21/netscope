@@ -70,7 +70,7 @@ type netUsage struct {
 	Iface    string `json:"iface"`
 	Friendly string `json:"friendly"` // macOS friendly name, resolved live
 	Tether   bool   `json:"tether"`
-	Active   bool   `json:"active"`  // currently the capturing interface
+	Active   bool   `json:"active"` // currently the capturing interface
 	RxBytes  uint64 `json:"rxBytes"`
 	TxBytes  uint64 `json:"txBytes"`
 }
