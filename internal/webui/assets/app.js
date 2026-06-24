@@ -413,7 +413,6 @@ document.querySelectorAll(".tabs").forEach((tabs) => {
 // since the billing-cycle start; this just renders and edits the config.
 let meteredData = { plans: [], interfaces: [] };
 let meteredEditing = null; // iface being edited, "" for the add form, or null
-let meteredLastFetch = 0;
 
 function gib(bytes) { return (Number(bytes) / (1024 ** 3)); }
 function cycleDateStr(unix) {
@@ -518,6 +517,11 @@ function wireMetered() {
   if (add) add.onclick = () => { meteredEditing = ""; renderMetered(); };
 })();
 loadMetered();
+// Refresh usage on its own timer (independent of the live snapshot path), every
+// 5s, but never while editing (that would wipe the open form) or while hidden.
+setInterval(() => {
+  if (meteredEditing === null && !document.hidden) loadMetered();
+}, 5000);
 
 // ============================================================ theme
 // "auto" follows the OS (prefers-color-scheme); light/dark force it via
@@ -883,10 +887,6 @@ function renderSnapshot(s) {
   // Refresh live connections at most ~every 2s (snapshots arrive ~1s).
   const tnow = Date.now();
   if (tnow - connsLastFetch > 2000) { connsLastFetch = tnow; refreshConnections(); }
-
-  // Metered usage changes slowly; refresh ~every 20s, but never while the user
-  // is editing a plan (that would wipe the open form).
-  if (meteredEditing === null && tnow - meteredLastFetch > 20000) { meteredLastFetch = tnow; loadMetered(); }
 
   if (chartMode === "live") drawChart(); // don't clobber a history view
   drawSpark("spark-total", tvar("--accent"));
