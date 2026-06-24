@@ -69,9 +69,9 @@ func Listen(sock string) (net.Listener, error) {
 		return nil, err
 	}
 	// A leftover socket from an unclean shutdown would make Listen fail.
-	if _, err := os.Stat(sock); err == nil {
-		_ = os.Remove(sock)
-	}
+	// Remove unconditionally: a Stat-then-Remove gate skips cleanup when Stat
+	// errors for a reason other than absence, leaving Listen to fail on bind.
+	_ = os.Remove(sock)
 	ln, err := net.Listen("unix", sock)
 	if err != nil {
 		return nil, err
@@ -106,15 +106,21 @@ func secureSocket(sock string) {
 // always reach the daemon. It runs for the daemon's lifetime; the poll is cheap.
 func keepSocketOwned(sock string) {
 	for range time.Tick(2 * time.Second) {
-		uid, gid, ok := targetUser()
+		// Track the *live* console owner, not targetUser(): a stale SUDO_UID in
+		// the daemon's environment (if it was started via sudo) would otherwise
+		// pin the socket to the original user forever and fight user switching.
+		uid, gid, ok := consoleUser()
 		// Only hand the socket to a real (non-root) console user; before login
-		// targetUser() resolves to root, which we leave alone and retry later.
+		// the console is root-owned, which we leave alone and retry later.
 		if !ok || uid == 0 {
 			continue
 		}
 		fi, err := os.Stat(sock)
 		if err != nil {
-			return // socket gone (daemon shutting down) — stop polling
+			if os.IsNotExist(err) {
+				return // socket gone (daemon shutting down) — stop polling
+			}
+			continue // transient error — keep trying
 		}
 		if st, ok := fi.Sys().(*syscall.Stat_t); ok && int(st.Uid) == uid {
 			continue // already owned by the active user
@@ -134,6 +140,13 @@ func targetUser() (uid, gid int, ok bool) {
 			return u, g, true
 		}
 	}
+	return consoleUser()
+}
+
+// consoleUser returns the owner of /dev/console — the user currently at the
+// physical console (the active user under fast user switching). It is root
+// before anyone logs in.
+func consoleUser() (uid, gid int, ok bool) {
 	if fi, err := os.Stat("/dev/console"); err == nil {
 		if st, ok := fi.Sys().(*syscall.Stat_t); ok {
 			return int(st.Uid), int(st.Gid), true
