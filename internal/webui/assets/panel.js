@@ -47,7 +47,14 @@ let appsSig = "";
 function render(s) {
   applyPausedFromSnapshot(!!s.paused);
   if (!capPaused) $("dot").classList.add("live");
-  if (s.interface) { ifaceCur = s.interface; updateMetaText(); }
+  if (s.interface) {
+    const changed = s.interface !== ifaceCur;
+    ifaceCur = s.interface;
+    // Pull the friendly-name list if we don't know this interface yet (boot or a
+    // just-switched interface), so the meta line shows "Wi-Fi" not "en0".
+    if (changed && !ifaceOpts.some((o) => o.name === ifaceCur)) refreshIface();
+    updateMetaText();
+  }
   setText($("rx"), fmtRate(s.rxPerSec));
   setText($("tx"), fmtRate(s.txPerSec));
   if (s.activeApps != null) setText($("active"), s.activeApps + " active");
@@ -208,9 +215,15 @@ $("pause-btn").onclick = togglePause;
 
 // ---- capture interface picker (top-right chip → dropdown, daemon API) ----
 let ifaceCur = "", ifaceSel = "", ifaceOpts = [];
+// Map a raw BSD name (en0) to its macOS-friendly name (Wi-Fi) using the
+// interface list we already fetch for the picker; falls back to the raw name.
+function friendlyIface(name) {
+  const o = ifaceOpts.find((x) => x.name === name);
+  return o && o.friendly ? o.friendly : name;
+}
 function updateMetaText() {
   if (capPaused) { $("meta").textContent = "paused"; return; }
-  const cur = ifaceCur || "live";
+  const cur = ifaceCur ? friendlyIface(ifaceCur) : "live";
   $("meta").textContent = ifaceSel ? cur : ("auto · " + cur);
 }
 async function refreshIface() {
