@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/doldoldol21/netscope/internal/buildinfo"
+	"github.com/doldoldol21/netscope/internal/capture"
 	"github.com/doldoldol21/netscope/internal/engine"
 	"github.com/doldoldol21/netscope/internal/metered"
 	"github.com/doldoldol21/netscope/internal/storage"
@@ -70,6 +71,8 @@ func (s *Server) Handler() http.Handler {
 // meteredPlan is one metered interface with its current-cycle usage.
 type meteredPlan struct {
 	Iface         string `json:"iface"`
+	Friendly      string `json:"friendly"` // macOS friendly name, resolved live
+	Tether        bool   `json:"tether"`
 	Label         string `json:"label"`
 	BudgetBytes   uint64 `json:"budgetBytes"`
 	CycleStartDay int    `json:"cycleStartDay"`
@@ -119,8 +122,10 @@ func (s *Server) handleMetered(w http.ResponseWriter, r *http.Request) {
 		cs := metered.CycleStart(now, p.CycleStartDay)
 		rx, tx, _ := s.store.IfaceUsageSince(iface, cs)
 		used := rx + tx
+		friendly, tether := capture.FriendlyName(iface) // stable across up/down
 		plans = append(plans, meteredPlan{
-			Iface: iface, Label: p.Label, BudgetBytes: p.BudgetBytes,
+			Iface: iface, Friendly: friendly, Tether: tether,
+			Label: p.Label, BudgetBytes: p.BudgetBytes,
 			CycleStartDay: p.CycleStartDay, UsedBytes: used, CycleStart: cs,
 			OverBudget: p.BudgetBytes > 0 && used >= p.BudgetBytes,
 		})

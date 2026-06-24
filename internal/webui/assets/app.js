@@ -461,14 +461,15 @@ function meteredCardHTML(p) {
   const usedStr = fmtBytes(used).str;
   const budStr = has ? fmtBytes(p.budgetBytes).str : "no budget";
   const cls = p.overBudget ? " over" : (has && pct >= 80 ? " warn" : "");
-  // Friendly name + tether hint from the interface list (the daemon resolves
-  // macOS names like "iPhone USB"; the plan itself only stores the BSD name).
-  const meta = (meteredData.interfaces || []).find((i) => i.name === p.iface) || {};
-  const ifaceLabel = meta.friendly ? `${esc(meta.friendly)} (${esc(p.iface)})` : esc(p.iface);
-  const tetherBadge = meta.tether ? ` <span class="chip">📱 tethering</span>` : "";
+  // Friendly name + tether hint come straight from the plan (the daemon resolves
+  // macOS names like "iPhone USB" live, so they stay stable even mid Wi-Fi↔tether
+  // switch when the interface briefly has no IP).
+  const friendly = p.friendly && p.friendly !== p.iface ? p.friendly : "";
+  const ifaceLabel = friendly ? `${esc(friendly)} (${esc(p.iface)})` : esc(p.iface);
+  const tetherBadge = p.tether ? ` <span class="chip">📱 tethering</span>` : "";
   return `<div class="m-card${cls}">
     <div class="m-head">
-      <span class="m-name">${esc(p.label || meta.friendly || p.iface)}</span>${tetherBadge}
+      <span class="m-name">${esc(p.label || friendly || p.iface)}</span>${tetherBadge}
       <span class="m-sub">${ifaceLabel} · cycle from ${cycleDateStr(p.cycleStart)}</span>
       <span class="m-edit" data-edit="${esc(p.iface)}" title="Edit">✎</span>
       <span class="m-edit" data-remove="${esc(p.iface)}" title="Stop tracking">✕</span>

@@ -49,6 +49,19 @@ import (
 	"unsafe"
 )
 
+// FriendlyName resolves a BSD interface name (en0) to its macOS-friendly name
+// ("Wi-Fi", "iPhone USB") and a tethering guess. Unlike the capture picker list,
+// this works even when the interface currently has no IP / is down (e.g. mid
+// Wi-Fi↔tether switch), so a metered plan's label stays stable. Falls back to
+// the BSD name when unknown.
+func FriendlyName(bsd string) (friendly string, tether bool) {
+	m := interfaceMeta()[bsd]
+	if m.friendly == "" {
+		return bsd, m.tether
+	}
+	return m.friendly, m.tether
+}
+
 // ifaceMeta is the macOS-friendly metadata for one interface.
 type ifaceMeta struct {
 	friendly string // localized display name, e.g. "Wi-Fi", "iPhone USB"
