@@ -7,6 +7,7 @@ package main
 #include <stdlib.h>
 extern void installStatusItem(const void *png, int len);
 extern void setStatusImage(const void *png, int len);
+extern int menuBarAnimationActive(void);
 extern void setStatusText(const char *utf8);
 extern void positionPopover(int winW, int winH);
 extern void enablePopoverDismiss(void);
@@ -31,6 +32,10 @@ func setStatusImage(png []byte) {
 	}
 	C.setStatusImage(unsafe.Pointer(&png[0]), C.int(len(png)))
 }
+
+// menuBarAnimationActive reports whether the menu-bar icon is worth animating
+// (false while the display is asleep, so the animator can idle and save battery).
+func menuBarAnimationActive() bool { return C.menuBarAnimationActive() != 0 }
 
 // positionPopover places the popover window flush under the status item, on the
 // display the menu bar currently lives on (set directly in global coordinates,

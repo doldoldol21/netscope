@@ -19,8 +19,18 @@ const (
 
 // animLevels are the wave amplitudes (px) from quiet to saturated. The animator
 // picks a level from current throughput so the icon's *size* — not just its
-// speed — tracks traffic, making the mapping legible at a glance.
-var animLevels = []float64{1.5, 3.0, 4.5, 6.0, 7.5}
+// speed — tracks traffic, making the mapping legible at a glance. Ten steps
+// (vs the original five) keep the amplitude from visibly popping as traffic
+// ramps; the frames are pre-rendered once so the extra levels are nearly free.
+var animLevels = buildAnimLevels(10, 1.5, 7.5)
+
+func buildAnimLevels(n int, lo, hi float64) []float64 {
+	out := make([]float64, n)
+	for i := range out {
+		out[i] = lo + (hi-lo)*float64(i)/float64(n-1)
+	}
+	return out
+}
 
 // startMenuBarAnimator drives the menu-bar icon: a scrolling wave whose amplitude
 // and speed both rise with throughput (busier link → taller, faster wave), and
@@ -38,6 +48,12 @@ func startMenuBarAnimator() {
 		frame := 0
 		wasOff := false
 		for {
+			// Display asleep: stop swapping frames (icon isn't visible). Poll
+			// cheaply until it wakes.
+			if !menuBarAnimationActive() {
+				time.Sleep(time.Second)
+				continue
+			}
 			bps, animate := currentRateBps()
 			if !animate {
 				if !wasOff {

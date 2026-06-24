@@ -14,6 +14,15 @@ void popoverDidHideGo(void);
 static NSStatusItem *gItem = nil;
 static NSStatusTarget *gTarget = nil;
 
+// gFrameCache maps a frame's source pointer -> decoded NSImage. The animator
+// re-sends the same ~90 pre-rendered frame buffers forever (stable pointers), so
+// decoding the PNG once and reusing the NSImage eliminates a per-frame PNG
+// decode + alloc on the main thread (up to 12×/sec).
+static NSMutableDictionary *gFrameCache = nil;
+// gScreensAsleep is set while the display is asleep so the animator can stop
+// swapping frames — the icon isn't visible and redraws only waste battery.
+static BOOL gScreensAsleep = NO;
+
 // installStatusItem creates the menu-bar status item with a template image.
 void installStatusItem(const void *png, int len) {
   dispatch_async(dispatch_get_main_queue(), ^{
@@ -28,20 +37,41 @@ void installStatusItem(const void *png, int len) {
     gTarget = [[NSStatusTarget alloc] init];
     gItem.button.target = gTarget;
     gItem.button.action = @selector(clicked:);
+
+    // Pause the animation while the display sleeps (lid closed / screen off):
+    // the menu bar isn't drawn, so frame swaps are pure waste on battery.
+    NSNotificationCenter *wc = [[NSWorkspace sharedWorkspace] notificationCenter];
+    [wc addObserverForName:NSWorkspaceScreensDidSleepNotification object:nil
+                     queue:[NSOperationQueue mainQueue]
+                usingBlock:^(NSNotification *n) { gScreensAsleep = YES; }];
+    [wc addObserverForName:NSWorkspaceScreensDidWakeNotification object:nil
+                     queue:[NSOperationQueue mainQueue]
+                usingBlock:^(NSNotification *n) { gScreensAsleep = NO; }];
   });
 }
 
+// menuBarAnimationActive reports whether the animator should keep drawing frames
+// (false while the display is asleep). Read from the Go animator loop.
+int menuBarAnimationActive(void) { return gScreensAsleep ? 0 : 1; }
+
 // setStatusImage swaps the menu-bar button's template image (one animation
 // frame, or the static idle glyph). Kept as a template so macOS tints it for the
-// light/dark menu bar automatically.
+// light/dark menu bar automatically. The decoded NSImage is cached by source
+// pointer, and an unchanged image is skipped to avoid a needless re-rasterize.
 void setStatusImage(const void *png, int len) {
-  NSData *d = [NSData dataWithBytes:png length:len];
+  NSValue *key = [NSValue valueWithPointer:png];
   dispatch_async(dispatch_get_main_queue(), ^{
     if (!gItem) return;
-    NSImage *img = [[NSImage alloc] initWithData:d];
-    [img setTemplate:YES];
-    [img setSize:NSMakeSize(18, 18)];
-    gItem.button.image = img;
+    if (!gFrameCache) gFrameCache = [[NSMutableDictionary alloc] init];
+    NSImage *img = gFrameCache[key];
+    if (!img) {
+      NSData *d = [NSData dataWithBytes:png length:len];
+      img = [[NSImage alloc] initWithData:d];
+      [img setTemplate:YES];
+      [img setSize:NSMakeSize(18, 18)];
+      if (img) gFrameCache[key] = img;
+    }
+    if (img && gItem.button.image != img) gItem.button.image = img;
   });
 }
 
