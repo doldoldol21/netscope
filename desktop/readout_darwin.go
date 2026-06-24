@@ -93,7 +93,14 @@ func startMenuBarReadout(client *http.Client) {
 				readoutMu.Unlock()
 				renderReadout()
 			} else {
-				setStatusText("") // daemon unreachable: icon only
+				// Daemon unreachable: clear the cached rates so the icon
+				// animation falls back to idle instead of forever animating at
+				// the last-seen throughput (a dead daemon would otherwise look
+				// like steady mid-traffic).
+				readoutMu.Lock()
+				lastRx, lastTx, lastTotalBps = "", "", 0
+				readoutMu.Unlock()
+				setStatusText("") // icon only
 			}
 			time.Sleep(readoutInterval)
 		}

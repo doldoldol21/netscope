@@ -6,6 +6,7 @@ package storage
 import (
 	"database/sql"
 	"fmt"
+	"log"
 	"os"
 	"time"
 
@@ -45,8 +46,32 @@ CREATE INDEX IF NOT EXISTS idx_domain_bucket ON domain_samples(bucket);
 `
 
 // Open opens (creating if needed) the SQLite database at path and applies the
-// schema and connection pragmas.
+// schema and connection pragmas. If the existing database is corrupt (e.g. after
+// power loss), it is quarantined aside and a fresh one is created — otherwise a
+// fatal Open error would brick the daemon in a launchd KeepAlive crash loop
+// until someone manually deletes the file.
 func Open(path string) (*Store, error) {
+	st, err := openOnce(path)
+	if err == nil {
+		return st, nil
+	}
+	// Couldn't open/validate the existing file — quarantine it and start fresh.
+	// Losing history beats a daemon that never starts again.
+	corrupt := path + ".corrupt"
+	_ = os.Remove(corrupt)
+	if rerr := os.Rename(path, corrupt); rerr != nil {
+		return nil, fmt.Errorf("open db (%v) and could not quarantine corrupt file: %w", err, rerr)
+	}
+	// Also clear any leftover WAL/SHM that belonged to the corrupt DB.
+	_ = os.Remove(path + "-wal")
+	_ = os.Remove(path + "-shm")
+	log.Printf("storage: %s was unusable (%v); quarantined to %s and recreated", path, err, corrupt)
+	return openOnce(path)
+}
+
+// openOnce opens path, applies the schema, and runs a quick integrity check.
+// Any failure (including corruption) is returned so the caller can quarantine.
+func openOnce(path string) (*Store, error) {
 	dsn := fmt.Sprintf("file:%s?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)", path)
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
@@ -55,6 +80,18 @@ func Open(path string) (*Store, error) {
 	// modernc/sqlite is safe for a single writer; serialise to avoid
 	// SQLITE_BUSY under concurrent API reads + engine flushes.
 	db.SetMaxOpenConns(1)
+	// Detect corruption up front: quick_check is cheap and reports the kind of
+	// page/index damage an unclean shutdown can leave behind. Only trust an
+	// explicit "ok"; any other result (or error) means the file is unusable.
+	var res string
+	if err := db.QueryRow(`PRAGMA quick_check`).Scan(&res); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("integrity check: %w", err)
+	}
+	if res != "ok" {
+		db.Close()
+		return nil, fmt.Errorf("integrity check failed: %s", res)
+	}
 	if _, err := db.Exec(schema); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("apply schema: %w", err)
