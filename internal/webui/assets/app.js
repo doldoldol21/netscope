@@ -745,6 +745,17 @@ function drawHistChart() {
       : `${d.getMonth() + 1}/${d.getDate()}`;
     g.fillText(label, x(idx), padT + plotH + 5);
   }
+  // hover crosshair + dots
+  if (hoverIdx >= 0 && hoverIdx < n) {
+    const px = x(hoverIdx);
+    g.strokeStyle = cMuted; g.globalAlpha = 0.5; g.setLineDash([3, 3]);
+    g.beginPath(); g.moveTo(px, padT); g.lineTo(px, padT + plotH); g.stroke();
+    g.setLineDash([]); g.globalAlpha = 1;
+    const p = histPoints[hoverIdx];
+    [["rxBytes", cRx], ["txBytes", cTx]].forEach(([key, col]) => {
+      g.fillStyle = col; g.beginPath(); g.arc(px, y(Number(p[key])), 3, 0, 7); g.fill();
+    });
+  }
   $("chart-peak").textContent = "peak " + fmtBytes(peak).str + "/bucket";
 }
 
@@ -753,30 +764,51 @@ function drawHistChart() {
 let chartRaf = 0;
 function scheduleChart() {
   if (chartRaf) return;
-  chartRaf = requestAnimationFrame(() => { chartRaf = 0; drawChart(); });
+  chartRaf = requestAnimationFrame(() => { chartRaf = 0; chartMode === "live" ? drawChart() : drawHistChart(); });
 }
 
 chart.addEventListener("mousemove", (e) => {
-  if (chartMode !== "live") return; // hover crosshair is for the live view only
   const r = chart.getBoundingClientRect();
-  const padL = 52, padR = 6, plotW = r.width - padL - padR;
-  const n = rateHist.length;
-  const rel = (e.clientX - r.left - padL) / plotW;
-  const idx = Math.round(rel * (MAXP - 1)) - (MAXP - n);
-  hoverIdx = Math.max(0, Math.min(n - 1, idx));
-  const p = rateHist[hoverIdx];
-  if (p) {
-    tip.style.opacity = 1;
-    tip.style.left = (e.clientX - r.left) + "px";
-    tip.style.top = "8px";
-    const ago = Math.round((rateHist[n - 1].t - p.t) / 1000);
-    tip.innerHTML = `<div class="t-time">${ago === 0 ? "now" : ago + "s ago"}</div>
-      <div style="color:var(--rx)">▼ <b>${fmtRate(p.rx)}</b></div>
-      <div style="color:var(--tx)">▲ <b>${fmtRate(p.tx)}</b></div>`;
+  if (chartMode === "live") {
+    const padL = 52, padR = 6, plotW = r.width - padL - padR;
+    const n = rateHist.length;
+    const rel = (e.clientX - r.left - padL) / plotW;
+    const idx = Math.round(rel * (MAXP - 1)) - (MAXP - n);
+    hoverIdx = Math.max(0, Math.min(n - 1, idx));
+    const p = rateHist[hoverIdx];
+    if (p) {
+      tip.style.opacity = 1;
+      tip.style.left = (e.clientX - r.left) + "px";
+      tip.style.top = "8px";
+      const ago = Math.round((rateHist[n - 1].t - p.t) / 1000);
+      tip.innerHTML = `<div class="t-time">${ago === 0 ? "now" : ago + "s ago"}</div>
+        <div style="color:var(--rx)">▼ <b>${fmtRate(p.rx)}</b></div>
+        <div style="color:var(--tx)">▲ <b>${fmtRate(p.tx)}</b></div>`;
+    }
+  } else {
+    // history (day/week/month): map x to a bucket, show its date + bytes.
+    const n = histPoints.length;
+    if (!n) { tip.style.opacity = 0; return; }
+    const padL = 56, padR = 6, plotW = r.width - padL - padR;
+    const rel = (e.clientX - r.left - padL) / plotW;
+    hoverIdx = Math.max(0, Math.min(n - 1, Math.round(rel * (n - 1))));
+    const p = histPoints[hoverIdx];
+    if (p) {
+      tip.style.opacity = 1;
+      tip.style.left = (e.clientX - r.left) + "px";
+      tip.style.top = "8px";
+      const d = new Date(p.time);
+      const when = chartMode === "day"
+        ? d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+        : d.toLocaleDateString([], { month: "short", day: "numeric" }) + " " + d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      tip.innerHTML = `<div class="t-time">${esc(when)}</div>
+        <div style="color:var(--rx)">▼ <b>${fmtBytes(p.rxBytes).str}</b></div>
+        <div style="color:var(--tx)">▲ <b>${fmtBytes(p.txBytes).str}</b></div>`;
+    }
   }
   scheduleChart();
 });
-chart.addEventListener("mouseleave", () => { hoverIdx = -1; tip.style.opacity = 0; if (chartMode === "live") drawChart(); });
+chart.addEventListener("mouseleave", () => { hoverIdx = -1; tip.style.opacity = 0; scheduleChart(); });
 window.addEventListener("resize", () => { chartMode === "live" ? drawChart() : drawHistChart(); });
 
 // mini sparklines on cards
