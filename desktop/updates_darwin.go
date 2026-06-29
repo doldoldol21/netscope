@@ -198,6 +198,11 @@ if ! mv "$app" "$bak" 2>/dev/null; then bak=""; fi   # may already be gone
 if mv "$new" "$app" 2>/dev/null; then
   xattr -cr "$app" 2>/dev/null || true
   [ -n "$bak" ] && rm -rf "$bak"
+  # Restart the capture helper so it runs the just-installed daemon binary.
+  # KeepAlive would otherwise keep the OLD daemon process alive until reboot,
+  # leaving the dashboard showing a stale daemon version and a perpetual
+  # "update available" banner. Needs admin once (like the original install).
+  osascript -e 'do shell script "/bin/launchctl kickstart -k system/io.netscope.daemon" with administrator privileges with prompt "netscope is finishing its update."' 2>/dev/null || true
 else
   # restore the original so the user is never left without an app
   [ -n "$bak" ] && mv "$bak" "$app" 2>/dev/null
