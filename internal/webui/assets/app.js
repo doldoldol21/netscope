@@ -829,7 +829,16 @@ function drawSpark(id, color) {
 
 // ============================================================ live wiring
 let lastSnap = null;
+let resetWaitFrom = 0; // ignore snapshots from before a just-issued session reset
 function onSnapshot(s) {
+  // After a reset we optimistically zeroed the view; drop any snapshot computed
+  // before the reset took effect (its session started earlier) so old data
+  // doesn't flash back. The server stamps sessionStart=now on reset.
+  if (resetWaitFrom) {
+    const ss = s.sessionStart ? new Date(s.sessionStart).getTime() : 0;
+    if (ss && ss < resetWaitFrom - 800) return; // pre-reset snapshot — skip
+    resetWaitFrom = 0; // reset has taken effect
+  }
   lastSnap = s;
   // Always keep lightweight state current so the view is correct the instant
   // the window is shown again — but skip the expensive DOM work while hidden.
@@ -1168,6 +1177,22 @@ function saveFile(filename, text) {
 
 $("export-all").onclick = exportAll;
 $("drill-export").onclick = exportDrillDomains;
+
+// Reset the live session counters (history is kept). Zero the view optimistically
+// so it feels instant — then ignore any in-flight pre-reset snapshot (resetWaitFrom)
+// until the server's zeroed one arrives.
+$("reset-session").onclick = async () => {
+  resetWaitFrom = Date.now();
+  liveApps = []; liveDomains = []; connsList = []; netUsageSig = "";
+  appHist.clear(); rateHist.length = 0;
+  setText($("rxps"), fmtRate(0)); setText($("txps"), fmtRate(0));
+  setText($("c-active"), "0");
+  renderPanel("apps"); renderPanel("domains"); renderCountries(); renderConns();
+  if (chartMode === "live") drawChart();
+  drawSpark("spark-total", tvar("--accent"));
+  try { await fetch(`${API}/api/session/reset`, { method: "POST" }); }
+  catch (_) { /* daemon not ready */ }
+};
 
 // boot
 seedLive(); // prefill the live chart from the daemon's recent history

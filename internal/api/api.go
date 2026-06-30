@@ -61,7 +61,19 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/capture", s.handleCapture)
 	mux.HandleFunc("/api/connections", s.handleConnections)
 	mux.HandleFunc("/api/netusage", s.handleNetUsage)
+	mux.HandleFunc("/api/session/reset", s.handleSessionReset)
 	return mux
+}
+
+// handleSessionReset zeroes the live session counters (POST). Stored history is
+// untouched.
+func (s *Server) handleSessionReset(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	s.eng.ResetSession()
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // netUsage is one network's data usage over the requested range. Every interface
