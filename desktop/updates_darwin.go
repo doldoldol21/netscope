@@ -22,11 +22,9 @@ import (
 	"github.com/doldoldol21/netscope/internal/update"
 )
 
-// updatePrefs persists the user's auto-update preference and the last version we
-// notified about (so a new release is announced once, not on every check).
+// updatePrefs persists the user's auto-update preference.
 type updatePrefs struct {
-	AutoCheck       bool   `json:"autoCheck"`
-	NotifiedVersion string `json:"notifiedVersion"`
+	AutoCheck bool `json:"autoCheck"`
 }
 
 var (
@@ -51,9 +49,10 @@ func startUpdateLoop() {
 			auto := updPrefs.AutoCheck
 			updMu.Unlock()
 			if auto {
-				if st, ok := runUpdateCheck(); ok {
-					maybeNotifyUpdate(st)
-				}
+				// Refresh the cached status for the in-app banner only. We
+				// deliberately do NOT post a macOS notification — the popover/
+				// dashboard banner is enough and an OS alert is intrusive.
+				runUpdateCheck()
 			}
 			time.Sleep(updateCheckInterval)
 		}
@@ -79,25 +78,6 @@ func updStatusSnapshot() update.Status {
 	updMu.Lock()
 	defer updMu.Unlock()
 	return updStatus
-}
-
-// maybeNotifyUpdate posts one notification per newly-seen available version.
-func maybeNotifyUpdate(st update.Status) {
-	if !st.UpdateAvailable || st.Latest == "" {
-		return
-	}
-	updMu.Lock()
-	already := updPrefs.NotifiedVersion == st.Latest
-	if !already {
-		updPrefs.NotifiedVersion = st.Latest
-		saveUpdatePrefsLocked()
-	}
-	updMu.Unlock()
-	if already {
-		return
-	}
-	notify("netscope update available",
-		fmt.Sprintf("Version %s is available. Open netscope to update.", st.Latest))
 }
 
 // updateStatusJSON is what the popover renders: the cached status plus the
