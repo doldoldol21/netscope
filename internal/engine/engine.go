@@ -146,6 +146,10 @@ type Engine struct {
 	// Live connections (app ↔ remote endpoint), for the "Live connections" view.
 	conns map[connKey]*connAcc
 
+	// resetCh signals the Run loop to zero the live session counters. Handled in
+	// the Run goroutine so it serializes with ingest/flush/snapshot (no races).
+	resetCh chan struct{}
+
 	// Monotonic lifetime totals, used to derive instantaneous rates.
 	totalRx uint64
 	totalTx uint64
@@ -206,6 +210,7 @@ func New(cfg Config, res Resolver, dns *dnscache.Cache, store *storage.Store) *E
 		sessApps:    make(map[string]*appAcc),
 		sessDomains: make(map[domKey]*domAcc),
 		conns:       make(map[connKey]*connAcc),
+		resetCh:     make(chan struct{}, 1),
 		nowFn:       time.Now,
 		iface:       cfg.Interface,
 	}
@@ -254,6 +259,9 @@ func (e *Engine) Run(ctx context.Context, flows <-chan types.Flow) error {
 			e.flush()
 		case <-snapT.C:
 			e.updateSnapshot()
+		case <-e.resetCh:
+			e.doResetSession()
+			e.updateSnapshot() // publish the zeroed view immediately
 		case <-maintC:
 			e.maintainStore()
 		}
@@ -422,6 +430,35 @@ func (e *Engine) flush() {
 	if iface := e.currentIface(); iface != "" {
 		_ = e.store.AddIfaceUsage(iface, dayStart(e.nowFn()), rx, tx)
 	}
+}
+
+// ResetSession zeroes the live session counters (apps/domains/connections and
+// the session totals) and restarts the session clock — a "measure from now"
+// reset. Stored history (today/week/month) and per-interface usage are left
+// intact. Safe to call from any goroutine; the work runs in the Run loop.
+func (e *Engine) ResetSession() {
+	select {
+	case e.resetCh <- struct{}{}:
+	default: // a reset is already pending
+	}
+}
+
+// doResetSession performs the reset. Runs in the Run goroutine, so it serializes
+// with ingest/flush/snapshot; e.mu still guards the maps against API readers.
+func (e *Engine) doResetSession() {
+	now := e.nowFn()
+	e.mu.Lock()
+	e.sessApps = make(map[string]*appAcc)
+	e.sessDomains = make(map[domKey]*domAcc)
+	e.conns = make(map[connKey]*connAcc)
+	e.totalRx, e.totalTx = 0, 0
+	e.sessStart = now
+	e.mu.Unlock()
+	// Rate fields are only touched in this goroutine — reset without a lock,
+	// matching updateSnapshot. Zeroing them avoids a negative rate on the next
+	// tick (totalRx restarts from 0).
+	e.rateRx, e.rateTx, e.rateAt = 0, 0, now
+	log.Printf("engine: live session counters reset")
 }
 
 // dayStart returns unix seconds at the local midnight of t — the day key used
