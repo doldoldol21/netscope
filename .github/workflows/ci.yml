@@ -30,3 +30,26 @@ jobs:
         run: go build ./...
       - name: test
         run: go test -race ./...
+
+  linux:
+    # Cross-platform sanity: pure Go packages compile and pass tests on Linux.
+    # cgo/darwin packages (capture, resolver, desktop) are stub-compiled.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "These files need gofmt:"; echo "$unformatted"; exit 1
+          fi
+      - name: vet (pure packages)
+        run: go vet ./internal/api/... ./internal/alerts/... ./internal/classify/... ./internal/dnscache/... ./internal/engine/... ./internal/geoip/... ./internal/ipc/... ./internal/revdns/... ./internal/storage/... ./internal/update/... ./internal/demo/... ./pkg/...
+      - name: build
+        run: go build ./...
+      - name: test (pure packages)
+        run: go test -race ./internal/api/... ./internal/alerts/... ./internal/classify/... ./internal/dnscache/... ./internal/engine/... ./internal/geoip/... ./internal/ipc/... ./internal/revdns/... ./internal/storage/... ./internal/update/... ./internal/demo/... ./pkg/...
