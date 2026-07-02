@@ -533,7 +533,7 @@ window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () 
 // ============================================================ summary cards
 async function loadSummary() {
   try {
-    const s = await fetchJSON(`${API}/api/summary?range=today`);
+    const s = await fetchWithRetry(`${API}/api/summary?range=today`);
     const total = Number(s.totalRx) + Number(s.totalTx);
     $("c-total").textContent = fmtBytes(total).str;
     $("c-total-sub").innerHTML = `<span style="color:var(--rx)">↓ ${fmtBytes(s.totalRx).str}</span> &nbsp; <span style="color:var(--tx)">↑ ${fmtBytes(s.totalTx).str}</span>`;
@@ -545,7 +545,10 @@ async function loadSummary() {
       $("c-topdomain").textContent = s.topDomain.name;
       $("c-topdomain-sub").textContent = fmtBytes(s.topDomain.bytes).str + " today";
     }
-  } catch (e) { /* daemon not ready; leave placeholders */ }
+  } catch (e) {
+    // fetchWithRetry already tried 3 times; wait for next interval
+    console.error("loadSummary failed:", e);
+  }
 }
 
 // ============================================================ throughput chart
@@ -663,7 +666,7 @@ document.querySelectorAll("#chart-tabs button").forEach((btn) => {
 // so it shows the last ~2 min immediately instead of starting blank on open.
 async function seedLive() {
   try {
-    const pts = await fetchJSON(`${API}/api/ratehist`);
+    const pts = await fetchWithRetry(`${API}/api/ratehist`);
     if (chartMode !== "live") return;
     rateHist.length = 0;
     (pts || []).forEach((p) => rateHist.push({
@@ -930,6 +933,18 @@ async function fetchJSON(url) {
   return r.json();
 }
 
+// fetchWithRetry calls fetchJSON up to `tries` times with a short delay between
+// attempts, so one-shot startup fetches survive the brief window where the
+// loopback server isn't serving yet.
+async function fetchWithRetry(url, tries = 3) {
+  for (let i = 0; i < tries; i++) {
+    try { return await fetchJSON(url); } catch (e) {
+      if (i < tries - 1) await new Promise((r) => setTimeout(r, 800));
+    }
+  }
+  throw new Error("fetch failed after " + tries + " tries");
+}
+
 
 // Stale indicator: when the live stream drops (daemon restart/crash), the last
 // snapshot would otherwise sit there looking current. After a short grace (to
@@ -974,7 +989,7 @@ window.addEventListener("keydown", (e) => {
 // version / update banner in the footer
 async function loadVersion() {
   try {
-    const v = await fetchJSON(`${API}/api/version`); // daemon build + update status
+    const v = await fetchWithRetry(`${API}/api/version`); // daemon build + update status
     const app = await fetchJSON(`${API}/appinfo`).catch(() => null); // GUI build
     const el = $("version");
     if (!el) return;
