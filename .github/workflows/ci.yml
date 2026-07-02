@@ -33,7 +33,7 @@ jobs:
 
   linux:
     # Cross-platform sanity: pure Go packages compile and pass tests on Linux.
-    # cgo/darwin packages (capture, resolver, desktop) are stub-compiled.
+    # Now includes real capture (libpcap) and resolver (/proc) implementations.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -41,15 +41,15 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      - name: install libpcap
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libpcap-dev
       - name: gofmt
         run: |
           unformatted=$(gofmt -l .)
           if [ -n "$unformatted" ]; then
             echo "These files need gofmt:"; echo "$unformatted"; exit 1
           fi
-      - name: vet (pure packages)
-        run: go vet ./internal/api/... ./internal/alerts/... ./internal/classify/... ./internal/dnscache/... ./internal/engine/... ./internal/geoip/... ./internal/ipc/... ./internal/revdns/... ./internal/storage/... ./internal/update/... ./internal/demo/... ./pkg/...
       - name: build
         run: go build ./...
-      - name: test (pure packages)
-        run: go test -race ./internal/api/... ./internal/alerts/... ./internal/classify/... ./internal/dnscache/... ./internal/engine/... ./internal/geoip/... ./internal/ipc/... ./internal/revdns/... ./internal/storage/... ./internal/update/... ./internal/demo/... ./pkg/...
+      - name: test
+        run: go test -race ./...
