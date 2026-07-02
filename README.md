@@ -145,6 +145,8 @@ login session. netscope keeps these separate under the hood but ships them as a
 
 - **App (recommended):** the [Quick Start](#quick-start) one-liner. Installs
   `netscope.app` to /Applications with no Gatekeeper prompt.
+- **Homebrew Cask:** `brew install --cask doldoldol21/netscope/netscope` —
+  installs the pre-built app from GitHub Releases.
 - **CLI / Homebrew:** `brew install doldoldol21/netscope/netscope-cli` — builds
   the `netscoped` and `netscope` binaries from source (also no Gatekeeper).
 - **Direct download:** grab `netscope.app` from the
