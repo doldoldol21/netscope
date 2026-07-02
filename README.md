@@ -23,7 +23,7 @@ fed by a loopback-only (127.0.0.1) address.
 
 </div>
 
-## ⚡ Quick Start
+## Quick Start
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/doldoldol21/netscope/main/install.sh | bash
@@ -48,10 +48,10 @@ and an **Open Dashboard** button for the full window.
   categories, and **per-app drill-down** (click an app for its own chart +
   domains).
 - **Usage & upload alerts** — get a macOS notification when today's traffic
-  crosses a daily/per-app limit, or when **uploads** cross a limit (catches
-  surprise backups and cloud-sync — data leaving your Mac).
-- **In-app updates** — netscope checks GitHub for new releases and can update
-  itself in one click (with a notification when a new version ships).
+  crosses a daily or per-app limit, or when **uploads** cross a limit (handy for
+  spotting surprise backups or cloud syncs that are sending data off your Mac).
+- **In-app updates** — checks GitHub for new releases and can update itself in
+  one click, with a notification when a new version ships.
 - **Export** — CSV/JSON from the dashboard (full bundle, or one app's domains)
   and the CLI (`netscope export`).
 - **CLI** — `netscope`, `netscope apps --range week`, `netscope domains`,
@@ -124,7 +124,7 @@ login session. netscope keeps these separate under the hood but ships them as a
   1. **DNS** — the decoder sniffs DNS responses and caches each `A`/`AAAA`
      answer against the queried name.
   2. **TLS SNI** — the cleartext `server_name` in an outbound TLS ClientHello
-     identifies servers with no DNS answer we saw and no PTR record (Anthropic,
+     identifies servers with no DNS answer we saw and no PTR record (OpenAI,
      Cloudflare, …). The session stays encrypted; only the hostname is read.
   3. **reverse DNS (PTR)** — a background fallback for any IP still unnamed.
 - **category** — domains are matched (by registrable suffix) into neutral groups
@@ -143,7 +143,7 @@ login session. netscope keeps these separate under the hood but ships them as a
 
 ## Install
 
-- **App (recommended):** the [Quick Start](#-quick-start) one-liner. Installs
+- **App (recommended):** the [Quick Start](#quick-start) one-liner. Installs
   `netscope.app` to /Applications with no Gatekeeper prompt.
 - **CLI / Homebrew:** `brew install doldoldol21/netscope/netscope-cli` — builds
   the `netscoped` and `netscope` binaries from source (also no Gatekeeper).
@@ -182,7 +182,7 @@ with `--sock /path/to.sock`.
 ### Demo / development (no root)
 
 ```sh
-make demo            # synthetic-traffic daemon + menu-bar app (Claude, Safari, …)
+make demo            # synthetic-traffic daemon + menu-bar app (Safari, Terminal, …)
 make demo-daemon     # terminal 1: synthetic daemon  (for UI hot-reload)
 make app-dev         # terminal 2: dashboard with live-reload
 ```
@@ -265,5 +265,3 @@ embedded copy with `scripts/gen-geoip.sh`.
 ## License
 
 MIT — see [LICENSE](LICENSE).
-</content>
-</invoke>
