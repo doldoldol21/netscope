@@ -1,8 +1,7 @@
 // Package update checks whether a newer netscope release is available on
-// GitHub. It never downloads or installs anything — it reports status that the
-// menu bar and dashboard surface, with a link to the release page. (Automatic
-// self-update is deferred: it needs code signing and privileged replacement of
-// the root daemon.)
+// GitHub and reports it to the UI. The actual download+swap is handled by the
+// GUI app (desktop/updates_darwin.go), which restarts the daemon over its unix
+// socket after replacing the bundle — no admin prompt needed.
 package update
 
 import (

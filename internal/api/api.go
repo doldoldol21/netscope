@@ -36,6 +36,12 @@ type Server struct {
 	store   *storage.Store
 	updater *update.Checker
 	cap     Capturer
+
+	// RestartFunc, when set, is called (in a goroutine) after the HTTP response
+	// is sent to /api/restart. The daemon sets this to cancel its signal context,
+	// which causes a clean shutdown; launchd's KeepAlive then restarts it with
+	// the new binary.
+	RestartFunc func()
 }
 
 // NewServer builds a Server. store, updater and capturer may be nil.
@@ -62,6 +68,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/connections", s.handleConnections)
 	mux.HandleFunc("/api/netusage", s.handleNetUsage)
 	mux.HandleFunc("/api/session/reset", s.handleSessionReset)
+	mux.HandleFunc("/api/restart", s.handleRestart)
 	return mux
 }
 
@@ -74,6 +81,27 @@ func (s *Server) handleSessionReset(w http.ResponseWriter, r *http.Request) {
 	}
 	s.eng.ResetSession()
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleRestart tells the daemon to exit so launchd restarts it with the new
+// binary (used by the self-update swapper via the unix socket — no admin needed).
+func (s *Server) handleRestart(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.RestartFunc == nil {
+		http.Error(w, "restart not available", http.StatusNotImplemented)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+	// Schedule the restart after the response has been flushed so the caller
+	// gets a clean 204. launchd's KeepAlive=true will bring the daemon back
+	// with the newly swapped binary.
+	go func() {
+		time.Sleep(200 * time.Millisecond)
+		s.RestartFunc()
+	}()
 }
 
 // netUsage is one network's data usage over the requested range. Every interface
