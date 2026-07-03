@@ -192,7 +192,11 @@ func run(iface, pcapFile string, demoMode bool, sock, dbPath string, noStore boo
 	if err != nil {
 		return fmt.Errorf("listen on %s: %w", sock, err)
 	}
-	srv := &http.Server{Handler: api.NewServer(eng, store, updater, capturer).Handler()}
+	apiSrv := api.NewServer(eng, store, updater, capturer)
+	// Wire the restart endpoint: cancelling the context causes a clean shutdown,
+	// and launchd's KeepAlive=true brings the daemon back with the new binary.
+	apiSrv.RestartFunc = stop
+	srv := &http.Server{Handler: apiSrv.Handler()}
 	go func() {
 		<-ctx.Done()
 		shutCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
