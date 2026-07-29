@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -494,6 +496,100 @@ func TestNetUsage(t *testing.T) {
 	rec3 := do(srvNoStore.Handler(), "GET", "/api/netusage", nil)
 	if rec3.Code != http.StatusServiceUnavailable {
 		t.Errorf("netusage (no store): status=%d, want %d", rec3.Code, http.StatusServiceUnavailable)
+	}
+}
+
+// The data-plan meter asks for a billing cycle, which isn't one of the fixed
+// ranges: ?since=<unix> selects the window and overrides ?range.
+func TestNetUsageSince(t *testing.T) {
+	srv, store, _, cleanup := newTestServer(t)
+	defer cleanup()
+
+	// Use a real host interface: the handler hides "ghost" rows for interfaces
+	// that no longer exist and have no friendly name.
+	ifs, err := net.Interfaces()
+	if err != nil || len(ifs) == 0 {
+		t.Skip("no host interfaces to test with")
+	}
+	iface := ifs[0].Name
+
+	now := time.Now()
+	y, m, d := now.Date()
+	today := time.Date(y, m, d, 0, 0, 0, 0, now.Location())
+	old := today.AddDate(0, 0, -10)
+	if err := store.AddIfaceUsage(iface, old.Unix(), 1000, 500); err != nil {
+		t.Fatalf("AddIfaceUsage: %v", err)
+	}
+	if err := store.AddIfaceUsage(iface, today.Unix(), 7, 3); err != nil {
+		t.Fatalf("AddIfaceUsage: %v", err)
+	}
+
+	h := srv.Handler()
+	get := func(q string) uint64 {
+		rec := do(h, "GET", "/api/netusage"+q, nil)
+		if rec.Code != 200 {
+			t.Fatalf("netusage%s: status=%d body=%s", q, rec.Code, rec.Body.String())
+		}
+		var rows []netUsage
+		jsonBody(t, rec, &rows)
+		var total uint64
+		for _, r := range rows {
+			if r.Iface == iface {
+				total += r.RxBytes + r.TxBytes
+			}
+		}
+		return total
+	}
+
+	// range=today only sees today's 10 bytes; since=20 days ago also picks up
+	// the older day. since wins over an explicitly narrower range.
+	if got := get("?range=today"); got != 10 {
+		t.Errorf("range=today total = %d, want 10", got)
+	}
+	since := today.AddDate(0, 0, -20).Unix()
+	if got := get(fmt.Sprintf("?range=today&since=%d", since)); got != 1510 {
+		t.Errorf("since= total = %d, want 1510", got)
+	}
+	// A malformed since falls back to the range rather than erroring.
+	if got := get("?range=today&since=nope"); got != 10 {
+		t.Errorf("bad since total = %d, want 10 (range fallback)", got)
+	}
+}
+
+// An interface that no longer exists is hidden only when it carried nothing
+// worth remembering: an unplugged tether still holds the cycle's usage, and
+// dropping it would zero the data-plan meter.
+func TestNetUsageKeepsHeavyGhostInterface(t *testing.T) {
+	srv, store, _, cleanup := newTestServer(t)
+	defer cleanup()
+
+	now := time.Now()
+	y, m, d := now.Date()
+	today := time.Date(y, m, d, 0, 0, 0, 0, now.Location()).Unix()
+	// "ghost0" can't exist on the host, so both rows are ghosts; only the one
+	// with real traffic should survive.
+	if err := store.AddIfaceUsage("ghost0", today, 30<<30, 5<<30); err != nil {
+		t.Fatalf("AddIfaceUsage: %v", err)
+	}
+	if err := store.AddIfaceUsage("ghost1", today, 4096, 512); err != nil {
+		t.Fatalf("AddIfaceUsage: %v", err)
+	}
+
+	rec := do(srv.Handler(), "GET", "/api/netusage?range=today", nil)
+	if rec.Code != 200 {
+		t.Fatalf("netusage: status=%d", rec.Code)
+	}
+	var rows []netUsage
+	jsonBody(t, rec, &rows)
+	seen := map[string]bool{}
+	for _, r := range rows {
+		seen[r.Iface] = true
+	}
+	if !seen["ghost0"] {
+		t.Error("interface with 35 GB of history was dropped after disappearing")
+	}
+	if seen["ghost1"] {
+		t.Error("stray interface with a few KB should stay hidden")
 	}
 }
 

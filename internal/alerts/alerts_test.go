@@ -2,7 +2,10 @@ package alerts
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/doldoldol21/netscope/internal/dataplan"
 )
 
 func TestCheckUpload(t *testing.T) {
@@ -82,5 +85,64 @@ func TestLoadSaveRoundTrip(t *testing.T) {
 	// Missing file → zero config, no panic.
 	if got := Load(filepath.Join(t.TempDir(), "none.json")); got != (Config{}) {
 		t.Fatalf("missing file should yield zero config, got %+v", got)
+	}
+}
+
+func TestCheckPlan(t *testing.T) {
+	const gb = int64(1) << 30
+	c := New(Config{Plan: dataplan.Config{LimitBytes: 100 * gb, StartDay: 1}})
+
+	if got := c.CheckPlan("2026-07-01", 50*gb); len(got) != 0 {
+		t.Fatalf("half the plan should be quiet, got %d", len(got))
+	}
+	// Crossing the default 80% warning fires once.
+	if got := c.CheckPlan("2026-07-01", 82*gb); len(got) != 1 {
+		t.Fatalf("80%% crossing should alert once, got %d", len(got))
+	}
+	if got := c.CheckPlan("2026-07-01", 85*gb); len(got) != 0 {
+		t.Fatalf("warning should not repeat in the same cycle, got %d", len(got))
+	}
+	// Running out fires its own alert, also once.
+	if got := c.CheckPlan("2026-07-01", 101*gb); len(got) != 1 {
+		t.Fatalf("100%% crossing should alert once, got %d", len(got))
+	}
+	if got := c.CheckPlan("2026-07-01", 130*gb); len(got) != 0 {
+		t.Fatalf("over-limit alert should not repeat, got %d", len(got))
+	}
+	// A new billing cycle re-arms both.
+	if got := c.CheckPlan("2026-08-01", 90*gb); len(got) != 1 {
+		t.Fatalf("new cycle should re-arm the warning, got %d", len(got))
+	}
+}
+
+func TestCheckPlanNoLimit(t *testing.T) {
+	c := New(Config{})
+	if got := c.CheckPlan("2026-07-01", 999<<30); got != nil {
+		t.Fatalf("unset plan should never alert, got %v", got)
+	}
+}
+
+// Already over the limit on the first look: only the "used up" alert, not both.
+func TestCheckPlanStartsOverLimit(t *testing.T) {
+	c := New(Config{Plan: dataplan.Config{LimitBytes: 10 << 30}})
+	got := c.CheckPlan("2026-07-01", 15<<30)
+	if len(got) != 1 {
+		t.Fatalf("want a single alert, got %d: %v", len(got), got)
+	}
+	if !strings.Contains(got[0].Body, "used up") {
+		t.Errorf("want the over-limit message, got %q", got[0].Body)
+	}
+}
+
+// A day rollover resets the daily thresholds; the plan's cycle state must not
+// be swept up with them.
+func TestPlanSurvivesDayRollover(t *testing.T) {
+	c := New(Config{DailyTotalBytes: 1000, Plan: dataplan.Config{LimitBytes: 10 << 30}})
+	if got := c.CheckPlan("2026-07-01", 9<<30); len(got) != 1 {
+		t.Fatalf("want the warning, got %d", len(got))
+	}
+	c.Check("2026-07-02", 1, nil) // new day resets the daily fired state
+	if got := c.CheckPlan("2026-07-01", 9<<30); len(got) != 0 {
+		t.Fatalf("plan warning refired after a day rollover, got %d", len(got))
 	}
 }

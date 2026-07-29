@@ -104,6 +104,11 @@ func (s *Server) handleRestart(w http.ResponseWriter, r *http.Request) {
 	}()
 }
 
+// ghostBytes is how much traffic an interface must have carried before it
+// survives the ghost filter after disappearing from the host. Small enough that
+// a real session always clears it, large enough to drop stray leftovers.
+const ghostBytes = 100 << 20 // 100 MB
+
 // netUsage is one network's data usage over the requested range. Every interface
 // that recorded traffic auto-appears; tethered phones are flagged.
 type netUsage struct {
@@ -116,7 +121,9 @@ type netUsage struct {
 }
 
 // handleNetUsage lists per-network data usage over ?range=today|week|month
-// (default today), most-used first. Networks auto-appear from recorded usage;
+// (default today), or over an explicit ?since=<unix seconds> — which is how the
+// data-plan meter asks for "this billing cycle", whose start isn't one of the
+// fixed ranges. Most-used first; networks auto-appear from recorded usage, with
 // no manual registration.
 func (s *Server) handleNetUsage(w http.ResponseWriter, r *http.Request) {
 	if s.store == nil {
@@ -132,6 +139,15 @@ func (s *Server) handleNetUsage(w http.ResponseWriter, r *http.Request) {
 		since = midnight.AddDate(0, 0, -6) // last 7 days incl. today
 	case "month":
 		since = midnight.AddDate(0, 0, -29) // last 30 days
+	}
+	// An explicit since wins over range. Rows are stored at local midnight, so
+	// floor it to the day the caller's instant falls in.
+	if q := r.URL.Query().Get("since"); q != "" {
+		if secs, err := strconv.ParseInt(q, 10, 64); err == nil && secs > 0 {
+			t := time.Unix(secs, 0).In(now.Location())
+			sy, sm, sd := t.Date()
+			since = time.Date(sy, sm, sd, 0, 0, 0, 0, now.Location())
+		}
 	}
 
 	rows, err := s.store.IfaceUsageAllSince(since.Unix())
@@ -160,7 +176,12 @@ func (s *Server) handleNetUsage(w http.ResponseWriter, r *http.Request) {
 		// Hide ghost interfaces — ones that no longer exist and have no friendly
 		// name (e.g. a transient en7 from a past session). Keep currently-present
 		// ones and any with a resolved name (a just-unplugged tether).
-		if !exists[u.Iface] && friendly == u.Iface {
+		//
+		// A ghost that nonetheless carried real traffic is kept regardless: an
+		// unplugged phone drops off net.Interfaces() and can lose its
+		// SystemConfiguration name too, and dropping it would erase a month of
+		// tethering from the data-plan meter the moment the cable comes out.
+		if !exists[u.Iface] && friendly == u.Iface && u.Rx+u.Tx < ghostBytes {
 			continue
 		}
 		out = append(out, netUsage{

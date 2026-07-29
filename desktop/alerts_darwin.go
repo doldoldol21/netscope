@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/doldoldol21/netscope/internal/alerts"
+	"github.com/doldoldol21/netscope/internal/dataplan"
 )
 
 // alertChecker holds the running threshold checker and where its config lives.
@@ -40,9 +41,10 @@ func runAlertCheck() {
 		return
 	}
 	cfg := alertChecker.Config()
+	runPlanCheck(cfg) // billing-cycle plan; independent of the daily thresholds
 	if cfg.DailyTotalBytes == 0 && cfg.PerAppBytes == 0 &&
 		cfg.DailyUploadBytes == 0 && cfg.PerAppUploadBytes == 0 {
-		return // nothing armed
+		return // nothing else armed
 	}
 
 	var sum struct {
@@ -77,8 +79,24 @@ func runAlertCheck() {
 	}
 }
 
+// runPlanCheck compares this billing cycle's tethering usage against the data
+// plan and notifies on the warning / 100% crossings (once each per cycle).
+func runPlanCheck(cfg alerts.Config) {
+	if !cfg.Plan.Enabled() {
+		return
+	}
+	now := time.Now()
+	used, _ := planUsage(cfg.Plan, now)
+	for _, a := range alertChecker.CheckPlan(dataplan.CycleKey(now, cfg.Plan.StartDay), used) {
+		notify(a.Title, a.Body)
+	}
+}
+
 // getJSON GETs a daemon API path over the socket and decodes it into v.
 func getJSON(path string, v any) bool {
+	if alertHTTP == nil {
+		return false // called before startAlertsLoop wired the socket client
+	}
 	resp, err := alertHTTP.Get(alertSockHost + path)
 	if err != nil {
 		return false
@@ -114,12 +132,13 @@ func setAlertsFromEvent(data ...interface{}) {
 		}
 		return 0
 	}
-	cfg := alerts.Config{
-		DailyTotalBytes:   num("dailyTotalBytes"),
-		PerAppBytes:       num("perAppBytes"),
-		DailyUploadBytes:  num("dailyUploadBytes"),
-		PerAppUploadBytes: num("perAppUploadBytes"),
-	}
+	// Start from the current config so the data plan (edited in the dashboard,
+	// not this popover form) survives a threshold edit.
+	cfg := alertChecker.Config()
+	cfg.DailyTotalBytes = num("dailyTotalBytes")
+	cfg.PerAppBytes = num("perAppBytes")
+	cfg.DailyUploadBytes = num("dailyUploadBytes")
+	cfg.PerAppUploadBytes = num("perAppUploadBytes")
 	alertChecker.SetConfig(cfg)
 	_ = alerts.Save(alertCfgPath, cfg)
 	// Re-evaluate immediately so a freshly-lowered threshold can fire now.
