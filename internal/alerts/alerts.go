@@ -10,6 +10,8 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+
+	"github.com/doldoldol21/netscope/internal/dataplan"
 )
 
 // Config holds the user's alert thresholds, in bytes. A zero value disables that
@@ -21,6 +23,9 @@ type Config struct {
 	// backups, cloud sync, exfiltration. Zero disables.
 	DailyUploadBytes  int64 `json:"dailyUploadBytes"`  // alert when today's total upload crosses this
 	PerAppUploadBytes int64 `json:"perAppUploadBytes"` // alert when any one app's upload crosses this today
+	// Plan is the metered/tethering monthly allowance. Unlike the daily
+	// thresholds above it is evaluated per billing cycle, not per day.
+	Plan dataplan.Config `json:"plan"`
 }
 
 // Alert is a single notification to post.
@@ -36,11 +41,15 @@ type Checker struct {
 	cfg   Config
 	day   string
 	fired map[string]bool
+	// Plan thresholds live on the billing cycle, so they keep their own
+	// key/fired state — a day rollover must not re-arm them.
+	cycle      string
+	firedCycle map[int]bool
 }
 
 // New returns a Checker with the given initial config.
 func New(cfg Config) *Checker {
-	return &Checker{cfg: cfg, fired: map[string]bool{}}
+	return &Checker{cfg: cfg, fired: map[string]bool{}, firedCycle: map[int]bool{}}
 }
 
 // Config returns the current thresholds.
@@ -57,6 +66,7 @@ func (c *Checker) SetConfig(cfg Config) {
 	defer c.mu.Unlock()
 	c.cfg = cfg
 	c.fired = map[string]bool{}
+	c.firedCycle = map[int]bool{}
 }
 
 // Check evaluates the thresholds for the given day (e.g. "2026-06-19") against
@@ -123,6 +133,51 @@ func (c *Checker) CheckUpload(day string, totalUpload int64, perAppUpload map[st
 		}
 	}
 	return out
+}
+
+// CheckPlan evaluates the monthly data-plan thresholds against usedBytes in the
+// billing cycle identified by cycleKey (see dataplan.CycleKey). The warning
+// percentage and 100% each fire at most once per cycle; a new cycle re-arms
+// them. Returns nil when no plan limit is configured.
+func (c *Checker) CheckPlan(cycleKey string, usedBytes int64) []Alert {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	plan := c.cfg.Plan
+	if !plan.Enabled() {
+		return nil
+	}
+	if cycleKey != c.cycle {
+		c.cycle = cycleKey
+		c.firedCycle = map[int]bool{}
+	}
+	pct := 100 * float64(usedBytes) / float64(plan.LimitBytes)
+	// Already past the limit on the first observation: the "you're out" message
+	// says everything, so swallow the early warning rather than posting both.
+	if pct >= 100 {
+		c.firedCycle[plan.Warn()] = true
+	}
+	var out []Alert
+	for _, threshold := range []int{plan.Warn(), 100} {
+		if pct < float64(threshold) || c.firedCycle[threshold] {
+			continue
+		}
+		c.firedCycle[threshold] = true
+		body := fmt.Sprintf("Tethering data at %.0f%% of your %s plan (%s used, %s left).",
+			pct, humanBytes(plan.LimitBytes), humanBytes(usedBytes), humanBytes(max64(0, plan.LimitBytes-usedBytes)))
+		if threshold >= 100 {
+			body = fmt.Sprintf("Tethering data plan used up — %s of %s this cycle.",
+				humanBytes(usedBytes), humanBytes(plan.LimitBytes))
+		}
+		out = append(out, Alert{Title: "netscope", Body: body})
+	}
+	return out
+}
+
+func max64(a, b int64) int64 {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 // humanBytes formats a byte count like "5.2 GB".

@@ -50,6 +50,11 @@ and an **Open Dashboard** button for the full window.
 - **Usage & upload alerts** — get a macOS notification when today's traffic
   crosses a daily or per-app limit, or when **uploads** cross a limit (handy for
   spotting surprise backups or cloud syncs that are sending data off your Mac).
+- **Monthly data plan** — tethering off your phone on a capped plan? Set the
+  allowance and your billing-cycle start day in the dashboard's *Network data
+  usage* panel and it shows how much of the cycle you've burned (percentage,
+  what's left, and where you'll land at the current rate), plus a notification
+  at 80% and again when it's gone — no more opening the carrier's app.
 - **In-app updates** — checks GitHub for new releases and can update itself in
   one click, with a notification when a new version ships.
 - **Export** — CSV/JSON from the dashboard (full bundle, or one app's domains)

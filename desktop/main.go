@@ -238,6 +238,11 @@ func startLoopbackUI(proxy http.Handler) string {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]string{"theme": loadTheme()})
 	})
+	// The metered/tethering data plan (monthly allowance + billing-cycle day):
+	// GET returns the config plus this cycle's usage, POST replaces the config.
+	// It's a user preference, so it lives with the alert thresholds in the app's
+	// config dir rather than in the daemon.
+	mux.HandleFunc("/plan", handlePlan)
 	// Serve native macOS app icons for the dashboard's app list. Resolved via
 	// NSWorkspace at runtime (no bundled assets) and cached in-process — keyed by
 	// (path,name) so each app's main-thread icon render happens at most once. A

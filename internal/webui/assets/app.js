@@ -463,6 +463,129 @@ loadNetUsage("today");
 // path), every 5s, skipped while hidden.
 setInterval(() => { if (!document.hidden) loadNetUsage(rangeState.netusage); }, 5000);
 
+// ============================================================ data plan meter
+// A tethered phone's monthly allowance (e.g. 100 GB) is what people otherwise
+// open their carrier's app to check. /plan is served by the app shell (the
+// config is a user preference, not daemon state) and returns the allowance plus
+// this billing cycle's tethering usage; a missing endpoint (dashboard served
+// straight off the daemon) just hides the card.
+let planData = null;      // last /plan response
+let planEditing = false;  // the inline form is open
+let planSig = "";
+
+const GB = 1024 * 1024 * 1024;
+const fmtDate = (unix) => new Date(unix * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+
+function planViewHTML(p) {
+  const cfg = p.config || {}, st = p.status || {};
+  if (!st.enabled) {
+    return `<div class="plan-card plan-empty">
+      <div>
+        <div class="plan-title">Monthly data plan</div>
+        <div class="plan-sub">Set your tethering allowance to see how much of it you've used this cycle.</div>
+      </div>
+      <button class="hdr-btn" id="plan-edit">Set up</button>
+    </div>`;
+  }
+  const pct = Number(st.percent) || 0;
+  const level = pct >= 100 ? "over" : pct >= (cfg.warnPercent || 80) ? "warn" : "ok";
+  const counted = (p.networks || []).filter((n) => n.counted);
+  const scope = cfg.iface
+    ? (counted[0] && counted[0].friendly) || cfg.iface
+    : counted.length ? counted.map((n) => n.friendly || n.iface).join(", ") : "tethering networks";
+  const bits = [`${fmtBytes(st.remainingBytes).str} left`];
+  if (st.daysLeft > 0) bits.push(`${st.daysLeft} day${st.daysLeft === 1 ? "" : "s"} to ${fmtDate(st.cycleEnd)}`);
+  if (st.projectedBytes > 0) {
+    const over = st.projectedBytes > st.limitBytes;
+    bits.push(`${over ? "⚠ " : ""}at this rate ${fmtBytes(st.projectedBytes).str} by cycle end`);
+  }
+  return `<div class="plan-card">
+    <div class="plan-head">
+      <div class="plan-title">Monthly data plan <span class="chip">📱 ${esc(scope)}</span></div>
+      <div class="plan-nums">
+        <b class="${level}">${fmtBytes(st.usedBytes).str}</b>
+        <span class="plan-of">of ${fmtBytes(st.limitBytes).str}</span>
+        <span class="plan-pct ${level}">${pct.toFixed(pct < 10 ? 1 : 0)}%</span>
+        <button class="hdr-btn" id="plan-edit">Edit</button>
+      </div>
+    </div>
+    <div class="plan-bar ${level}"><i style="width:${Math.min(100, pct).toFixed(1)}%"></i></div>
+    <div class="plan-sub">${esc(bits.join(" · "))} · cycle from ${fmtDate(st.cycleStart)}</div>
+  </div>`;
+}
+
+function planFormHTML(p) {
+  const cfg = p.config || {};
+  const limitGB = cfg.limitBytes ? (cfg.limitBytes / GB) : 100;
+  const opts = [`<option value="">Auto — all tethering networks</option>`].concat(
+    (p.networks || []).map((n) =>
+      `<option value="${esc(n.iface)}"${cfg.iface === n.iface ? " selected" : ""}>${esc(n.friendly || n.iface)}${n.tether ? " (tethering)" : ""}</option>`)
+  ).join("");
+  return `<div class="plan-card plan-form">
+    <div class="plan-title">Monthly data plan</div>
+    <div class="plan-fields">
+      <label>Allowance <span><input id="plan-limit" type="number" min="0" step="0.5" value="${limitGB}" /> GB</span></label>
+      <label>Cycle starts on day <input id="plan-day" type="number" min="1" max="31" value="${cfg.startDay || 1}" /></label>
+      <label>Warn at <span><input id="plan-warn" type="number" min="1" max="99" value="${cfg.warnPercent || 80}" /> %</span></label>
+      <label>Count <select id="plan-iface">${opts}</select></label>
+    </div>
+    <div class="plan-actions">
+      <button class="hdr-btn" id="plan-cancel">Cancel</button>
+      <button class="hdr-btn on" id="plan-save">Save</button>
+      ${cfg.limitBytes ? `<button class="hdr-btn" id="plan-off">Turn off</button>` : ""}
+    </div>
+    <div class="plan-sub">Auto counts networks macOS reports as a tethered phone (USB tethering, Bluetooth PAN). A hotspot joined over Wi-Fi looks like ordinary Wi-Fi, so pick that network by hand. Usage is measured from captured traffic — an estimate (±few %), not your carrier's meter.</div>
+  </div>`;
+}
+
+function renderPlan() {
+  const el = $("plan");
+  if (!el || !planData) return;
+  const html = planEditing ? planFormHTML(planData) : planViewHTML(planData);
+  if (html === planSig) return;
+  el.innerHTML = html;
+  planSig = html;
+  const edit = $("plan-edit");
+  if (edit) edit.onclick = () => { planEditing = true; renderPlan(); };
+  const cancel = $("plan-cancel");
+  if (cancel) cancel.onclick = () => { planEditing = false; renderPlan(); };
+  const save = $("plan-save");
+  if (save) save.onclick = () => savePlan(Math.max(0, Number($("plan-limit").value) || 0));
+  const off = $("plan-off");
+  if (off) off.onclick = () => savePlan(0);
+}
+
+async function savePlan(limitGB) {
+  const body = {
+    limitBytes: Math.round(limitGB * GB),
+    startDay: Math.min(31, Math.max(1, Number($("plan-day").value) || 1)),
+    warnPercent: Math.min(99, Math.max(1, Number($("plan-warn").value) || 80)),
+    iface: $("plan-iface").value || "",
+  };
+  try {
+    await fetch(`${API}/plan`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+    });
+  } catch (_) { /* app shell unavailable */ }
+  planEditing = false;
+  planSig = "";
+  loadPlan();
+}
+
+async function loadPlan() {
+  const el = $("plan");
+  if (!el || planEditing) return; // don't clobber a form the user is filling in
+  try {
+    const p = await fetchJSON(`${API}/plan`);
+    if (!p) return;
+    planData = p;
+    renderPlan();
+  } catch (_) { /* served by the daemon, not the app shell — no plan UI */ }
+}
+
+loadPlan();
+setInterval(() => { if (!document.hidden) loadPlan(); }, 15000);
+
 // ============================================================ theme
 // "auto" follows the OS (prefers-color-scheme); light/dark force it via
 // <html data-theme>. Chosen in the popover's settings and persisted server-side
