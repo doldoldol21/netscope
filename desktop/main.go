@@ -23,6 +23,7 @@ import (
 
 	"github.com/doldoldol21/netscope/internal/buildinfo"
 	"github.com/doldoldol21/netscope/internal/daemonctl"
+	"github.com/doldoldol21/netscope/internal/i18n"
 	"github.com/doldoldol21/netscope/internal/ipc"
 	"github.com/doldoldol21/netscope/internal/webui"
 	"github.com/wailsapp/wails/v2"
@@ -45,6 +46,10 @@ var (
 )
 
 func main() {
+	// Localize Go-produced strings (notifications, settings labels) to the
+	// macOS system language; the web UI detects the same locale on its own.
+	i18n.SetLocale(i18n.Detect())
+
 	sock := envOr("NETSCOPE_SOCK", ipc.DefaultSocketPath())
 	proxy := ipc.NewReverseProxy(sock)
 

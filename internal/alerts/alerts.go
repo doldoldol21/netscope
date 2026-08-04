@@ -12,6 +12,7 @@ import (
 	"sync"
 
 	"github.com/doldoldol21/netscope/internal/dataplan"
+	"github.com/doldoldol21/netscope/internal/i18n"
 )
 
 // Config holds the user's alert thresholds, in bytes. A zero value disables that
@@ -84,7 +85,7 @@ func (c *Checker) Check(day string, totalBytes int64, perApp map[string]int64) [
 		c.fired["total"] = true
 		out = append(out, Alert{
 			Title: "netscope",
-			Body:  fmt.Sprintf("Today's traffic passed %s (now %s).", humanBytes(c.cfg.DailyTotalBytes), humanBytes(totalBytes)),
+			Body:  i18n.T("alert.daily_total", humanBytes(c.cfg.DailyTotalBytes), humanBytes(totalBytes)),
 		})
 	}
 	if c.cfg.PerAppBytes > 0 {
@@ -94,7 +95,7 @@ func (c *Checker) Check(day string, totalBytes int64, perApp map[string]int64) [
 				c.fired[key] = true
 				out = append(out, Alert{
 					Title: "netscope",
-					Body:  fmt.Sprintf("%s used %s today (limit %s).", name, humanBytes(b), humanBytes(c.cfg.PerAppBytes)),
+					Body:  i18n.T("alert.app_total", name, humanBytes(b), humanBytes(c.cfg.PerAppBytes)),
 				})
 			}
 		}
@@ -117,7 +118,7 @@ func (c *Checker) CheckUpload(day string, totalUpload int64, perAppUpload map[st
 		c.fired["upload"] = true
 		out = append(out, Alert{
 			Title: "netscope",
-			Body:  fmt.Sprintf("⬆ Uploads passed %s today (now %s).", humanBytes(c.cfg.DailyUploadBytes), humanBytes(totalUpload)),
+			Body:  i18n.T("alert.daily_upload", humanBytes(c.cfg.DailyUploadBytes), humanBytes(totalUpload)),
 		})
 	}
 	if c.cfg.PerAppUploadBytes > 0 {
@@ -127,7 +128,7 @@ func (c *Checker) CheckUpload(day string, totalUpload int64, perAppUpload map[st
 				c.fired[key] = true
 				out = append(out, Alert{
 					Title: "netscope",
-					Body:  fmt.Sprintf("⬆ %s uploaded %s today (limit %s).", name, humanBytes(b), humanBytes(c.cfg.PerAppUploadBytes)),
+					Body:  i18n.T("alert.app_upload", name, humanBytes(b), humanBytes(c.cfg.PerAppUploadBytes)),
 				})
 			}
 		}
@@ -162,10 +163,10 @@ func (c *Checker) CheckPlan(cycleKey string, usedBytes int64) []Alert {
 			continue
 		}
 		c.firedCycle[threshold] = true
-		body := fmt.Sprintf("Tethering data at %.0f%% of your %s plan (%s used, %s left).",
+		body := i18n.T("alert.plan_warn",
 			pct, humanBytes(plan.LimitBytes), humanBytes(usedBytes), humanBytes(max64(0, plan.LimitBytes-usedBytes)))
 		if threshold >= 100 {
-			body = fmt.Sprintf("Tethering data plan used up — %s of %s this cycle.",
+			body = i18n.T("alert.plan_over",
 				humanBytes(usedBytes), humanBytes(plan.LimitBytes))
 		}
 		out = append(out, Alert{Title: "netscope", Body: body})

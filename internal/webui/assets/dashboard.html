@@ -15,42 +15,42 @@
   </div>
   <div class="status">
     <span class="dot" id="dot"></span>
-    <span id="status-text">connecting…</span>
+    <span id="status-text" data-i18n="status.connecting">connecting…</span>
   </div>
   <span class="spacer"></span>
   <div class="rates">
-    <div class="rate rx"><span class="arrow">▼</span><span class="v" id="rxps">0</span><span class="l">down</span></div>
-    <div class="rate tx"><span class="arrow">▲</span><span class="v" id="txps">0</span><span class="l">up</span></div>
+    <div class="rate rx"><span class="arrow">▼</span><span class="v" id="rxps">0</span><span class="l" data-i18n="rate.down">down</span></div>
+    <div class="rate tx"><span class="arrow">▲</span><span class="v" id="txps">0</span><span class="l" data-i18n="rate.up">up</span></div>
   </div>
-  <button class="hdr-btn" id="pause-btn" aria-label="Pause capture"
-          data-tip="Pause capture" data-tip-down>⏸ Pause</button>
-  <button class="hdr-btn" id="export-all" aria-label="Export"
-          data-tip="Export as JSON" data-tip-down>⤓ Export</button>
-  <button class="hdr-btn" id="reset-session" aria-label="Reset session"
-          data-tip="Reset the live session counters to zero (keeps history)" data-tip-down>↺ Reset</button>
+  <button class="hdr-btn" id="pause-btn" aria-label="Pause capture" data-i18n="btn.pause"
+          data-i18n-aria="tip.pause" data-i18n-tip="tip.pause" data-tip="Pause capture" data-tip-down>⏸ Pause</button>
+  <button class="hdr-btn" id="export-all" aria-label="Export" data-i18n="btn.export"
+          data-i18n-aria="tip.exportJson" data-i18n-tip="tip.exportJson" data-tip="Export as JSON" data-tip-down>⤓ Export</button>
+  <button class="hdr-btn" id="reset-session" aria-label="Reset session" data-i18n="btn.reset"
+          data-i18n-aria="tip.reset" data-i18n-tip="tip.reset" data-tip="Reset the live session counters to zero (keeps history)" data-tip-down>↺ Reset</button>
 </header>
 
 <main>
   <!-- summary cards -->
   <section class="cards">
     <div class="card">
-      <div class="k">Today · total</div>
+      <div class="k" data-i18n="card.todayTotal">Today · total</div>
       <div class="val" id="c-total">—</div>
       <div class="sub" id="c-total-sub">↓ — &nbsp; ↑ —</div>
       <canvas class="spark" id="spark-total"></canvas>
     </div>
     <div class="card">
-      <div class="k">Active now</div>
+      <div class="k" data-i18n="card.activeNow">Active now</div>
       <div class="val" id="c-active">—</div>
-      <div class="sub" id="c-active-sub">apps active in last 8s</div>
+      <div class="sub" id="c-active-sub" data-i18n="card.activeSub">apps active in last 8s</div>
     </div>
     <div class="card">
-      <div class="k">Top app · today</div>
+      <div class="k" data-i18n="card.topApp">Top app · today</div>
       <div class="val" id="c-top" style="font-size:18px">—</div>
       <div class="sub" id="c-top-sub">—</div>
     </div>
     <div class="card">
-      <div class="k">Top domain · today</div>
+      <div class="k" data-i18n="card.topDomain">Top domain · today</div>
       <div class="val" id="c-topdomain" style="font-size:18px">—</div>
       <div class="sub" id="c-topdomain-sub">—</div>
     </div>
@@ -59,13 +59,13 @@
   <!-- throughput chart -->
   <section class="panel full">
     <header>
-      <h2>Throughput</h2>
-      <span class="hint" id="chart-hint">live · last 2 min</span>
+      <h2 data-i18n="sec.throughput">Throughput</h2>
+      <span class="hint" id="chart-hint" data-i18n="chart.liveHint">live · last 2 min</span>
       <div class="tabs" id="chart-tabs">
-        <button data-mode="live" class="active">live</button>
-        <button data-mode="day">day</button>
-        <button data-mode="week">week</button>
-        <button data-mode="month">month</button>
+        <button data-mode="live" class="active" data-i18n="tab.live">live</button>
+        <button data-mode="day" data-i18n="tab.day">day</button>
+        <button data-mode="week" data-i18n="tab.week">week</button>
+        <button data-mode="month" data-i18n="tab.month">month</button>
       </div>
     </header>
     <div class="chart-wrap">
@@ -73,8 +73,8 @@
       <div class="tooltip" id="chart-tip"></div>
     </div>
     <div class="chart-legend">
-      <span class="key"><span class="swatch" style="background:var(--rx)"></span>download</span>
-      <span class="key"><span class="swatch" style="background:var(--tx)"></span>upload</span>
+      <span class="key"><span class="swatch" style="background:var(--rx)"></span><span data-i18n="download">download</span></span>
+      <span class="key"><span class="swatch" style="background:var(--tx)"></span><span data-i18n="upload">upload</span></span>
       <span class="key" style="margin-left:auto;color:var(--muted)" id="chart-peak"></span>
     </div>
   </section>
@@ -82,11 +82,11 @@
   <!-- top countries (where your data goes) -->
   <section class="panel full">
     <header>
-      <h2>Top countries</h2>
+      <h2 data-i18n="sec.countries">Top countries</h2>
       <div class="tabs" data-target="countries">
-        <button data-range="session" class="active">session</button>
-        <button data-range="today">today</button>
-        <button data-range="week">week</button>
+        <button data-range="session" class="active" data-i18n="tab.session">session</button>
+        <button data-range="today" data-i18n="tab.today">today</button>
+        <button data-range="week" data-i18n="tab.week">week</button>
       </div>
     </header>
     <div id="countries"></div>
@@ -95,12 +95,12 @@
   <!-- network data usage (auto per interface; tethering flagged) -->
   <section class="panel full">
     <header>
-      <h2>Network data usage</h2>
-      <span class="hint">per network · tethering flagged · estimate (±few %)</span>
+      <h2 data-i18n="sec.netusage">Network data usage</h2>
+      <span class="hint" data-i18n="netusage.hint">per network · tethering flagged · estimate (±few %)</span>
       <div class="tabs" data-target="netusage">
-        <button data-range="today" class="active">today</button>
-        <button data-range="week">week</button>
-        <button data-range="month">month</button>
+        <button data-range="today" class="active" data-i18n="tab.today">today</button>
+        <button data-range="week" data-i18n="tab.week">week</button>
+        <button data-range="month" data-i18n="tab.month">month</button>
       </div>
     </header>
     <div id="plan"></div>
@@ -111,26 +111,26 @@
   <section class="grid">
     <div class="panel">
       <header>
-        <h2>Apps</h2>
-        <input class="search" id="apps-search" type="search" placeholder="filter apps…"
+        <h2 data-i18n="sec.apps">Apps</h2>
+        <input class="search" id="apps-search" type="search" placeholder="filter apps…" data-i18n-ph="search.apps"
                autocapitalize="off" autocorrect="off" spellcheck="false" autocomplete="off" />
         <div class="tabs" data-target="apps">
-          <button data-range="session" class="active">session</button>
-          <button data-range="today">today</button>
-          <button data-range="week">week</button>
+          <button data-range="session" class="active" data-i18n="tab.session">session</button>
+          <button data-range="today" data-i18n="tab.today">today</button>
+          <button data-range="week" data-i18n="tab.week">week</button>
         </div>
       </header>
       <div id="apps"></div>
     </div>
     <div class="panel">
       <header>
-        <h2>Domains</h2>
-        <input class="search" id="domains-search" type="search" placeholder="filter domains, app, category, country…"
+        <h2 data-i18n="sec.domains">Domains</h2>
+        <input class="search" id="domains-search" type="search" placeholder="filter domains, app, category, country…" data-i18n-ph="search.domains"
                autocapitalize="off" autocorrect="off" spellcheck="false" autocomplete="off" />
         <div class="tabs" data-target="domains">
-          <button data-range="session" class="active">session</button>
-          <button data-range="today">today</button>
-          <button data-range="week">week</button>
+          <button data-range="session" class="active" data-i18n="tab.session">session</button>
+          <button data-range="today" data-i18n="tab.today">today</button>
+          <button data-range="week" data-i18n="tab.week">week</button>
         </div>
       </header>
       <div id="domains"></div>
@@ -140,10 +140,10 @@
   <!-- live connections (what's open right now) -->
   <section class="panel full">
     <header>
-      <h2>Live connections</h2>
-      <input class="search" id="conns-search" type="search" placeholder="filter host, app, country…"
+      <h2 data-i18n="sec.conns">Live connections</h2>
+      <input class="search" id="conns-search" type="search" placeholder="filter host, app, country…" data-i18n-ph="search.conns"
              autocapitalize="off" autocorrect="off" spellcheck="false" autocomplete="off" />
-      <span class="hint" id="conns-hint">active in the last 15s</span>
+      <span class="hint" id="conns-hint" data-i18n="conns.hint">active in the last 15s</span>
     </header>
     <div id="conns"></div>
   </section>
@@ -156,28 +156,29 @@
       <span class="swatch" id="drill-swatch"></span>
       <h2 id="drill-name">app</h2>
       <div class="tabs" id="drill-tabs">
-        <button data-range="today" class="active">today</button>
-        <button data-range="week">week</button>
+        <button data-range="today" class="active" data-i18n="tab.today">today</button>
+        <button data-range="week" data-i18n="tab.week">week</button>
       </div>
       <span class="spacer"></span>
       <button class="iconbtn" id="drill-export" aria-label="Export this app's domains as CSV"
-              data-tip="Export CSV" data-tip-down>⤓</button>
+              data-i18n-aria="tip.exportCsv" data-i18n-tip="tip.exportCsv" data-tip="Export CSV" data-tip-down>⤓</button>
       <button class="drill-x" id="drill-close" aria-label="Close"
-              data-tip="Close (Esc)" data-tip-down>✕</button>
+              data-i18n-aria="tip.close" data-i18n-tip="tip.close" data-tip="Close (Esc)" data-tip-down>✕</button>
     </header>
     <div class="drill-body">
       <div class="drill-totals" id="drill-totals"></div>
       <div class="drill-chart-wrap"><canvas id="drill-chart"></canvas></div>
-      <h3 class="drill-h3">Domains</h3>
+      <h3 class="drill-h3" data-i18n="sec.domains">Domains</h3>
       <div id="drill-domains"></div>
     </div>
   </div>
 </div>
 
 <footer>
-  <span id="version">netscope</span> · all data stays on this machine · <kbd>R</kbd> refresh history · <kbd>L</kbd> jump to session
+  <span id="version">netscope</span> · <span data-i18n="footer.privacy">all data stays on this machine</span> · <kbd>R</kbd> <span data-i18n="footer.refresh">refresh history</span> · <kbd>L</kbd> <span data-i18n="footer.jump">jump to session</span>
 </footer>
 
+<script src="i18n.js"></script>
 <script src="tooltip.js"></script>
 <script src="app.js"></script>
 </body>

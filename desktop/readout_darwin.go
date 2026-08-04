@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/doldoldol21/netscope/internal/alerts"
+	"github.com/doldoldol21/netscope/internal/i18n"
 )
 
 // readoutInterval is how often the menu-bar rate text refreshes. The menu bar is
@@ -28,32 +29,32 @@ type seg struct {
 }
 
 // menuBarStyle controls how the live rate renders next to the icon. Users pick a
-// style in settings; segs() turns a (rx,tx) pair into colored runs.
+// style in settings; segs() turns a (rx,tx) pair into colored runs. The label
+// shown in settings is resolved through i18n at read time, keyed by ID.
 type menuBarStyle struct {
-	ID    string `json:"id"`
-	Label string `json:"label"`
-	segs  func(rx, tx string) []seg
+	ID   string `json:"id"`
+	segs func(rx, tx string) []seg
 }
 
 // menuBarStyles are the selectable readout styles (symbol variants). The first
 // is the default.
 var menuBarStyles = []menuBarStyle{
-	{ID: "arrows", Label: "Arrows", segs: func(rx, tx string) []seg {
+	{ID: "arrows", segs: func(rx, tx string) []seg {
 		return []seg{{'d', "↓" + rx}, {'n', " "}, {'u', "↑" + tx}}
 	}},
-	{ID: "triangles", Label: "Triangles", segs: func(rx, tx string) []seg {
+	{ID: "triangles", segs: func(rx, tx string) []seg {
 		return []seg{{'d', "▼" + rx}, {'n', " "}, {'u', "▲" + tx}}
 	}},
-	{ID: "caret", Label: "Carets", segs: func(rx, tx string) []seg {
+	{ID: "caret", segs: func(rx, tx string) []seg {
 		return []seg{{'d', "⇣" + rx}, {'n', " "}, {'u', "⇡" + tx}}
 	}},
-	{ID: "suffix", Label: "Suffix", segs: func(rx, tx string) []seg {
+	{ID: "suffix", segs: func(rx, tx string) []seg {
 		return []seg{{'d', rx + "↓"}, {'n', " "}, {'u', tx + "↑"}}
 	}},
-	{ID: "downonly", Label: "Download only", segs: func(rx, tx string) []seg {
+	{ID: "downonly", segs: func(rx, tx string) []seg {
 		return []seg{{'d', "↓" + rx}}
 	}},
-	{ID: "icononly", Label: "Icon only", segs: func(rx, tx string) []seg { return nil }},
+	{ID: "icononly", segs: func(rx, tx string) []seg { return nil }},
 }
 
 var (
@@ -153,7 +154,7 @@ func menuBarStylesJSON() map[string]any {
 	readoutMu.Unlock()
 	opts := make([]map[string]string, 0, len(menuBarStyles))
 	for _, s := range menuBarStyles {
-		opts = append(opts, map[string]string{"id": s.ID, "label": s.Label})
+		opts = append(opts, map[string]string{"id": s.ID, "label": i18n.T("menubar.style." + s.ID)})
 	}
 	readoutMu.Lock()
 	anim := readoutAnim

@@ -59,6 +59,9 @@ and an **Open Dashboard** button for the full window.
   one click, with a notification when a new version ships.
 - **Export** — CSV/JSON from the dashboard (full bundle, or one app's domains)
   and the CLI (`netscope export`).
+- **Localized** — the UI and notifications follow your macOS system language
+  (English, 한국어, 日本語; falls back to English). Append `?lang=ko` to the
+  dashboard URL or set `NETSCOPE_LANG=ko` to try a language by hand.
 - **CLI** — `netscope`, `netscope apps --range week`, `netscope domains`,
   `netscope export … > out.csv`.
 - **Private by design** — HTTPS stays encrypted; netscope only counts *bytes per
