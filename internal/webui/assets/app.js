@@ -757,15 +757,21 @@ function drawChart() {
   series("rx", cRx, "rgba(63,185,80,.28)");
   series("tx", cTx, "rgba(240,136,62,.28)");
 
-  // x time ticks (every ~30s)
+  // x time ticks on a fixed 30s grid (now, -30s, -60s, …) — quarter-of-buffer
+  // ticks landed on odd values like -29s/-58s. Each tick sits on the sample
+  // nearest its target age and is skipped while the buffer doesn't reach it.
   g.fillStyle = cMuted; g.textAlign = "center"; g.textBaseline = "top";
   const n = rateHist.length;
-  for (let k = 0; k <= 4; k++) {
-    const idx = Math.round(((n - 1) * k) / 4);
-    const p = rateHist[idx]; if (!p) continue;
+  const lastT = rateHist[n - 1].t;
+  for (const secs of [0, 30, 60, 90, 120]) {
+    let idx = -1, best = 3; // show only if a sample is within 3s of the target
+    for (let i = n - 1; i >= 0; i--) {
+      const d = Math.abs((lastT - rateHist[i].t) / 1000 - secs);
+      if (d < best) { best = d; idx = i; }
+    }
+    if (idx < 0) continue;
     const px = x(idx + (MAXP - n));
-    const secsAgo = Math.round((rateHist[n - 1].t - p.t) / 1000);
-    g.fillText(secsAgo === 0 ? t("chart.now") : `-${secsAgo}s`, px, padT + plotH + 5);
+    g.fillText(secs === 0 ? t("chart.now") : `-${secs}s`, px, padT + plotH + 5);
   }
 
   // hover crosshair
