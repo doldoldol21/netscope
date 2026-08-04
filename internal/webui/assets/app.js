@@ -701,11 +701,19 @@ function niceMax(v) {
   return step * pow;
 }
 
+// yAxisPad returns the left padding that fits the widest y-axis label at the
+// current canvas font (label + 8px gap to the plot, 4px to the edge).
+function yAxisPad(g, labels) {
+  return Math.ceil(Math.max(...labels.map((s) => g.measureText(s).width))) + 12;
+}
+// The live/history draw functions publish their computed left padding here so
+// the shared mousemove hover math maps x to the same plot area.
+let chartPadL = 52;
+
 function drawChart() {
   const { w, h, g } = sizeCanvas(chart);
   g.clearRect(0, 0, w, h);
-  const padL = 52, padB = 18, padT = 8, padR = 6;
-  const plotW = w - padL - padR, plotH = h - padT - padB;
+  const padB = 18, padT = 8, padR = 6;
   const cLine = tvar("--line");
   const cMuted = tvar("--muted");
   const cRx = tvar("--rx");
@@ -714,15 +722,20 @@ function drawChart() {
   const peak = Math.max(1, ...rateHist.map((p) => Math.max(p.rx, p.tx)));
   const top = niceMax(peak);
 
-  // gridlines + y labels
+  // gridlines + y labels — the left padding is sized to the widest label
+  // (a fixed 52px clipped e.g. "1.50 MB/s"); hover math reuses it via chartPadL.
   g.font = "10px " + tvar("--mono");
+  const yLabels = [0, 1, 2, 3, 4].map((i) => fmtRate(top * (1 - i / 4)));
+  const padL = yAxisPad(g, yLabels);
+  chartPadL = padL;
+  const plotW = w - padL - padR, plotH = h - padT - padB;
   g.textBaseline = "middle";
   for (let i = 0; i <= 4; i++) {
     const y = padT + (plotH * i) / 4;
     g.strokeStyle = cLine; g.globalAlpha = 0.5; g.beginPath();
     g.moveTo(padL, y); g.lineTo(w - padR, y); g.stroke(); g.globalAlpha = 1;
     g.fillStyle = cMuted; g.textAlign = "right";
-    g.fillText(fmtRate(top * (1 - i / 4)), padL - 8, y);
+    g.fillText(yLabels[i], padL - 8, y);
   }
   if (rateHist.length < 2) { $("chart-peak").textContent = ""; return; }
 
@@ -827,8 +840,7 @@ function drawHistChart() {
   const cMuted = tvar("--muted");
   const cRx = tvar("--rx");
   const cTx = tvar("--tx");
-  const padL = 56, padB = 18, padT = 8, padR = 6;
-  const plotW = w - padL - padR, plotH = h - padT - padB;
+  const padB = 18, padT = 8, padR = 6;
   if (!histPoints.length) {
     g.fillStyle = cMuted; g.font = "12px " + tvar("--sans");
     g.textAlign = "center"; g.textBaseline = "middle";
@@ -837,13 +849,18 @@ function drawHistChart() {
   }
   const peak = Math.max(1, ...histPoints.map((p) => Math.max(Number(p.rxBytes), Number(p.txBytes))));
   const top = niceMax(peak);
-  g.font = "10px " + tvar("--mono"); g.textBaseline = "middle";
+  g.font = "10px " + tvar("--mono");
+  const yLabels = [0, 1, 2, 3, 4].map((i) => fmtBytes(top * (1 - i / 4)).str);
+  const padL = yAxisPad(g, yLabels);
+  chartPadL = padL;
+  const plotW = w - padL - padR, plotH = h - padT - padB;
+  g.textBaseline = "middle";
   for (let i = 0; i <= 4; i++) {
     const y = padT + (plotH * i) / 4;
     g.strokeStyle = cLine; g.globalAlpha = 0.5; g.beginPath();
     g.moveTo(padL, y); g.lineTo(w - padR, y); g.stroke(); g.globalAlpha = 1;
     g.fillStyle = cMuted; g.textAlign = "right";
-    g.fillText(fmtBytes(top * (1 - i / 4)).str, padL - 8, y);
+    g.fillText(yLabels[i], padL - 8, y);
   }
   const n = histPoints.length;
   const x = (i) => padL + (n === 1 ? plotW / 2 : (plotW * i) / (n - 1));
@@ -898,7 +915,7 @@ function scheduleChart() {
 chart.addEventListener("mousemove", (e) => {
   const r = chart.getBoundingClientRect();
   if (chartMode === "live") {
-    const padL = 52, padR = 6, plotW = r.width - padL - padR;
+    const padL = chartPadL, padR = 6, plotW = r.width - padL - padR;
     const n = rateHist.length;
     const rel = (e.clientX - r.left - padL) / plotW;
     const idx = Math.round(rel * (MAXP - 1)) - (MAXP - n);
@@ -917,7 +934,7 @@ chart.addEventListener("mousemove", (e) => {
     // history (day/week/month): map x to a bucket, show its date + bytes.
     const n = histPoints.length;
     if (!n) { tip.style.opacity = 0; return; }
-    const padL = 56, padR = 6, plotW = r.width - padL - padR;
+    const padL = chartPadL, padR = 6, plotW = r.width - padL - padR;
     const rel = (e.clientX - r.left - padL) / plotW;
     hoverIdx = Math.max(0, Math.min(n - 1, Math.round(rel * (n - 1))));
     const p = histPoints[hoverIdx];
@@ -1225,17 +1242,20 @@ function drawDrillChart(points) {
     g.fillText(t("state.noTrafficRange"), w / 2, h / 2);
     return;
   }
-  const padL = 52, padB = 4, padT = 8, padR = 6;
-  const plotW = w - padL - padR, plotH = h - padT - padB;
+  const padB = 4, padT = 8, padR = 6;
   const peak = Math.max(1, ...points.map((p) => Math.max(Number(p.rxBytes), Number(p.txBytes))));
   const top = niceMax(peak);
-  g.font = "10px " + tvar("--mono"); g.textBaseline = "middle";
+  g.font = "10px " + tvar("--mono");
+  const yLabels = [0, 1, 2, 3, 4].map((i) => fmtBytes(top * (1 - i / 4)).str);
+  const padL = yAxisPad(g, yLabels);
+  const plotW = w - padL - padR, plotH = h - padT - padB;
+  g.textBaseline = "middle";
   for (let i = 0; i <= 4; i++) {
     const y = padT + (plotH * i) / 4;
     g.strokeStyle = cLine; g.globalAlpha = 0.5; g.beginPath();
     g.moveTo(padL, y); g.lineTo(w - padR, y); g.stroke(); g.globalAlpha = 1;
     g.fillStyle = cMuted; g.textAlign = "right";
-    g.fillText(fmtBytes(top * (1 - i / 4)).str, padL - 8, y);
+    g.fillText(yLabels[i], padL - 8, y);
   }
   const n = points.length;
   const x = (i) => padL + (n === 1 ? plotW / 2 : (plotW * i) / (n - 1));
