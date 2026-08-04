@@ -104,7 +104,7 @@ function tableHTML(items, target) {
       <td class="rank">${i + 1}</td>
       <td><div class="cell-name">
         ${ico}
-        <span class="label" title="${esc(isApps ? (it.path || name) : name)}">${isApps ? "" : flagChip(it.country)}${esc(name)}${sub}${cat}</span>
+        <span class="label" title="${esc(isApps ? (it.path || name) : name)}">${isApps ? "" : flagChip(it.country)}${esc(name)}${sub}</span>${cat}
       </div><div class="usebar"><i style="width:${(100 * total / max).toFixed(1)}%"></i></div></td>
       ${spark ? `<td class="spark-col">${sparkSVG((appHist.get(name) || {}).pts)}</td>` : ""}
       <td class="num rx">${fmtBytes(it.rxBytes).str}</td>
@@ -429,7 +429,7 @@ function netUsageHTML(list) {
     return `<tr>
       <td class="rank">${i + 1}</td>
       <td><div class="cell-name">
-        <span class="label" title="${esc(n.iface)}">${esc(friendly)}${badges}</span>
+        <span class="label" title="${esc(n.iface)}">${esc(friendly)}</span>${badges}
       </div><div class="usebar"><i style="width:${(100 * total / max).toFixed(1)}%"></i></div></td>
       <td class="num rx">${fmtBytes(n.rxBytes).str}</td>
       <td class="num tx">${fmtBytes(n.txBytes).str}</td>
@@ -1221,7 +1221,7 @@ function drillDomainsHTML(items) {
       <td class="rank">${i + 1}</td>
       <td><div class="cell-name">
         <span class="swatch" style="background:${swatchColor(d.domain)}"></span>
-        <span class="label" title="${esc(d.domain)}">${flagChip(d.country)}${esc(d.domain)}${cat}</span>
+        <span class="label" title="${esc(d.domain)}">${flagChip(d.country)}${esc(d.domain)}</span>${cat}
       </div><div class="usebar"><i style="width:${(100 * total / max).toFixed(1)}%"></i></div></td>
       <td class="num rx">${fmtBytes(d.rxBytes).str}</td>
       <td class="num tx">${fmtBytes(d.txBytes).str}</td>

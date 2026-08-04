@@ -205,6 +205,9 @@ canvas#chart { display: block; width: 100%; height: 200px; }
 .usebar > i { display: block; height: 100%; border-radius: 3px; background: linear-gradient(90deg, var(--accent), color-mix(in srgb, var(--accent) 50%, var(--ai))); }
 td.rx { color: var(--rx); } td.tx { color: var(--tx); }
 .chip { font: 500 10px/1 var(--sans); padding: 2px 7px; border-radius: 999px; background: var(--panel-2); color: var(--fg-dim); border: 1px solid var(--line); }
+/* Chips sit outside the ellipsizing label as flex siblings so a long name can
+   never swallow them — the name truncates, the (ai)/(cloud) badge stays. */
+.cell-name .chip { flex: none; white-space: nowrap; }
 
 /* monthly data-plan meter (tethering allowance), above the per-network table */
 .plan-card { padding: 14px 16px; border-bottom: 1px solid var(--line-soft); display: flex; flex-direction: column; gap: 8px; }
@@ -349,3 +352,16 @@ tr.clickable:hover td { background: var(--panel-2); }
   font: 500 11.5px/1.3 var(--sans);
   max-width: 260px; white-space: normal; pointer-events: none;
 }
+
+/* ---- truncation peek: full text of an ellipsized name on hover (tooltip.js).
+   Unlike #ns-tip it takes pointer events — text is selectable, click copies. */
+#ns-peek {
+  position: fixed; z-index: 9999; display: none;
+  background: #0b0e16; color: var(--fg); border: 1px solid var(--line);
+  box-shadow: 0 8px 22px -8px #000;
+  padding: 6px 10px; border-radius: 7px;
+  font: 500 11.5px/1.4 var(--sans);
+  max-width: 420px; word-break: break-all;
+  cursor: copy; user-select: text;
+}
+#ns-peek .pk-sub { color: var(--muted); font-weight: 400; margin-top: 2px; }
