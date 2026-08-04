@@ -185,8 +185,11 @@ canvas#chart { display: block; width: 100%; height: 200px; }
    grid) still has room for the ↓/↑/total numbers (a wide column clipped them). */
 .spark-col { width: 44px; padding-left: 6px; padding-right: 8px; }
 .spark-svg { display: block; width: 36px; height: 15px; opacity: .85; }
-/* In the half-width grid panels, let the name ellipsize sooner so numbers fit. */
-.grid .cell-name .label { max-width: 180px; }
+/* In the half-width grid panels the cap scales with the viewport: wide windows
+   let the name run to the usage bar's edge, narrow ones ellipsize sooner so the
+   ↓/↑/total numbers keep their room (a fixed 180px clipped names the bar below
+   showed there was space for). */
+.grid .cell-name .label { max-width: clamp(180px, 22vw, 300px); }
 /* App rows: a fixed icon slot with the colored dot centered behind, and the real
    macOS app icon layered on top (it removes itself on load error → dot shows). */
 .cell-ico { position: relative; width: 16px; height: 16px; flex: none; }
@@ -194,7 +197,9 @@ canvas#chart { display: block; width: 100%; height: 200px; }
    would paint the dot *over* the later <img>. inset:0 + margin:auto centers it. */
 .cell-ico .swatch { position: absolute; inset: 0; margin: auto; }
 .app-ico { position: absolute; inset: 0; z-index: 1; width: 16px; height: 16px; border-radius: 4px; object-fit: contain; }
-.cell-name .label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 280px; }
+/* 300px matches the 320px usebar minus the swatch/icon slot + gap, so the text
+   allowance ends where the bar ends instead of ellipsizing short of it. */
+.cell-name .label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 300px; }
 .cell-name .label small { color: var(--muted); font-weight: 400; }
 .usebar { height: 4px; background: var(--panel-2); border-radius: 3px; margin-top: 5px; overflow: hidden; max-width: 320px; }
 .usebar > i { display: block; height: 100%; border-radius: 3px; background: linear-gradient(90deg, var(--accent), color-mix(in srgb, var(--accent) 50%, var(--ai))); }
