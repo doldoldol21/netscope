@@ -63,9 +63,9 @@ function tableHTML(items, target) {
   let list = items || [];
   if (q) list = list.filter((it) => matchFilter(it, target, q));
   if (!list.length) {
-    if (q) return `<div class="state">no matches for “${esc(q)}”</div>`;
+    if (q) return `<div class="state">${t("state.noMatches", { q: esc(q) })}</div>`;
     const session = rangeState[target] === "session";
-    return `<div class="state">${session ? "waiting for traffic…" : "no traffic in this range"}</div>`;
+    return `<div class="state">${session ? t("state.waiting") : t("state.noTrafficRange")}</div>`;
   }
   const isApps = target === "apps";
   const s = sortState[target];
@@ -78,11 +78,11 @@ function tableHTML(items, target) {
   const spark = isApps && rangeState[target] === "session"; // live per-app trend
   const head = `<thead><tr>
     <th></th>
-    <th data-key="name">${isApps ? "App" : "Domain"}</th>
-    ${spark ? `<th class="spark-col">Trend</th>` : ""}
-    <th class="num ${th("down", target)}" data-key="down">↓ Down<span class="caret">▼</span></th>
-    <th class="num ${th("up", target)}" data-key="up">↑ Up<span class="caret">▼</span></th>
-    <th class="num ${th("total", target)}" data-key="total">Total<span class="caret">▼</span></th>
+    <th data-key="name">${isApps ? t("col.app") : t("col.domain")}</th>
+    ${spark ? `<th class="spark-col">${t("col.trend")}</th>` : ""}
+    <th class="num ${th("down", target)}" data-key="down">${t("col.down")}<span class="caret">▼</span></th>
+    <th class="num ${th("up", target)}" data-key="up">${t("col.up")}<span class="caret">▼</span></th>
+    <th class="num ${th("total", target)}" data-key="total">${t("col.total")}<span class="caret">▼</span></th>
   </tr></thead>`;
 
   let rows = "";
@@ -261,7 +261,7 @@ async function loadHistory(target, range) {
     el.firstElementChild && el.firstElementChild.classList.add("fade-in");
     wireSort(target);
   } catch (e) {
-    el.innerHTML = `<div class="state">failed to load — is netscoped running?</div>`;
+    el.innerHTML = `<div class="state">${t("state.failedDaemon")}</div>`;
   }
 }
 
@@ -289,22 +289,22 @@ function countriesHTML(domains) {
     by.set(cc, e);
   });
   const list = [...by.values()].sort((a, b) => (b.rx + b.tx) - (a.rx + a.tx));
-  if (!list.length) return `<div class="state">no geo-located traffic yet</div>`;
+  if (!list.length) return `<div class="state">${t("state.noGeo")}</div>`;
   const max = Math.max(1, ...list.map((c) => c.rx + c.tx));
   const rows = list.slice(0, 50).map((c, i) => {
     const total = c.rx + c.tx;
     return `<tr>
       <td class="rank">${i + 1}</td>
       <td><div class="cell-name"><span class="flag">${flagEmoji(c.cc)}</span>
-        <span class="label">${esc(c.cc)} <small>· ${c.domains} domain${c.domains > 1 ? "s" : ""}</small></span>
+        <span class="label">${esc(c.cc)} <small>· ${tn("countries.domain1", "countries.domainN", c.domains)}</small></span>
       </div><div class="usebar"><i style="width:${(100 * total / max).toFixed(1)}%"></i></div></td>
       <td class="num rx">${fmtBytes(c.rx).str}</td>
       <td class="num tx">${fmtBytes(c.tx).str}</td>
       <td class="num">${fmtBytes(total).str}</td>
     </tr>`;
   }).join("");
-  return `<table class="tbl"><thead><tr><th></th><th>Country</th>
-    <th class="num">↓ Down</th><th class="num">↑ Up</th><th class="num">Total</th></tr></thead>
+  return `<table class="tbl"><thead><tr><th></th><th>${t("col.country")}</th>
+    <th class="num">${t("col.down")}</th><th class="num">${t("col.up")}</th><th class="num">${t("col.total")}</th></tr></thead>
     <tbody>${rows}</tbody></table>`;
 }
 let countriesSig = "";
@@ -325,7 +325,7 @@ async function loadCountries(range) {
     el.innerHTML = countriesHTML(data || []);
     el.firstElementChild && el.firstElementChild.classList.add("fade-in");
   } catch (e) {
-    el.innerHTML = `<div class="state">failed to load</div>`;
+    el.innerHTML = `<div class="state">${t("state.failedLoad")}</div>`;
   }
 }
 
@@ -345,7 +345,7 @@ function connsHTML(list) {
   const q = filterState.conns.toLowerCase();
   if (q) items = items.filter((c) => connMatch(c, q));
   if (!items.length) {
-    return `<div class="state">${q ? `no matches for “${esc(q)}”` : "no active connections"}</div>`;
+    return `<div class="state">${q ? t("state.noMatches", { q: esc(q) }) : t("state.noConns")}</div>`;
   }
   const max = Math.max(1, ...items.map((c) => Number(c.rxBytes) + Number(c.txBytes)));
   const rows = items.slice(0, 100).map((c) => {
@@ -366,8 +366,8 @@ function connsHTML(list) {
     </tr>`;
   }).join("");
   return `<table class="tbl"><thead><tr>
-    <th>App</th><th>Remote</th><th>Proto</th>
-    <th class="num">↓ Down</th><th class="num">↑ Up</th><th class="num">Total</th>
+    <th>${t("col.app")}</th><th>${t("col.remote")}</th><th>${t("col.proto")}</th>
+    <th class="num">${t("col.down")}</th><th class="num">${t("col.up")}</th><th class="num">${t("col.total")}</th>
   </tr></thead><tbody>${rows}</tbody></table>`;
 }
 
@@ -419,13 +419,13 @@ let netUsage = [];
 function netUsageHTML(list) {
   const nets = list || [];
   if (!nets.length) {
-    return `<div class="state">No network usage in this range yet.</div>`;
+    return `<div class="state">${t("state.noNetUsage")}</div>`;
   }
   const max = Math.max(1, ...nets.map((n) => Number(n.rxBytes) + Number(n.txBytes)));
   const rows = nets.map((n, i) => {
     const total = Number(n.rxBytes) + Number(n.txBytes);
     const friendly = n.friendly && n.friendly !== n.iface ? n.friendly : n.iface;
-    const badges = `${n.tether ? ` <span class="chip">📱 tethering</span>` : ""}${n.active ? ` <span class="chip">live</span>` : ""}`;
+    const badges = `${n.tether ? ` <span class="chip">${t("chip.tethering")}</span>` : ""}${n.active ? ` <span class="chip">${t("chip.live")}</span>` : ""}`;
     return `<tr>
       <td class="rank">${i + 1}</td>
       <td><div class="cell-name">
@@ -436,8 +436,8 @@ function netUsageHTML(list) {
       <td class="num">${fmtBytes(total).str}</td>
     </tr>`;
   }).join("");
-  return `<table class="tbl"><thead><tr><th></th><th>Network</th>
-    <th class="num">↓ Down</th><th class="num">↑ Up</th><th class="num">Total</th></tr></thead>
+  return `<table class="tbl"><thead><tr><th></th><th>${t("col.network")}</th>
+    <th class="num">${t("col.down")}</th><th class="num">${t("col.up")}</th><th class="num">${t("col.total")}</th></tr></thead>
     <tbody>${rows}</tbody></table>`;
 }
 
@@ -474,17 +474,19 @@ let planEditing = false;  // the inline form is open
 let planSig = "";
 
 const GB = 1024 * 1024 * 1024;
-const fmtDate = (unix) => new Date(unix * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+// Dates format in the UI language (usually the system language; ?lang= can
+// override it for testing, so don't pass undefined here).
+const fmtDate = (unix) => new Date(unix * 1000).toLocaleDateString(NS_I18N.lang, { month: "short", day: "numeric" });
 
 function planViewHTML(p) {
   const cfg = p.config || {}, st = p.status || {};
   if (!st.enabled) {
     return `<div class="plan-card plan-empty">
       <div>
-        <div class="plan-title">Monthly data plan</div>
-        <div class="plan-sub">Set your tethering allowance to see how much of it you've used this cycle.</div>
+        <div class="plan-title">${t("plan.title")}</div>
+        <div class="plan-sub">${t("plan.setupSub")}</div>
       </div>
-      <button class="hdr-btn" id="plan-edit">Set up</button>
+      <button class="hdr-btn" id="plan-edit">${t("plan.setup")}</button>
     </div>`;
   }
   const pct = Number(st.percent) || 0;
@@ -492,49 +494,49 @@ function planViewHTML(p) {
   const counted = (p.networks || []).filter((n) => n.counted);
   const scope = cfg.iface
     ? (counted[0] && counted[0].friendly) || cfg.iface
-    : counted.length ? counted.map((n) => n.friendly || n.iface).join(", ") : "tethering networks";
-  const bits = [`${fmtBytes(st.remainingBytes).str} left`];
-  if (st.daysLeft > 0) bits.push(`${st.daysLeft} day${st.daysLeft === 1 ? "" : "s"} to ${fmtDate(st.cycleEnd)}`);
+    : counted.length ? counted.map((n) => n.friendly || n.iface).join(", ") : t("plan.scopeFallback");
+  const bits = [t("plan.left", { v: fmtBytes(st.remainingBytes).str })];
+  if (st.daysLeft > 0) bits.push(tn("plan.day1", "plan.dayN", st.daysLeft, { date: fmtDate(st.cycleEnd) }));
   if (st.projectedBytes > 0) {
     const over = st.projectedBytes > st.limitBytes;
-    bits.push(`${over ? "⚠ " : ""}at this rate ${fmtBytes(st.projectedBytes).str} by cycle end`);
+    bits.push(`${over ? "⚠ " : ""}${t("plan.projected", { v: fmtBytes(st.projectedBytes).str })}`);
   }
   return `<div class="plan-card">
     <div class="plan-head">
-      <div class="plan-title">Monthly data plan <span class="chip">📱 ${esc(scope)}</span></div>
+      <div class="plan-title">${t("plan.title")} <span class="chip">📱 ${esc(scope)}</span></div>
       <div class="plan-nums">
         <b class="${level}">${fmtBytes(st.usedBytes).str}</b>
-        <span class="plan-of">of ${fmtBytes(st.limitBytes).str}</span>
+        <span class="plan-of">${t("plan.of", { v: fmtBytes(st.limitBytes).str })}</span>
         <span class="plan-pct ${level}">${pct.toFixed(pct < 10 ? 1 : 0)}%</span>
-        <button class="hdr-btn" id="plan-edit">Edit</button>
+        <button class="hdr-btn" id="plan-edit">${t("plan.edit")}</button>
       </div>
     </div>
     <div class="plan-bar ${level}"><i style="width:${Math.min(100, pct).toFixed(1)}%"></i></div>
-    <div class="plan-sub">${esc(bits.join(" · "))} · cycle from ${fmtDate(st.cycleStart)}</div>
+    <div class="plan-sub">${esc(bits.join(" · "))} · ${t("plan.cycleFrom", { date: fmtDate(st.cycleStart) })}</div>
   </div>`;
 }
 
 function planFormHTML(p) {
   const cfg = p.config || {};
   const limitGB = cfg.limitBytes ? (cfg.limitBytes / GB) : 100;
-  const opts = [`<option value="">Auto — all tethering networks</option>`].concat(
+  const opts = [`<option value="">${t("plan.auto")}</option>`].concat(
     (p.networks || []).map((n) =>
-      `<option value="${esc(n.iface)}"${cfg.iface === n.iface ? " selected" : ""}>${esc(n.friendly || n.iface)}${n.tether ? " (tethering)" : ""}</option>`)
+      `<option value="${esc(n.iface)}"${cfg.iface === n.iface ? " selected" : ""}>${esc(n.friendly || n.iface)}${n.tether ? t("plan.tetherSuffix") : ""}</option>`)
   ).join("");
   return `<div class="plan-card plan-form">
-    <div class="plan-title">Monthly data plan</div>
+    <div class="plan-title">${t("plan.title")}</div>
     <div class="plan-fields">
-      <label>Allowance <span><input id="plan-limit" type="number" min="0" step="0.5" value="${limitGB}" /> GB</span></label>
-      <label>Cycle starts on day <input id="plan-day" type="number" min="1" max="31" value="${cfg.startDay || 1}" /></label>
-      <label>Warn at <span><input id="plan-warn" type="number" min="1" max="99" value="${cfg.warnPercent || 80}" /> %</span></label>
-      <label>Count <select id="plan-iface">${opts}</select></label>
+      <label>${t("plan.allowance")} <span><input id="plan-limit" type="number" min="0" step="0.5" value="${limitGB}" /> GB</span></label>
+      <label>${t("plan.cycleDay")} <input id="plan-day" type="number" min="1" max="31" value="${cfg.startDay || 1}" /></label>
+      <label>${t("plan.warnAt")} <span><input id="plan-warn" type="number" min="1" max="99" value="${cfg.warnPercent || 80}" /> %</span></label>
+      <label>${t("plan.count")} <select id="plan-iface">${opts}</select></label>
     </div>
     <div class="plan-actions">
-      <button class="hdr-btn" id="plan-cancel">Cancel</button>
-      <button class="hdr-btn on" id="plan-save">Save</button>
-      ${cfg.limitBytes ? `<button class="hdr-btn" id="plan-off">Turn off</button>` : ""}
+      <button class="hdr-btn" id="plan-cancel">${t("plan.cancel")}</button>
+      <button class="hdr-btn on" id="plan-save">${t("plan.save")}</button>
+      ${cfg.limitBytes ? `<button class="hdr-btn" id="plan-off">${t("plan.off")}</button>` : ""}
     </div>
-    <div class="plan-sub">Auto counts networks macOS reports as a tethered phone (USB tethering, Bluetooth PAN). A hotspot joined over Wi-Fi looks like ordinary Wi-Fi, so pick that network by hand. Usage is measured from captured traffic — an estimate (±few %), not your carrier's meter.</div>
+    <div class="plan-sub">${t("plan.formHint")}</div>
   </div>`;
 }
 
@@ -662,11 +664,11 @@ async function loadSummary() {
     $("c-total-sub").innerHTML = `<span style="color:var(--rx)">↓ ${fmtBytes(s.totalRx).str}</span> &nbsp; <span style="color:var(--tx)">↑ ${fmtBytes(s.totalTx).str}</span>`;
     if (s.topApp && s.topApp.name) {
       $("c-top").textContent = s.topApp.name;
-      $("c-top-sub").textContent = fmtBytes(s.topApp.bytes).str + " today";
+      $("c-top-sub").textContent = t("card.bytesToday", { v: fmtBytes(s.topApp.bytes).str });
     }
     if (s.topDomain && s.topDomain.name) {
       $("c-topdomain").textContent = s.topDomain.name;
-      $("c-topdomain-sub").textContent = fmtBytes(s.topDomain.bytes).str + " today";
+      $("c-topdomain-sub").textContent = t("card.bytesToday", { v: fmtBytes(s.topDomain.bytes).str });
     }
   } catch (e) {
     // fetchWithRetry already tried 3 times; wait for next interval
@@ -750,7 +752,7 @@ function drawChart() {
     const p = rateHist[idx]; if (!p) continue;
     const px = x(idx + (MAXP - n));
     const secsAgo = Math.round((rateHist[n - 1].t - p.t) / 1000);
-    g.fillText(secsAgo === 0 ? "now" : `-${secsAgo}s`, px, padT + plotH + 5);
+    g.fillText(secsAgo === 0 ? t("chart.now") : `-${secsAgo}s`, px, padT + plotH + 5);
   }
 
   // hover crosshair
@@ -764,12 +766,12 @@ function drawChart() {
       g.fillStyle = col; g.beginPath(); g.arc(px, y(p[key]), 3, 0, 7); g.fill();
     });
   }
-  $("chart-peak").textContent = "peak " + fmtRate(peak);
+  $("chart-peak").textContent = t("chart.peak", { v: fmtRate(peak) });
 }
 
 // ---- throughput range (live vs day/week/month history) ----
 let chartMode = "live", histPoints = [];
-const RANGE_LABEL = { day: "last 24 hours", week: "last 7 days", month: "last 30 days" };
+const rangeLabel = (range) => t("range." + range);
 
 document.querySelectorAll("#chart-tabs button").forEach((btn) => {
   btn.onclick = () => {
@@ -777,7 +779,7 @@ document.querySelectorAll("#chart-tabs button").forEach((btn) => {
     btn.classList.add("active");
     chartMode = btn.dataset.mode;
     if (chartMode === "live") {
-      $("chart-hint").textContent = "live · last 2 min";
+      $("chart-hint").textContent = t("chart.liveHint");
       seedLive();
     } else {
       loadHistChart(chartMode);
@@ -801,7 +803,7 @@ async function seedLive() {
 }
 
 async function loadHistChart(range) {
-  $("chart-hint").textContent = "loading " + (RANGE_LABEL[range] || range) + "…";
+  $("chart-hint").textContent = t("chart.loading", { range: rangeLabel(range) });
   try {
     const pts = await fetchJSON(`${API}/api/timeseries?range=${range}`);
     if (chartMode !== range) return; // switched away
@@ -809,10 +811,10 @@ async function loadHistChart(range) {
     let rx = 0, tx = 0;
     histPoints.forEach((p) => { rx += Number(p.rxBytes) || 0; tx += Number(p.txBytes) || 0; });
     $("chart-hint").textContent =
-      `${RANGE_LABEL[range] || range} · ${fmtBytes(rx + tx).str} total`;
+      t("chart.rangeTotal", { range: rangeLabel(range), total: fmtBytes(rx + tx).str });
     drawHistChart();
   } catch (e) {
-    $("chart-hint").textContent = "failed to load history";
+    $("chart-hint").textContent = t("chart.failed");
   }
 }
 
@@ -830,7 +832,7 @@ function drawHistChart() {
   if (!histPoints.length) {
     g.fillStyle = cMuted; g.font = "12px " + tvar("--sans");
     g.textAlign = "center"; g.textBaseline = "middle";
-    g.fillText("no traffic in this range", w / 2, h / 2);
+    g.fillText(t("state.noTrafficRange"), w / 2, h / 2);
     return;
   }
   const peak = Math.max(1, ...histPoints.map((p) => Math.max(Number(p.rxBytes), Number(p.txBytes))));
@@ -867,7 +869,7 @@ function drawHistChart() {
     const p = histPoints[idx]; if (!p) continue;
     const d = new Date(p.time);
     const label = day
-      ? d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+      ? d.toLocaleTimeString(NS_I18N.lang, { hour: "2-digit", minute: "2-digit" })
       : `${d.getMonth() + 1}/${d.getDate()}`;
     g.fillText(label, x(idx), padT + plotH + 5);
   }
@@ -882,7 +884,7 @@ function drawHistChart() {
       g.fillStyle = col; g.beginPath(); g.arc(px, y(Number(p[key])), 3, 0, 7); g.fill();
     });
   }
-  $("chart-peak").textContent = "peak " + fmtBytes(peak).str + "/bucket";
+  $("chart-peak").textContent = t("chart.peakBucket", { v: fmtBytes(peak).str });
 }
 
 // Coalesce hover redraws to one per animation frame: mousemove fires far faster
@@ -907,7 +909,7 @@ chart.addEventListener("mousemove", (e) => {
       tip.style.left = (e.clientX - r.left) + "px";
       tip.style.top = "8px";
       const ago = Math.round((rateHist[n - 1].t - p.t) / 1000);
-      tip.innerHTML = `<div class="t-time">${ago === 0 ? "now" : ago + "s ago"}</div>
+      tip.innerHTML = `<div class="t-time">${ago === 0 ? t("chart.now") : t("chart.secAgo", { s: ago })}</div>
         <div style="color:var(--rx)">▼ <b>${fmtRate(p.rx)}</b></div>
         <div style="color:var(--tx)">▲ <b>${fmtRate(p.tx)}</b></div>`;
     }
@@ -925,8 +927,8 @@ chart.addEventListener("mousemove", (e) => {
       tip.style.top = "8px";
       const d = new Date(p.time);
       const when = chartMode === "day"
-        ? d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-        : d.toLocaleDateString([], { month: "short", day: "numeric" }) + " " + d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+        ? d.toLocaleTimeString(NS_I18N.lang, { hour: "2-digit", minute: "2-digit" })
+        : d.toLocaleDateString(NS_I18N.lang, { month: "short", day: "numeric" }) + " " + d.toLocaleTimeString(NS_I18N.lang, { hour: "2-digit", minute: "2-digit" });
       tip.innerHTML = `<div class="t-time">${esc(when)}</div>
         <div style="color:var(--rx)">▼ <b>${fmtBytes(p.rxBytes).str}</b></div>
         <div style="color:var(--tx)">▲ <b>${fmtBytes(p.txBytes).str}</b></div>`;
@@ -983,8 +985,8 @@ function renderSnapshot(s) {
   applyPausedFromSnapshot(!!s.paused);
   const since = s.sessionStart ? sessionAge(s.sessionStart) : "";
   const state = capPaused
-    ? (s.interface || "—") + " · paused"
-    : (s.interface || "—") + " · capturing" + (since ? " · session " + since : "");
+    ? (s.interface || "—") + " · " + t("status.paused")
+    : (s.interface || "—") + " · " + t("status.capturing") + (since ? " · " + t("status.session") + " " + since : "");
   setStatus(capPaused ? "paused" : "live", state);
   setText($("rxps"), fmtRate(s.rxPerSec));
   setText($("txps"), fmtRate(s.txPerSec));
@@ -1029,7 +1031,11 @@ function applyPausedFromSnapshot(p) {
 function reflectPaused(p) {
   capPaused = p;
   const b = $("pause-btn");
-  if (b) { b.textContent = p ? "▶ Resume" : "⏸ Pause"; b.title = p ? "Resume capture" : "Pause capture"; b.classList.toggle("on", p); }
+  if (b) {
+    b.textContent = p ? t("btn.resume") : t("btn.pause");
+    b.setAttribute("data-tip", p ? t("tip.resume") : t("tip.pause"));
+    b.classList.toggle("on", p);
+  }
 }
 async function togglePause() {
   const next = !capPaused;
@@ -1090,11 +1096,11 @@ function scheduleStale() {
 
 let es = null;
 function connect() {
-  setStatus("warn", "connecting…");
+  setStatus("warn", t("status.connecting"));
   es = new EventSource(`${API}/api/live`);
   es.onopen = () => markFresh();
   es.onmessage = (e) => { markFresh(); try { onSnapshot(JSON.parse(e.data)); } catch (_) {} };
-  es.onerror = () => { setStatus("warn", "reconnecting…"); scheduleStale(); es.close(); setTimeout(connect, 2000); };
+  es.onerror = () => { setStatus("warn", t("status.reconnecting")); scheduleStale(); es.close(); setTimeout(connect, 2000); };
 }
 
 // keyboard shortcuts
@@ -1120,9 +1126,9 @@ async function loadVersion() {
     const appVer = (app && app.version) || daemon;
     // Show the app version, and the daemon version too when they differ.
     let base = "netscope " + appVer;
-    if (daemon !== appVer) base += ` · daemon ${daemon}`;
+    if (daemon !== appVer) base += ` · ${t("version.daemon")} ${daemon}`;
     if (v.updateAvailable) {
-      el.innerHTML = `${esc(base)} · <b style="color:var(--accent)">⬆ ${esc(v.latest)} available — see the menu bar</b>`;
+      el.innerHTML = `${esc(base)} · <b style="color:var(--accent)">${t("version.available", { v: esc(v.latest) })}</b>`;
     } else {
       el.textContent = base;
     }
@@ -1171,19 +1177,19 @@ async function loadDrill() {
       `<span class="dt-total">${fmtBytes(rx + tx).str}</span>` +
       `<span style="color:var(--rx)">↓ ${fmtBytes(rx).str}</span>` +
       `<span style="color:var(--tx)">↑ ${fmtBytes(tx).str}</span>` +
-      `<span class="dt-cap">${range}</span>`;
+      `<span class="dt-cap">${t("tab." + range)}</span>`;
     drawDrillChart(ts || []);
     drillDomains = doms || []; // remembered for the drill export button
     const dd = $("drill-domains");
     dd.innerHTML = drillDomainsHTML(doms || []);
     dd.firstElementChild && dd.firstElementChild.classList.add("fade-in");
   } catch (e) {
-    $("drill-domains").innerHTML = `<div class="state">failed to load — is netscoped running?</div>`;
+    $("drill-domains").innerHTML = `<div class="state">${t("state.failedDaemon")}</div>`;
   }
 }
 
 function drillDomainsHTML(items) {
-  if (!items.length) return `<div class="state">no domains in this range</div>`;
+  if (!items.length) return `<div class="state">${t("state.noDomains")}</div>`;
   const max = Math.max(1, ...items.map((x) => Number(x.rxBytes) + Number(x.txBytes)));
   const rows = items.slice(0, 40).map((d, i) => {
     const total = Number(d.rxBytes) + Number(d.txBytes);
@@ -1199,8 +1205,8 @@ function drillDomainsHTML(items) {
       <td class="num">${fmtBytes(total).str}</td>
     </tr>`;
   }).join("");
-  return `<table class="tbl"><thead><tr><th></th><th>Domain</th>
-    <th class="num">↓ Down</th><th class="num">↑ Up</th><th class="num">Total</th></tr></thead>
+  return `<table class="tbl"><thead><tr><th></th><th>${t("col.domain")}</th>
+    <th class="num">${t("col.down")}</th><th class="num">${t("col.up")}</th><th class="num">${t("col.total")}</th></tr></thead>
     <tbody>${rows}</tbody></table>`;
 }
 
@@ -1216,7 +1222,7 @@ function drawDrillChart(points) {
   if (!points.length) {
     g.fillStyle = cMuted; g.font = "12px " + tvar("--sans");
     g.textAlign = "center"; g.textBaseline = "middle";
-    g.fillText("no traffic in this range", w / 2, h / 2);
+    g.fillText(t("state.noTrafficRange"), w / 2, h / 2);
     return;
   }
   const padL = 52, padB = 4, padT = 8, padR = 6;
@@ -1337,5 +1343,7 @@ seedLive(); // prefill the live chart from the daemon's recent history
 connect();
 loadSummary();
 loadVersion();
-setInterval(loadSummary, 10000);
+// Skip the periodic summary poll while the window is hidden — renderSnapshot
+// already pauses DOM work, and visibilitychange repaints on re-show.
+setInterval(() => { if (!document.hidden) loadSummary(); }, 10000);
 setInterval(loadVersion, 3600000);

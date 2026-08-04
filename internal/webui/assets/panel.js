@@ -25,7 +25,11 @@ function drawSpark() {
   // While the popover is hidden the canvas has no layout size; skip so we don't
   // blank it to nothing (which made the graph "disappear" until the next tick).
   if (r.width < 1 || r.height < 1) return;
-  spark.width = r.width * dpr; spark.height = r.height * dpr; sx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  // Assigning width/height clears and reallocates the backing bitmap, so only
+  // do it when the layout size actually changed (this redraws every second).
+  const W = Math.round(r.width * dpr), H = Math.round(r.height * dpr);
+  if (spark.width !== W || spark.height !== H) { spark.width = W; spark.height = H; }
+  sx.setTransform(dpr, 0, 0, dpr, 0, 0);
   const w = r.width, h = r.height; sx.clearRect(0, 0, w, h);
   if (hist.length < 2) return;
   const max = Math.max(1, ...hist.map((p) => Math.max(p.rx, p.tx)));
@@ -57,7 +61,7 @@ function render(s) {
   }
   setText($("rx"), fmtRate(s.rxPerSec));
   setText($("tx"), fmtRate(s.txPerSec));
-  if (s.activeApps != null) setText($("active"), s.activeApps + " active");
+  if (s.activeApps != null) setText($("active"), t("pop.active", { n: s.activeApps }));
 
   hist.push({ rx: Number(s.rxPerSec) || 0, tx: Number(s.txPerSec) || 0 });
   while (hist.length > MAXP) hist.shift();
@@ -65,7 +69,7 @@ function render(s) {
 
   const apps = (s.apps || []).slice(0, 6);
   const el = $("apps");
-  if (!apps.length) { if (appsSig !== "empty") { el.innerHTML = '<li class="empty">waiting for traffic…</li>'; appsSig = "empty"; } return; }
+  if (!apps.length) { if (appsSig !== "empty") { el.innerHTML = `<li class="empty">${t("state.waiting")}</li>`; appsSig = "empty"; } return; }
   const html = apps.map((a) => {
     const name = a.name || "unknown";
     const total = Number(a.rxBytes) + Number(a.txBytes);
@@ -78,7 +82,7 @@ function render(s) {
   if (html !== appsSig) { el.innerHTML = html; appsSig = html; }
 }
 
-function setDisconnected() { $("dot").classList.remove("live"); $("meta").textContent = "reconnecting…"; }
+function setDisconnected() { $("dot").classList.remove("live"); $("meta").textContent = t("status.reconnecting"); }
 
 // ---- today's total (polled; the live snapshot only carries per-second rates) ----
 async function loadToday() {
@@ -195,7 +199,7 @@ function applyPausedFromSnapshot(p) {
 function reflectPaused(p) {
   capPaused = p;
   const b = $("pause-btn");
-  if (b) { b.textContent = p ? "▶" : "⏸"; b.title = p ? "Resume capture" : "Pause capture"; }
+  if (b) { b.textContent = p ? "▶" : "⏸"; b.setAttribute("data-tip", p ? t("tip.resume") : t("tip.pause")); }
   $("dot").classList.toggle("paused", p);
   if (p) $("dot").classList.remove("live");
   updateMetaText();
@@ -222,9 +226,9 @@ function friendlyIface(name) {
   return o && o.friendly ? o.friendly : name;
 }
 function updateMetaText() {
-  if (capPaused) { $("meta").textContent = "paused"; return; }
-  const cur = ifaceCur ? friendlyIface(ifaceCur) : "live";
-  $("meta").textContent = ifaceSel ? cur : ("auto · " + cur);
+  if (capPaused) { $("meta").textContent = t("status.paused"); return; }
+  const cur = ifaceCur ? friendlyIface(ifaceCur) : t("meta.live");
+  $("meta").textContent = ifaceSel ? cur : t("meta.auto", { name: cur });
 }
 async function refreshIface() {
   try {
@@ -241,7 +245,7 @@ async function refreshIface() {
 function buildIfaceMenu() {
   const item = (name, label, on) =>
     `<button class="ifm-item${on ? " on" : ""}" data-iface="${esc(name)}">${esc(label)}${on ? " ✓" : ""}</button>`;
-  let html = item("", "Automatic", ifaceSel === "");
+  let html = item("", t("iface.auto"), ifaceSel === "");
   ifaceOpts.forEach((o) => { html += item(o.name, o.display, ifaceSel === o.name); });
   const m = $("iface-menu");
   m.innerHTML = html;
@@ -267,6 +271,12 @@ $("meta").onclick = (e) => {
 document.addEventListener("click", (e) => {
   const m = $("iface-menu");
   if (!m.hidden && !m.contains(e.target) && e.target !== $("meta")) m.hidden = true;
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape") return;
+  const m = $("iface-menu");
+  if (!m.hidden) { m.hidden = true; return; }
+  $("settings").classList.remove("show");
 });
 
 // ---- menu-bar readout style ----
@@ -318,14 +328,14 @@ function renderUpdate(st) {
   st = st || {};
   $("set-autocheck").checked = st.autoCheck !== false;
   const banner = $("updbanner"), now = $("upd-now"), status = $("upd-status");
-  now.textContent = "Update & Restart"; now.disabled = false;
+  now.textContent = t("upd.now"); now.disabled = false;
   if (st.updateAvailable && st.latest) {
-    status.textContent = `${st.latest} available`;
+    status.textContent = t("upd.availableV", { v: st.latest });
     status.classList.add("avail");
-    banner.querySelector(".ub-txt").textContent = `Update ${st.latest} available`;
+    banner.querySelector(".ub-txt").textContent = t("pop.updateV", { v: st.latest });
     banner.hidden = false; now.hidden = false;
   } else {
-    status.textContent = st.current ? `Up to date · ${st.current}` : "Up to date";
+    status.textContent = st.current ? t("upd.uptodateV", { v: st.current }) : t("upd.uptodate");
     status.classList.remove("avail");
     banner.hidden = true; now.hidden = true;
   }
@@ -333,12 +343,12 @@ function renderUpdate(st) {
 function startUpdate(btn) {
   const r = rt();
   if (!r.EventsEmit) return;
-  if (btn) { btn.textContent = "Downloading…"; btn.disabled = true; }
+  if (btn) { btn.textContent = t("upd.downloading"); btn.disabled = true; }
   r.EventsEmit("netscope:doupdate"); // app downloads, swaps the bundle, relaunches
 }
 $("upd-check").onclick = () => {
   const r = rt();
-  $("upd-status").textContent = "Checking…";
+  $("upd-status").textContent = t("upd.checking");
   $("upd-status").classList.remove("avail");
   if (r.EventsEmit) r.EventsEmit("netscope:checkupdate"); // Go replies on "netscope:update"
 };
@@ -357,10 +367,10 @@ window.addEventListener("DOMContentLoaded", () => {
     window.runtime.EventsOn("netscope:theme", (t) => applyTheme(t));
     window.runtime.EventsOn("netscope:update", (st) => renderUpdate(st));
     window.runtime.EventsOn("netscope:updateerror", () => {
-      $("upd-status").textContent = "Update failed — try again";
+      $("upd-status").textContent = t("upd.failed");
       $("upd-status").classList.remove("avail");
       const now = $("upd-now");
-      now.textContent = "Update & Restart"; now.disabled = false;
+      now.textContent = t("upd.now"); now.disabled = false;
     });
     // Ask for cached update status + theme so the popover styles itself on launch.
     if (window.runtime.EventsEmit) {
