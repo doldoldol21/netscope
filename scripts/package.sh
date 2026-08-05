@@ -31,6 +31,10 @@ Or manually: move netscope.app to /Applications, then run
 and launch it. The first run installs the capture helper (one admin prompt).
 TXT
 
+echo "==> checksums"
+# SHA-256 of the release zip, verified by the in-app self-update and install.sh.
+( cd "$DIST" && shasum -a 256 netscope-*-app.zip > checksums.txt )
+
 # Optional notarization (Developer ID builds only).
 if [ "$SIGN_ID" != "-" ] && [ -n "${NETSCOPE_NOTARY_PROFILE:-}" ]; then
   echo "==> notarizing"
@@ -41,4 +45,4 @@ if [ "$SIGN_ID" != "-" ] && [ -n "${NETSCOPE_NOTARY_PROFILE:-}" ]; then
   rm -f "$ZIP"
 fi
 
-echo "done: $DIST/ (netscope.app, netscope-${VERSION}-app.zip, bin/netscope, install.sh)"
+echo "done: $DIST/ (netscope.app, netscope-${VERSION}-app.zip, checksums.txt, bin/netscope, install.sh)"

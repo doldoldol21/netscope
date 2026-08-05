@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	neturl "net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -149,8 +150,11 @@ func performUpdate() error {
 		return err
 	}
 	zipPath := filepath.Join(tmp, "netscope.zip")
-	if err := download(st.AssetURL, zipPath); err != nil {
+	if err := download(st.AssetURL, zipPath, maxUpdateBytes); err != nil {
 		return fmt.Errorf("download: %w", err)
+	}
+	if err := verifyDownload(st, zipPath, tmp); err != nil {
+		return fmt.Errorf("verify: %w", err)
 	}
 
 	out := filepath.Join(tmp, "out")
@@ -241,9 +245,43 @@ func findBundle(root string) string {
 	return found
 }
 
-// download fetches url to dest.
-func download(url, dest string) error {
-	resp, err := (&http.Client{Timeout: 5 * time.Minute}).Get(url)
+// Download caps: the app zip is ~15MB today, so 200MB leaves generous headroom
+// while still bounding what a bad response can write to disk; checksums.txt is
+// a few lines.
+const (
+	maxUpdateBytes   = 200 << 20
+	maxChecksumBytes = 256 << 10
+)
+
+// allowedUpdateHost restricts update downloads to GitHub itself and its asset
+// CDN (release downloads redirect to *.githubusercontent.com). Anything else —
+// even if it appears in an API response — is refused.
+func allowedUpdateHost(host string) bool {
+	host = strings.ToLower(host)
+	return host == "github.com" || host == "api.github.com" ||
+		strings.HasSuffix(host, ".githubusercontent.com")
+}
+
+// download fetches url to dest, refusing non-GitHub hosts (including on
+// redirects) and responses larger than maxBytes.
+func download(url, dest string, maxBytes int64) error {
+	client := &http.Client{
+		Timeout: 5 * time.Minute,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if !allowedUpdateHost(req.URL.Hostname()) {
+				return fmt.Errorf("redirect to untrusted host %q", req.URL.Hostname())
+			}
+			return nil
+		},
+	}
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return err
+	}
+	if req.URL.Scheme != "https" || !allowedUpdateHost(req.URL.Hostname()) {
+		return fmt.Errorf("untrusted download URL %q", url)
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return err
 	}
@@ -251,11 +289,48 @@ func download(url, dest string) error {
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("http %s", resp.Status)
 	}
+	if resp.ContentLength > maxBytes {
+		return fmt.Errorf("response too large (%d bytes)", resp.ContentLength)
+	}
 	f, err := os.Create(dest)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
-	_, err = io.Copy(f, resp.Body)
-	return err
+	n, err := io.Copy(f, io.LimitReader(resp.Body, maxBytes+1))
+	if err != nil {
+		return err
+	}
+	if n > maxBytes {
+		return fmt.Errorf("response exceeds %d bytes", maxBytes)
+	}
+	return nil
+}
+
+// verifyDownload checks the downloaded zip against the release's checksums.txt.
+// Fail-closed: releases publish checksums from CI, so a missing file or entry
+// means something is wrong with the release — refuse to install it.
+func verifyDownload(st update.Status, zipPath, tmp string) error {
+	if st.ChecksumURL == "" {
+		return errors.New("release has no checksums.txt")
+	}
+	sumsPath := filepath.Join(tmp, "checksums.txt")
+	if err := download(st.ChecksumURL, sumsPath, maxChecksumBytes); err != nil {
+		return fmt.Errorf("fetch checksums.txt: %w", err)
+	}
+	sums, err := os.ReadFile(sumsPath)
+	if err != nil {
+		return err
+	}
+	// The zip was saved under a temp name; look its digest up by the asset's
+	// published filename (the URL path's last segment, query stripped).
+	name := filepath.Base(st.AssetURL)
+	if u, err := neturl.Parse(st.AssetURL); err == nil {
+		name = filepath.Base(u.Path)
+	}
+	want, ok := update.FindChecksum(string(sums), name)
+	if !ok {
+		return fmt.Errorf("checksums.txt has no entry for %s", name)
+	}
+	return update.VerifyFileSHA256(zipPath, want)
 }
