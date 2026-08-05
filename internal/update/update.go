@@ -20,10 +20,15 @@ type Status struct {
 	Current         string    `json:"current"`
 	Latest          string    `json:"latest"`
 	UpdateAvailable bool      `json:"updateAvailable"`
-	URL             string    `json:"url"`      // release page (human-facing)
-	AssetURL        string    `json:"assetUrl"` // app .zip download (in-app self-update)
+	URL             string    `json:"url"`         // release page (human-facing)
+	AssetURL        string    `json:"assetUrl"`    // app .zip download (in-app self-update)
+	ChecksumURL     string    `json:"checksumUrl"` // checksums.txt with the zip's SHA-256
 	CheckedAt       time.Time `json:"checkedAt"`
 }
+
+// ChecksumAsset is the release asset holding SHA-256 sums of the other assets
+// (one "hex  filename" line each, shasum -a 256 format).
+const ChecksumAsset = "checksums.txt"
 
 // apiBase is the GitHub API root; overridable in tests.
 var apiBase = "https://api.github.com"
@@ -70,14 +75,20 @@ func Check(ctx context.Context, repo, current string) (Status, error) {
 	// in-app self-update. Prefer the release's actual asset; fall back to the
 	// conventional download URL (mirrors install.sh) if assets aren't listed.
 	for _, a := range rel.Assets {
-		if strings.HasSuffix(a.Name, "-app.zip") && a.URL != "" {
+		switch {
+		case strings.HasSuffix(a.Name, "-app.zip") && a.URL != "" && st.AssetURL == "":
 			st.AssetURL = a.URL
-			break
+		case a.Name == ChecksumAsset && a.URL != "" && st.ChecksumURL == "":
+			st.ChecksumURL = a.URL
 		}
 	}
 	if st.AssetURL == "" && rel.TagName != "" {
 		st.AssetURL = fmt.Sprintf("https://github.com/%s/releases/download/%s/netscope-%s-app.zip",
 			repo, rel.TagName, rel.TagName)
+	}
+	if st.ChecksumURL == "" && rel.TagName != "" {
+		st.ChecksumURL = fmt.Sprintf("https://github.com/%s/releases/download/%s/%s",
+			repo, rel.TagName, ChecksumAsset)
 	}
 	return st, nil
 }

@@ -44,17 +44,22 @@ func TestCheckUpdateAvailable(t *testing.T) {
 	if !st.UpdateAvailable || st.Latest != "v0.9.0" || st.URL == "" {
 		t.Fatalf("unexpected status: %+v", st)
 	}
-	// No assets listed -> fall back to the conventional download URL.
+	// No assets listed -> fall back to the conventional download URLs.
 	want := "https://github.com/owner/repo/releases/download/v0.9.0/netscope-v0.9.0-app.zip"
 	if st.AssetURL != want {
 		t.Fatalf("AssetURL fallback = %q, want %q", st.AssetURL, want)
+	}
+	wantSums := "https://github.com/owner/repo/releases/download/v0.9.0/checksums.txt"
+	if st.ChecksumURL != wantSums {
+		t.Fatalf("ChecksumURL fallback = %q, want %q", st.ChecksumURL, wantSums)
 	}
 }
 
 func TestCheckPrefersReleaseAsset(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`{"tag_name":"v0.9.0","html_url":"https://example.com/r",
-			"assets":[{"name":"netscope-v0.9.0-app.zip","browser_download_url":"https://cdn.example/x.zip"}]}`))
+			"assets":[{"name":"netscope-v0.9.0-app.zip","browser_download_url":"https://cdn.example/x.zip"},
+			          {"name":"checksums.txt","browser_download_url":"https://cdn.example/checksums.txt"}]}`))
 	}))
 	defer srv.Close()
 	old := apiBase
@@ -67,6 +72,9 @@ func TestCheckPrefersReleaseAsset(t *testing.T) {
 	}
 	if st.AssetURL != "https://cdn.example/x.zip" {
 		t.Fatalf("AssetURL = %q, want the release asset URL", st.AssetURL)
+	}
+	if st.ChecksumURL != "https://cdn.example/checksums.txt" {
+		t.Fatalf("ChecksumURL = %q, want the release asset URL", st.ChecksumURL)
 	}
 }
 

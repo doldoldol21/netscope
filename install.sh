@@ -29,6 +29,24 @@ trap 'rm -rf "$TMP"' EXIT
 say "downloading netscope ${TAG}"
 curl -fsSL "$URL" -o "$TMP/netscope.zip"
 
+say "verifying checksum"
+SUMS_URL="https://github.com/${REPO}/releases/download/${TAG}/checksums.txt"
+if curl -fsSL "$SUMS_URL" -o "$TMP/checksums.txt" 2>/dev/null; then
+  ZIP_NAME="netscope-${TAG}-app.zip"
+  WANT="$(awk -v f="$ZIP_NAME" '$2==f || $2=="*"f {print tolower($1)}' "$TMP/checksums.txt" | head -1)"
+  [ -n "$WANT" ] || { echo "checksums.txt has no entry for ${ZIP_NAME}" >&2; exit 1; }
+  GOT="$(shasum -a 256 "$TMP/netscope.zip" | awk '{print $1}')"
+  if [ "$WANT" != "$GOT" ]; then
+    echo "checksum mismatch for ${ZIP_NAME}" >&2
+    echo "  expected: $WANT" >&2
+    echo "  got:      $GOT" >&2
+    exit 1
+  fi
+else
+  # Releases before checksums.txt existed; nothing to verify against.
+  echo "    (this release has no checksums.txt — skipping verification)"
+fi
+
 say "unpacking"
 ditto -x -k "$TMP/netscope.zip" "$TMP/out"
 APP="$(/usr/bin/find "$TMP/out" -maxdepth 2 -name 'netscope.app' -type d | head -1)"
