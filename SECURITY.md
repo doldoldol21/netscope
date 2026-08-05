@@ -42,6 +42,21 @@ Particularly valuable reports: anything that lets a non-root local process read
 the socket or escalate via the daemon, packet-parsing memory-safety issues in
 the decoder, or a path where capture data could leave the host.
 
+## Known limitations
+
+- **The app bundle is writable by the user it runs as.** `/Applications` is
+  group-writable by admin accounts and a bundle under `~/Applications` belongs
+  to the user outright. The capture daemon is copied to
+  `/Library/PrivilegedHelperTools` before it is registered, so what launchd runs
+  as root cannot be replaced afterwards — but a process already running as
+  that user can tamper with the bundled daemon *before* the admin prompt
+  appears, and
+  the copy would preserve it. netscope's builds are ad-hoc signed, which seals
+  contents but attests to no identity, so there is nothing stable to verify the
+  source against. Closing this needs a Developer ID signature plus a
+  designated-requirement check on the source, which is what `SMJobBless` /
+  `SMAppService` pin on your behalf.
+
 ## Supported versions
 
 Fixes target the latest release. Please reproduce on the newest version before
