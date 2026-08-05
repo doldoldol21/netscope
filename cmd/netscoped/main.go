@@ -78,7 +78,7 @@ func run(iface, pcapFile string, demoMode bool, sock, dbPath string, noStore boo
 
 	var store *storage.Store
 	if !noStore {
-		if err := os.MkdirAll(filepath.Dir(dbPath), 0o755); err != nil {
+		if err := storage.PrepareDir(filepath.Dir(dbPath), filepath.Dir(defaultDBPath())); err != nil {
 			return fmt.Errorf("create db dir: %w", err)
 		}
 		s, err := storage.Open(dbPath)

@@ -573,3 +573,156 @@ func TestVerifyRollupsRepairsDrift(t *testing.T) {
 		t.Fatalf("after repair = %+v, want the sample totals back (rx 1000, tx 100)", apps)
 	}
 }
+
+// The daemon runs as root and its data directory holds a full record of which
+// process talked to which host. Other local accounts must not be able to read
+// it, so the directory is owner-only and the database files are 0600.
+
+func TestPrepareDirCreatesOwnerOnly(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "netscope")
+	if err := PrepareDir(dir, dir); err != nil {
+		t.Fatalf("prepare: %v", err)
+	}
+	if mode := statMode(t, dir); mode != 0o700 {
+		t.Errorf("new dir mode = %#o, want 0700", mode)
+	}
+}
+
+func TestPrepareDirTightensTheDefaultDir(t *testing.T) {
+	// Installs created by earlier versions left the default directory 0755.
+	dir := existingDir(t, 0o755)
+	if err := PrepareDir(dir, dir); err != nil {
+		t.Fatalf("prepare: %v", err)
+	}
+	if mode := statMode(t, dir); mode != 0o700 {
+		t.Errorf("default dir mode = %#o, want 0700", mode)
+	}
+}
+
+func TestPrepareDirTightensTheDefaultDirThroughASymlink(t *testing.T) {
+	// macOS reaches the default /var/db/netscope through /var -> /private/var,
+	// so the two spellings of the same directory have to compare equal.
+	root := t.TempDir()
+	real := filepath.Join(root, "real")
+	if err := os.MkdirAll(real, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(real, 0o755); err != nil { // defeat the caller's umask
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "link")
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+	if err := PrepareDir(link, real); err != nil {
+		t.Fatalf("prepare: %v", err)
+	}
+	if mode := statMode(t, real); mode != 0o700 {
+		t.Errorf("dir reached via a symlink = %#o, want 0700", mode)
+	}
+}
+
+func TestPrepareDirLeavesAChosenDirAlone(t *testing.T) {
+	// --db pointed somewhere the operator picked (a shared directory, or "."
+	// for a relative path). Its permissions are not ours to change.
+	dir := existingDir(t, 0o755)
+	if err := PrepareDir(dir, filepath.Join(t.TempDir(), "elsewhere")); err != nil {
+		t.Fatalf("prepare: %v", err)
+	}
+	if mode := statMode(t, dir); mode != 0o755 {
+		t.Errorf("chosen dir mode = %#o, want it untouched at 0755", mode)
+	}
+}
+
+func existingDir(t *testing.T, mode os.FileMode) string {
+	t.Helper()
+	dir := filepath.Join(t.TempDir(), "netscope")
+	if err := os.MkdirAll(dir, mode); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dir, mode); err != nil { // defeat the caller's umask
+		t.Fatal(err)
+	}
+	return dir
+}
+
+func TestOpenRestrictsDatabaseFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "test.db")
+	// Simulate a database left world-readable by an earlier version.
+	if err := os.WriteFile(path, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Open(path)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer s.Close()
+	if mode := statMode(t, path); mode != 0o600 {
+		t.Errorf("db mode = %#o, want 0600", mode)
+	}
+}
+
+func TestOpenRestrictsSidecarFiles(t *testing.T) {
+	// SQLite creates -wal/-shm on first write, copying the database's mode. That
+	// only holds because the database was already 0600 before SQLite opened it.
+	path := filepath.Join(t.TempDir(), "test.db")
+	s, err := Open(path)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer s.Close()
+	if err := s.FlushApps(1000, []types.AppTraffic{{Name: "a", RxBytes: 1}}); err != nil {
+		t.Fatalf("flush: %v", err)
+	}
+	for _, suffix := range []string{"", "-wal", "-shm"} {
+		if mode := statMode(t, path+suffix); mode != 0o600 {
+			t.Errorf("%s mode = %#o, want 0600", "db"+suffix, mode)
+		}
+	}
+}
+
+func TestOpenLeavesNoFileForAnInMemoryDatabase(t *testing.T) {
+	// internal/api opens ":memory:" for its tests. Securing a database means
+	// creating it if absent, which must not turn that name into a real file.
+	dir := t.TempDir()
+	t.Chdir(dir)
+	s, err := Open(":memory:")
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer s.Close()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		t.Errorf("in-memory open created %q", e.Name())
+	}
+}
+
+func TestOpenRestrictsDatabaseFileWhoseNameContainsModeMemory(t *testing.T) {
+	// "mode=memory" is a substring a real filename can contain. Treating it as
+	// an in-memory database would skip the restriction on a file that very much
+	// exists.
+	path := filepath.Join(t.TempDir(), "netscope-mode=memory-backup.db")
+	if err := os.WriteFile(path, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Open(path)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer s.Close()
+	if mode := statMode(t, path); mode != 0o600 {
+		t.Errorf("db mode = %#o, want 0600", mode)
+	}
+}
+
+func statMode(t *testing.T, path string) os.FileMode {
+	t.Helper()
+	fi, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat %s: %v", path, err)
+	}
+	return fi.Mode().Perm()
+}
