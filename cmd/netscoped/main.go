@@ -45,13 +45,45 @@ func main() {
 		retention = flag.Duration("retention", 30*24*time.Hour, "how long to keep samples (0 = forever)")
 		maxDB     = flag.Int64("max-db", 256<<20, "hard cap on database size in bytes; oldest data is dropped to stay under it (0 = no cap)")
 		liveWin   = flag.Duration("live-window", 30*time.Minute, "live view keeps apps/domains active within this window (0 = whole session)")
+		noRevDNS  = flag.Bool("no-revdns", false, "don't send reverse-DNS (PTR) queries for otherwise unnamed IPs")
+		noUpdChk  = flag.Bool("no-update-check", false, "don't ask GitHub for the latest release")
 		printTop  = flag.Bool("print", false, "also print the top apps to stdout every few seconds")
 	)
 	flag.Parse()
 
-	if err := run(*iface, *pcapFile, *demoMode, *sock, *dbPath, *noStore, *bucket, *retention, *maxDB, *liveWin, *printTop); err != nil {
+	if err := run(*iface, *pcapFile, *demoMode, *sock, *dbPath, *noStore, *bucket, *retention, *maxDB, *liveWin, *printTop, *noRevDNS, *noUpdChk); err != nil {
 		log.Fatalf("netscoped: %v", err)
 	}
+}
+
+// hostHinter returns the reverse-DNS resolver the engine notifies about unnamed
+// IPs, or nil when PTR lookups are turned off.
+//
+// Reverse DNS is the one part of netscope that puts a query on the wire of its
+// own accord: it asks the system resolver for the PTR record of every remote IP
+// no DNS answer or TLS SNI already named, which tells whoever runs that
+// resolver (an ISP, a workplace) which addresses this machine reached.
+// Everything else is read from traffic the machine was sending anyway, so
+// operators who don't want that trade get to turn it off.
+//
+// The return type is the interface, not *revdns.Resolver: a nil of the concrete
+// type stored in the interface would be non-nil to the engine's check and get
+// called anyway.
+func hostHinter(enabled bool, dns *dnscache.Cache) engine.HostHinter {
+	if !enabled {
+		return nil
+	}
+	return revdns.New(dns, 4)
+}
+
+// updateChecker returns the release poller, or nil when update checks are
+// turned off. A nil updater is what api.NewServer already expects when there is
+// nothing to report beyond the running build.
+func updateChecker(enabled bool) *update.Checker {
+	if !enabled {
+		return nil
+	}
+	return update.NewChecker(buildinfo.Repo, buildinfo.Version, 6*time.Hour)
 }
 
 // flowSource is the common interface for the live, offline and demo sources.
@@ -60,7 +92,7 @@ type flowSource interface {
 	Name() string
 }
 
-func run(iface, pcapFile string, demoMode bool, sock, dbPath string, noStore bool, bucket, retention time.Duration, maxDB int64, liveWin time.Duration, printTop bool) error {
+func run(iface, pcapFile string, demoMode bool, sock, dbPath string, noStore bool, bucket, retention time.Duration, maxDB int64, liveWin time.Duration, printTop, noRevDNS, noUpdateCheck bool) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -73,7 +105,10 @@ func run(iface, pcapFile string, demoMode bool, sock, dbPath string, noStore boo
 		dnsCachePath = filepath.Join(filepath.Dir(dbPath), "dnscache.json")
 		_ = dns.LoadFrom(dnsCachePath)
 	}
-	rev := revdns.New(dns, 4) // reverse-DNS fallback for unresolved IPs
+	rev := hostHinter(!noRevDNS, dns)
+	if rev == nil {
+		log.Print("revdns: disabled; no new PTR lookups will be made")
+	}
 	res := resolver.New(300 * time.Millisecond)
 
 	var store *storage.Store
@@ -163,9 +198,13 @@ func run(iface, pcapFile string, demoMode bool, sock, dbPath string, noStore boo
 	}
 
 	// Background update checker (GitHub Releases); surfaced via /api/version.
-	updater := update.NewChecker(buildinfo.Repo, buildinfo.Version, 6*time.Hour)
-	wg.Add(1)
-	go func() { defer wg.Done(); updater.Run(ctx) }()
+	updater := updateChecker(!noUpdateCheck)
+	if updater != nil {
+		wg.Add(1)
+		go func() { defer wg.Done(); updater.Run(ctx) }()
+	} else {
+		log.Print("update: checks disabled; /api/version reports the running build only")
+	}
 
 	// Periodically persist the DNS cache, and once more on shutdown.
 	if dnsCachePath != "" {
