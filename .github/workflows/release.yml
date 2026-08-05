@@ -36,8 +36,16 @@ jobs:
         if: github.ref_type == 'tag'
         env:
           GH_TOKEN: ${{ github.token }}
+        # Idempotent: if the release already exists (created by hand, or a
+        # re-run after a partial failure), replace its assets instead of
+        # failing on `gh release create`.
         run: |
-          gh release create "${GITHUB_REF_NAME}" \
-            dist/netscope-*-app.zip dist/install.sh \
-            --title "netscope ${GITHUB_REF_NAME}" \
-            --generate-notes
+          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            gh release upload "${GITHUB_REF_NAME}" \
+              dist/netscope-*-app.zip dist/install.sh --clobber
+          else
+            gh release create "${GITHUB_REF_NAME}" \
+              dist/netscope-*-app.zip dist/install.sh \
+              --title "netscope ${GITHUB_REF_NAME}" \
+              --generate-notes
+          fi
