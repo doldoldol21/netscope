@@ -73,6 +73,12 @@ install_helper() {
   sudo bash -s "$label" "$plist" "$exe" "$sock" <<'SUDO'
 set -e
 label="$1"; plist="$2"; exe="$3"; sock="$4"
+# Run the daemon from a root-owned copy, not from the bundle: /Applications is
+# group-writable by admin users, so a binary left there could be swapped out
+# afterwards and would then run as root at every boot.
+helper="/Library/PrivilegedHelperTools/${label}"
+install -d -m 755 -o root -g wheel /Library/PrivilegedHelperTools
+install -m 755 -o root -g wheel "$exe" "$helper"
 mkdir -p /var/run/netscope
 # Kill any stray daemon not managed by launchd (e.g. an old sudo-spawned
 # bootstrap). Two daemons on one database double-count traffic and fight over
@@ -83,7 +89,7 @@ cat > "$plist" <<PL
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
   <key>Label</key><string>${label}</string>
-  <key>ProgramArguments</key><array><string>${exe}</string><string>--sock</string><string>${sock}</string></array>
+  <key>ProgramArguments</key><array><string>${helper}</string><string>--sock</string><string>${sock}</string></array>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
   <key>StandardErrorPath</key><string>/var/log/netscope.log</string>
