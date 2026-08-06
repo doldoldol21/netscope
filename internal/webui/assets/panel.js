@@ -79,6 +79,10 @@ function drawSpark() {
 }
 
 const setText = (el, s) => { if (el && el.textContent !== s) el.textContent = s; };
+// Guarded attribute/HTML writes: rewriting an identical value still replaces
+// nodes, which reads as a flicker on the popover's 1 Hz refresh.
+const setAttr = (el, name, v) => { if (el && el.getAttribute(name) !== v) el.setAttribute(name, v); };
+const setHTML = (el, html) => { if (el && el.innerHTML !== html) el.innerHTML = html; };
 let appsSig = "";
 function render(s) {
   applyPausedFromSnapshot(!!s.paused);
@@ -105,13 +109,23 @@ function render(s) {
   const el = $("apps");
   if (!apps.length) { if (appsSig !== "empty") { el.innerHTML = `<li class="empty">${t("state.waiting")}</li>`; appsSig = "empty"; } return; }
   const max = Math.max(1, ...apps.map((a) => Number(a.rxBytes) + Number(a.txBytes)));
-  // Signature on the app identity/order only; totals and bars are patched in
-  // place (a whole-markup signature embedded the live byte counts, so the six
-  // rows re-innerHTML'd every second while the popover was open).
-  const sig = apps.map((a) => a.name || "unknown").join("|");
+  // Signature on which apps are listed, order-independent: a re-rank moves the
+  // existing <li>s instead of rebuilding the list (rebuilding blinked the rows
+  // and dropped hover every time two apps swapped places).
+  const names = apps.map((a) => a.name || "unknown");
+  const sig = [...names].sort().join("|");
   if (sig === appsSig && el.children.length === apps.length) {
+    let prev = null;
+    const byKey = new Map();
+    for (const li of el.children) byKey.set(li.dataset.k, li);
     for (let i = 0; i < apps.length; i++) {
-      const a = apps[i], li = el.children[i];
+      const li = byKey.get(names[i]);
+      if (!li) { appsSig = ""; break; } // unexpected: fall through to rebuild
+      const target = prev ? prev.nextSibling : el.firstChild;
+      if (li !== target) el.insertBefore(li, target);
+      prev = li;
+      const a = apps[i];
+      setText(li.querySelector(".rk"), String(i + 1));
       setText(li.querySelector(".by"), fmtBytes(Number(a.rxBytes) + Number(a.txBytes)));
       const seg = li.querySelector(".ub").children;
       const rxW = (100 * Number(a.rxBytes) / max).toFixed(1) + "%";
@@ -119,14 +133,14 @@ function render(s) {
       if (seg[0].style.width !== rxW) seg[0].style.width = rxW;
       if (seg[1].style.width !== txW) seg[1].style.width = txW;
     }
-    return;
+    if (appsSig) return;
   }
   const html = apps.map((a, i) => {
     const name = a.name || "unknown";
     const total = Number(a.rxBytes) + Number(a.txBytes);
     const rxW = (100 * Number(a.rxBytes) / max).toFixed(1);
     const txW = (100 * Number(a.txBytes) / max).toFixed(1);
-    return `<li><span class="rk">${i + 1}</span>` +
+    return `<li data-k="${esc(name)}"><span class="rk">${i + 1}</span>` +
       `<span class="mid"><span class="nm" title="${esc(a.path || name)}">${esc(name)}</span>` +
       `<span class="ub"><i class="rx" style="width:${rxW}%"></i><i class="tx" style="width:${txW}%"></i></span></span>` +
       `<span class="by">${fmtBytes(total)}</span></li>`;
@@ -135,7 +149,7 @@ function render(s) {
   appsSig = sig;
 }
 
-function setDisconnected() { $("dot").classList.remove("live"); $("meta").textContent = t("status.reconnecting"); }
+function setDisconnected() { $("dot").classList.remove("live"); setText($("meta"), t("status.reconnecting")); }
 
 // ---- today's total (polled; the live snapshot only carries per-second rates) ----
 async function loadToday() {
@@ -144,10 +158,10 @@ async function loadToday() {
     if (!r.ok) return;
     const s = await r.json();
     const rx = Number(s.totalRx) || 0, tx = Number(s.totalTx) || 0;
-    $("t-total").innerHTML = numUnitHTML(rx + tx);
-    $("t-split").innerHTML =
+    setHTML($("t-total"), numUnitHTML(rx + tx));
+    setHTML($("t-split"),
       `<span class="rx">↓ ${fmtBytes(rx)}</span>` +
-      `<span class="tx">↑ ${fmtBytes(tx)}</span>`;
+      `<span class="tx">↑ ${fmtBytes(tx)}</span>`);
   } catch (_) { /* daemon not ready */ }
 }
 
@@ -254,10 +268,10 @@ function reflectPaused(p) {
   capPaused = p;
   const b = $("pause-btn");
   if (b) {
-    b.textContent = p ? "▶" : "⏸";
-    b.setAttribute("data-tip", p ? t("tip.resume") : t("tip.pause"));
+    setText(b, p ? "▶" : "⏸");
+    setAttr(b, "data-tip", p ? t("tip.resume") : t("tip.pause"));
     // aria-label overrides content — keep it in sync or AT hears the old action.
-    b.setAttribute("aria-label", p ? t("tip.resume") : t("tip.pause"));
+    setAttr(b, "aria-label", p ? t("tip.resume") : t("tip.pause"));
   }
   $("dot").classList.toggle("paused", p);
   if (p) $("dot").classList.remove("live");
@@ -284,10 +298,12 @@ function friendlyIface(name) {
   const o = ifaceOpts.find((x) => x.name === name);
   return o && o.friendly ? o.friendly : name;
 }
+// Runs on every snapshot — guarded so the interface chip isn't rewritten (and
+// repainted) once a second with the same text.
 function updateMetaText() {
-  if (capPaused) { $("meta").textContent = t("status.paused"); return; }
+  if (capPaused) { setText($("meta"), t("status.paused")); return; }
   const cur = ifaceCur ? friendlyIface(ifaceCur) : t("meta.live");
-  $("meta").textContent = ifaceSel ? cur : t("meta.auto", { name: cur });
+  setText($("meta"), ifaceSel ? cur : t("meta.auto", { name: cur }));
 }
 async function refreshIface() {
   try {

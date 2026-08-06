@@ -229,7 +229,7 @@ canvas#chart { display: block; width: 100%; height: 150px; margin-top: 4px; }
 .share[hidden] { display: none; }
 .share .k { width: 104px; flex: none; font-size: 10px; }
 .share-bar { flex: 1; display: flex; height: 6px; overflow: hidden; background: var(--line-side); }
-.share-bar i { display: block; height: 100%; }
+.share-bar i { display: block; height: 100%; transition: width .45s ease; }
 .share i.s1 { background: var(--rx); }
 .share i.s2 { background: var(--tx); }
 .share i.s3 { background: var(--s3); }
@@ -459,7 +459,7 @@ footer .keys { white-space: nowrap; }
   background: var(--surface); color: var(--fg);
   border: 1px solid var(--line); border-radius: 4px; box-shadow: var(--shadow-pop);
   padding: 7px 10px; font: 400 12.5px/1.5 var(--mono);
-  cursor: copy; word-break: break-all;
+  cursor: copy; overflow-wrap: anywhere; word-break: normal;
 }
 #ns-peek .pk-sub { color: var(--muted); font-size: 11px; margin-top: 2px; }
 #ns-peek .pk-hint {

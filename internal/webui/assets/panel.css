@@ -174,7 +174,7 @@ button, input, select, canvas { --wails-draggable: no-drag; }
   font: 400 13px/1.4 var(--sans);
 }
 .apps .ub { display: flex; height: 3px; margin-top: 5px; background: var(--track); overflow: hidden; }
-.apps .ub i { display: block; height: 100%; }
+.apps .ub i { display: block; height: 100%; transition: width .45s ease; }
 .apps .ub i.rx { background: var(--rx); }
 .apps .ub i.tx { background: var(--tx); }
 .apps .by {
@@ -281,7 +281,7 @@ footer {
   background: var(--surface); color: var(--fg);
   border: 1px solid var(--line); border-radius: 4px; box-shadow: var(--shadow-pop);
   padding: 7px 10px; font: 400 12.5px/1.5 var(--mono);
-  cursor: copy; word-break: break-all;
+  cursor: copy; overflow-wrap: anywhere; word-break: normal;
 }
 #ns-peek .pk-sub { color: var(--muted); font-size: 11px; margin-top: 2px; }
 #ns-peek .pk-hint {

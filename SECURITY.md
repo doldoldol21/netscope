@@ -29,8 +29,13 @@ netscope is local-only by design, which bounds the attack surface:
   user with mode `0600`. No remote host can reach your traffic data.
 - HTTPS payloads are never decrypted; netscope reads only packet headers, DNS
   answers, and the cleartext TLS SNI.
-- The dashboard window is fed by a **loopback-only (127.0.0.1)** server; nothing
-  is exposed off-host.
+- The dashboard window is fed by a **loopback-only (127.0.0.1)** server on a
+  random port. Loopback keeps remote hosts out; it does *not* isolate other
+  local processes, so that server additionally requires a **per-launch token**
+  (generated at startup, kept only in the app's memory, handed to the WebView in
+  its URL and then held in an origin-scoped cookie). Requests without it get
+  401, and requests whose `Origin`/`Referer`/`Sec-Fetch-Site` indicate another
+  site get 403 — so a page in your browser can't drive the API either.
 - All data stays on the machine; nothing is uploaded.
 
 Particularly valuable reports: anything that lets a non-root local process read
