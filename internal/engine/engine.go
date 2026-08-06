@@ -287,6 +287,12 @@ func (e *Engine) maintainStore() {
 	if e.store == nil {
 		return
 	}
+	// Cheap insurance on the numbers the dashboard reads: if the daily rollup
+	// ever drifts from the samples it was derived from, rebuild the affected
+	// day rather than serving a wrong total indefinitely.
+	if _, err := e.store.VerifyRollups(3); err != nil {
+		log.Printf("engine: rollup verification failed: %v", err)
+	}
 	purged := false
 	if e.cfg.Retention > 0 {
 		if d, err := e.store.Purge(e.nowFn().Add(-e.cfg.Retention)); err == nil {
@@ -440,19 +446,70 @@ func (e *Engine) flush() {
 		return
 	}
 	bucket := e.nowFn().Truncate(e.cfg.Bucket).Unix()
-	_ = e.store.FlushApps(bucket, apps)
-	_ = e.store.FlushDomains(bucket, domains)
+	// The window was already cleared above, so a dropped write is bytes gone for
+	// good. On failure (disk full, a lock held past the busy timeout) put the
+	// counters back so the next flush carries them, and say so — silence here
+	// used to mean history quietly lost a bucket.
+	appsOK := true
+	if err := e.store.FlushApps(bucket, apps); err != nil {
+		appsOK = false
+		log.Printf("engine: flushing apps failed, retrying next bucket: %v", err)
+		e.restoreApps(apps)
+	}
+	if err := e.store.FlushDomains(bucket, domains); err != nil {
+		log.Printf("engine: flushing domains failed, retrying next bucket: %v", err)
+		e.restoreDomains(domains)
+	}
 
 	// Attribute this bucket's bytes to the capturing interface for metered/
 	// tethering tracking. Capture is single-interface at a time, so the whole
-	// bucket belongs to the current one. Stored at day granularity.
+	// bucket belongs to the current one. Stored at day granularity. Skipped when
+	// the app write failed: those bytes are going into the next bucket instead,
+	// and counting them here too would push /api/netusage above /api/summary
+	// permanently.
+	if !appsOK {
+		return
+	}
 	var rx, tx uint64
 	for _, a := range apps {
 		rx += a.RxBytes
 		tx += a.TxBytes
 	}
 	if iface := e.currentIface(); iface != "" {
-		_ = e.store.AddIfaceUsage(iface, dayStart(e.nowFn()), rx, tx)
+		if err := e.store.AddIfaceUsage(iface, dayStart(e.nowFn()), rx, tx); err != nil {
+			log.Printf("engine: recording interface usage failed: %v", err)
+		}
+	}
+}
+
+// restoreApps folds a failed flush's counters back into the current window so
+// the next flush retries them instead of dropping the bucket.
+func (e *Engine) restoreApps(apps []types.AppTraffic) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	for _, a := range apps {
+		acc := e.winApps[a.Name]
+		if acc == nil {
+			acc = &appAcc{name: a.Name, path: a.Path, conns: make(map[uint16]struct{})}
+			e.winApps[a.Name] = acc
+		}
+		acc.rx += a.RxBytes
+		acc.tx += a.TxBytes
+	}
+}
+
+func (e *Engine) restoreDomains(domains []types.DomainStat) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	for _, d := range domains {
+		k := domKey{domain: d.Domain, app: d.AppName}
+		acc := e.winDomains[k]
+		if acc == nil {
+			acc = &domAcc{domain: d.Domain, app: d.AppName, category: d.Category, country: d.Country}
+			e.winDomains[k] = acc
+		}
+		acc.rx += d.RxBytes
+		acc.tx += d.TxBytes
 	}
 }
 

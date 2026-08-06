@@ -443,6 +443,12 @@ func (s *Server) handleSummary(w http.ResponseWriter, r *http.Request) {
 }
 
 // parseRange interprets ?range=hour|today|week|day, defaulting to today.
+// midnight floors t to local midnight.
+func midnight(t time.Time) time.Time {
+	y, m, d := t.Date()
+	return time.Date(y, m, d, 0, 0, 0, 0, t.Location())
+}
+
 func parseRange(r *http.Request) (since, until time.Time) {
 	now := time.Now()
 	until = now
@@ -451,16 +457,18 @@ func parseRange(r *http.Request) (since, until time.Time) {
 		since = now.Add(-time.Hour)
 	case "day", "24h":
 		since = now.Add(-24 * time.Hour)
+	// Whole local days, like the network-usage and data-plan ranges: "week" is
+	// the last 7 days including today, not the last 168 hours. It reads the way
+	// people mean it, matches the rest of the UI, and lets the daily rollups
+	// answer the query outright instead of scanning a partial first day.
 	case "week":
-		since = now.Add(-7 * 24 * time.Hour)
+		since = midnight(now).AddDate(0, 0, -6)
 	case "month":
-		since = now.Add(-30 * 24 * time.Hour)
+		since = midnight(now).AddDate(0, 0, -29)
 	case "today", "":
-		y, m, d := now.Date()
-		since = time.Date(y, m, d, 0, 0, 0, 0, now.Location())
+		since = midnight(now)
 	default:
-		y, m, d := now.Date()
-		since = time.Date(y, m, d, 0, 0, 0, 0, now.Location())
+		since = midnight(now)
 	}
 	return since, until
 }

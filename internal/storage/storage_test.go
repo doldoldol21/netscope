@@ -353,3 +353,223 @@ func TestPurgeDropsRollupDays(t *testing.T) {
 		t.Fatalf("purged day still ranked: %+v", apps)
 	}
 }
+
+// An open-ended range (…until now) must take today from the rollup instead of
+// rescanning today's raw buckets — and must not double-count it.
+func TestOpenEndedRangeUsesTodayRollup(t *testing.T) {
+	s := openTemp(t)
+	now := time.Now()
+	mid := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	if err := s.FlushApps(mid.Add(2*time.Hour).Unix(), []types.AppTraffic{{Name: "claude", RxBytes: 100, TxBytes: 10}}); err != nil {
+		t.Fatal(err)
+	}
+	apps, err := s.Apps(mid.AddDate(0, 0, -6), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(apps) != 1 || apps[0].RxBytes != 100 || apps[0].TxBytes != 10 {
+		t.Fatalf("open-ended week = %+v, want exactly one claude row with rx=100 tx=10 (no double count)", apps)
+	}
+	// The same range asked as a closed window ending before now still works off
+	// the samples, and agrees.
+	closed, err := s.Apps(mid.AddDate(0, 0, -6), mid.Add(3*time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(closed) != 1 || closed[0].RxBytes != 100 {
+		t.Fatalf("closed window = %+v, want the same totals", closed)
+	}
+}
+
+// Rollup day keys must be real local midnights, and must agree with the ones
+// the flush path writes — v0.19.0's backfill was offset by the UTC offset,
+// which left two key sets in the same table.
+func TestRollupKeysAreLocalMidnight(t *testing.T) {
+	s := openTemp(t)
+	now := time.Now()
+	mid := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	if err := s.FlushApps(mid.Add(5*time.Hour).Unix(), []types.AppTraffic{{Name: "a", RxBytes: 1}}); err != nil {
+		t.Fatal(err)
+	}
+	var day int64
+	if err := s.db.QueryRow(`SELECT day FROM app_daily`).Scan(&day); err != nil {
+		t.Fatal(err)
+	}
+	if day != mid.Unix() {
+		t.Fatalf("flush wrote day=%d (%s), want local midnight %d (%s)",
+			day, time.Unix(day, 0), mid.Unix(), mid)
+	}
+	// Day keys now come from Go alone — there is no second (SQL) definition to
+	// disagree with, which is what made the midnight-DST zones break.
+}
+
+// A database carrying v0.19.0's misaligned keys is rebuilt on open, leaving one
+// consistent key set whose totals still match the samples.
+func TestRepairsMisalignedRollupKeys(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "bad.db")
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	mid := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	if err := s.FlushApps(mid.Add(time.Hour).Unix(), []types.AppTraffic{{Name: "a", RxBytes: 10}}); err != nil {
+		t.Fatal(err)
+	}
+	// Simulate the v0.19.0 backfill: same totals, keys shifted off midnight.
+	if _, err := s.db.Exec(`UPDATE app_daily SET day = day + 32400`); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+
+	s2, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s2.Close()
+	var day int64
+	var total uint64
+	if err := s2.db.QueryRow(`SELECT day, SUM(rx) FROM app_daily GROUP BY day`).Scan(&day, &total); err != nil {
+		t.Fatal(err)
+	}
+	if day != mid.Unix() || total != 10 {
+		t.Fatalf("after repair day=%d total=%d, want day=%d total=10", day, total, mid.Unix())
+	}
+}
+
+// Property test: for a spread of ranges — including ones that start or end
+// mid-day, span midnights, sit entirely inside one day, or run open-ended to
+// now — the rollup-backed query must return exactly what a pure raw-sample
+// aggregation would. This is the invariant the whole rollup rests on, so it is
+// checked exhaustively rather than by example.
+func TestRollupAgreesWithSamplesAcrossRanges(t *testing.T) {
+	s := openTemp(t)
+	now := time.Now()
+	mid := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+
+	// Five days of traffic, several buckets a day at varying hours.
+	for d := 0; d < 5; d++ {
+		day := mid.AddDate(0, 0, -d)
+		for _, h := range []int{0, 6, 13, 23} {
+			b := day.Add(time.Duration(h) * time.Hour).Unix()
+			if b > now.Unix() {
+				continue // don't write the future
+			}
+			rx := uint64(100*(d+1) + h)
+			if err := s.FlushApps(b, []types.AppTraffic{
+				{Name: "claude", RxBytes: rx, TxBytes: rx / 2},
+				{Name: "ssh", RxBytes: 7, TxBytes: 3},
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if err := s.FlushDomains(b, []types.DomainStat{
+				{Domain: "api.anthropic.com", AppName: "claude", RxBytes: rx, TxBytes: rx / 2},
+			}); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+
+	// Raw reference: the same aggregation straight off the sample table.
+	rawApps := func(since, until time.Time) map[string][2]uint64 {
+		t.Helper()
+		rows, err := s.rdb.Query(`
+			SELECT app, SUM(rx), SUM(tx) FROM app_samples
+			WHERE bucket >= ? AND bucket < ? GROUP BY app`, since.Unix(), until.Unix())
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rows.Close()
+		out := map[string][2]uint64{}
+		for rows.Next() {
+			var name string
+			var rx, tx uint64
+			if err := rows.Scan(&name, &rx, &tx); err != nil {
+				t.Fatal(err)
+			}
+			out[name] = [2]uint64{rx, tx}
+		}
+		return out
+	}
+
+	cases := []struct {
+		name         string
+		since, until time.Time
+	}{
+		{"today open-ended", mid, now},
+		{"week open-ended", mid.AddDate(0, 0, -4), now},
+		{"whole day, closed", mid.AddDate(0, 0, -2), mid.AddDate(0, 0, -1)},
+		{"two whole days", mid.AddDate(0, 0, -3), mid.AddDate(0, 0, -1)},
+		{"starts mid-day", mid.AddDate(0, 0, -3).Add(9 * time.Hour), mid},
+		{"ends mid-day", mid.AddDate(0, 0, -3), mid.AddDate(0, 0, -1).Add(9 * time.Hour)},
+		{"both edges partial", mid.AddDate(0, 0, -3).Add(3 * time.Hour), mid.AddDate(0, 0, -1).Add(20 * time.Hour)},
+		{"inside one day", mid.AddDate(0, 0, -2).Add(5 * time.Hour), mid.AddDate(0, 0, -2).Add(20 * time.Hour)},
+		{"empty window", mid.AddDate(0, 0, -2).Add(time.Hour), mid.AddDate(0, 0, -2).Add(2 * time.Hour)},
+		{"until in the future", mid.AddDate(0, 0, -2), now.Add(48 * time.Hour)},
+		{"since == until", mid, mid},
+	}
+	for _, c := range cases {
+		want := rawApps(c.since, c.until)
+		got, err := s.Apps(c.since, c.until)
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		if len(got) != len(want) {
+			t.Errorf("%s: %d apps, want %d (%v vs %v)", c.name, len(got), len(want), got, want)
+			continue
+		}
+		for _, a := range got {
+			w, ok := want[a.Name]
+			if !ok {
+				t.Errorf("%s: unexpected app %q", c.name, a.Name)
+				continue
+			}
+			if a.RxBytes != w[0] || a.TxBytes != w[1] {
+				t.Errorf("%s: %s = rx %d tx %d, want rx %d tx %d",
+					c.name, a.Name, a.RxBytes, a.TxBytes, w[0], w[1])
+			}
+		}
+		// Ranked descending by total, always.
+		for i := 1; i < len(got); i++ {
+			if got[i-1].RxBytes+got[i-1].TxBytes < got[i].RxBytes+got[i].TxBytes {
+				t.Errorf("%s: results not ranked by total", c.name)
+				break
+			}
+		}
+	}
+}
+
+// If a rollup day ever drifts from the samples (a future bug, a partial write),
+// the periodic verification must notice and rebuild that day.
+func TestVerifyRollupsRepairsDrift(t *testing.T) {
+	s := openTemp(t)
+	now := time.Now()
+	mid := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	if err := s.FlushApps(mid.Add(time.Hour).Unix(), []types.AppTraffic{
+		{Name: "claude", RxBytes: 1000, TxBytes: 100},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Nothing wrong yet.
+	if repaired, err := s.VerifyRollups(3); err != nil || repaired {
+		t.Fatalf("clean database reported repaired=%v err=%v", repaired, err)
+	}
+	// Corrupt the rollup: wrong total, and a row the samples never had.
+	if _, err := s.db.Exec(`UPDATE app_daily SET rx = 1`); err != nil {
+		t.Fatal(err)
+	}
+	repaired, err := s.VerifyRollups(3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !repaired {
+		t.Fatal("drift went unnoticed")
+	}
+	apps, err := s.Apps(mid, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(apps) != 1 || apps[0].RxBytes != 1000 || apps[0].TxBytes != 100 {
+		t.Fatalf("after repair = %+v, want the sample totals back (rx 1000, tx 100)", apps)
+	}
+}
