@@ -18,3 +18,5 @@ Closes #
 - [ ] Added/updated tests for behavior changes
 - [ ] Updated README / flags if user-facing behavior changed
 - [ ] One focused change; commit messages follow the convention
+
+<!-- probe: verifying the linked-issue check name -->
