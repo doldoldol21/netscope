@@ -3,20 +3,31 @@
 "use strict";
 const $ = (id) => document.getElementById(id);
 
-function fmtRate(n) {
+function fmtParts(n) {
   n = Number(n) || 0;
   const u = ["B", "KB", "MB", "GB", "TB"]; let i = 0;
   while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
-  return (i === 0 ? n : n.toFixed(n < 10 ? 1 : 0)) + " " + u[i] + "/s";
+  return { num: String(i === 0 ? n : n.toFixed(n < 10 ? 1 : 0)), unit: u[i] };
 }
-function fmtBytes(n) {
-  n = Number(n) || 0;
-  const u = ["B", "KB", "MB", "GB", "TB"]; let i = 0;
-  while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
-  return (i === 0 ? n : n.toFixed(n < 10 ? 1 : 0)) + " " + u[i];
-}
+function fmtBytes(n) { const p = fmtParts(n); return p.num + " " + p.unit; }
+// numUnitHTML renders a figure with its unit de-emphasized (Field Notebook).
+const numUnitHTML = (n, rate) => {
+  const p = fmtParts(n);
+  return `<span class="n">${p.num}</span><span class="u">${p.unit}${rate ? "/s" : ""}</span>`;
+};
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-function hue(s) { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) % 360; return h; }
+
+// Theme colors for the canvas, re-read on draw (cheap at 1 Hz) so the spark
+// follows light/dark switches without a cache-invalidation dance.
+function sparkColors() {
+  const css = getComputedStyle(document.body);
+  return {
+    rx: css.getPropertyValue("--rx").trim(),
+    tx: css.getPropertyValue("--tx").trim(),
+    rxFill: css.getPropertyValue("--rx-fill").trim(),
+    txFill: css.getPropertyValue("--tx-fill").trim(),
+  };
+}
 
 // ---- sparkline ----
 const spark = $("spark"), sx = spark.getContext("2d"), hist = [], MAXP = 80;
@@ -32,18 +43,28 @@ function drawSpark() {
   sx.setTransform(dpr, 0, 0, dpr, 0, 0);
   const w = r.width, h = r.height; sx.clearRect(0, 0, w, h);
   if (hist.length < 2) return;
+  const c = sparkColors();
   const max = Math.max(1, ...hist.map((p) => Math.max(p.rx, p.tx)));
-  const line = (key, color) => {
-    sx.beginPath();
-    hist.forEach((p, i) => { const x = w * (i + (MAXP - hist.length)) / (MAXP - 1), y = h - (p[key] / max) * (h - 3) - 2; i ? sx.lineTo(x, y) : sx.moveTo(x, y); });
-    sx.lineTo(w, h); sx.lineTo(w * (MAXP - hist.length) / (MAXP - 1), h); sx.closePath();
-    const g = sx.createLinearGradient(0, 0, 0, h); g.addColorStop(0, color + "44"); g.addColorStop(1, "transparent");
-    sx.fillStyle = g; sx.fill();
-    sx.beginPath();
-    hist.forEach((p, i) => { const x = w * (i + (MAXP - hist.length)) / (MAXP - 1), y = h - (p[key] / max) * (h - 3) - 2; i ? sx.lineTo(x, y) : sx.moveTo(x, y); });
-    sx.strokeStyle = color; sx.lineWidth = 1.5; sx.lineJoin = "round"; sx.stroke();
+  // Step traces with a flat soft fill (Field Notebook instrument-chart look).
+  const line = (key, color, fill) => {
+    const px = (i) => w * (i + (MAXP - hist.length)) / (MAXP - 1);
+    const py = (p) => h - (p[key] / max) * (h - 6) - 3;
+    const trace = () => {
+      sx.beginPath();
+      hist.forEach((p, i) => {
+        if (!i) { sx.moveTo(px(i), py(p)); return; }
+        sx.lineTo(px(i), py(hist[i - 1]));
+        sx.lineTo(px(i), py(p));
+      });
+    };
+    trace();
+    sx.lineTo(w, h); sx.lineTo(px(0), h); sx.closePath();
+    sx.fillStyle = fill; sx.fill();
+    trace();
+    sx.strokeStyle = color; sx.lineWidth = 1.2; sx.lineJoin = "round"; sx.stroke();
   };
-  line("rx", "#3fb950"); line("tx", "#f0883e");
+  line("rx", c.rx, c.rxFill);
+  line("tx", c.tx, c.txFill);
 }
 
 const setText = (el, s) => { if (el && el.textContent !== s) el.textContent = s; };
@@ -59,8 +80,10 @@ function render(s) {
     if (changed && !ifaceOpts.some((o) => o.name === ifaceCur)) refreshIface();
     updateMetaText();
   }
-  setText($("rx"), fmtRate(s.rxPerSec));
-  setText($("tx"), fmtRate(s.txPerSec));
+  const rxEl = $("rx"), txEl = $("tx");
+  const rxHTML = numUnitHTML(s.rxPerSec, true), txHTML = numUnitHTML(s.txPerSec, true);
+  if (rxEl.innerHTML !== rxHTML) rxEl.innerHTML = rxHTML;
+  if (txEl.innerHTML !== txHTML) txEl.innerHTML = txHTML;
   if (s.activeApps != null) setText($("active"), t("pop.active", { n: s.activeApps }));
 
   hist.push({ rx: Number(s.rxPerSec) || 0, tx: Number(s.txPerSec) || 0 });
@@ -70,11 +93,15 @@ function render(s) {
   const apps = (s.apps || []).slice(0, 6);
   const el = $("apps");
   if (!apps.length) { if (appsSig !== "empty") { el.innerHTML = `<li class="empty">${t("state.waiting")}</li>`; appsSig = "empty"; } return; }
-  const html = apps.map((a) => {
+  const max = Math.max(1, ...apps.map((a) => Number(a.rxBytes) + Number(a.txBytes)));
+  const html = apps.map((a, i) => {
     const name = a.name || "unknown";
     const total = Number(a.rxBytes) + Number(a.txBytes);
-    return `<li><span class="sw" style="background:hsl(${hue(name)} 55% 58%)"></span>` +
-      `<span class="nm" title="${esc(a.path || name)}">${esc(name)}</span>` +
+    const rxW = (100 * Number(a.rxBytes) / max).toFixed(1);
+    const txW = (100 * Number(a.txBytes) / max).toFixed(1);
+    return `<li><span class="rk">${i + 1}</span>` +
+      `<span class="mid"><span class="nm" title="${esc(a.path || name)}">${esc(name)}</span>` +
+      `<span class="ub"><i class="rx" style="width:${rxW}%"></i><i class="tx" style="width:${txW}%"></i></span></span>` +
       `<span class="by">${fmtBytes(total)}</span></li>`;
   }).join("");
   // Skip the rebuild when nothing changed — the popover list re-`innerHTML`d
@@ -91,10 +118,10 @@ async function loadToday() {
     if (!r.ok) return;
     const s = await r.json();
     const rx = Number(s.totalRx) || 0, tx = Number(s.totalTx) || 0;
-    $("t-total").textContent = fmtBytes(rx + tx);
+    $("t-total").innerHTML = numUnitHTML(rx + tx);
     $("t-split").innerHTML =
-      `<span style="color:var(--rx)">▼ ${fmtBytes(rx)}</span> ` +
-      `<span style="color:var(--tx)">▲ ${fmtBytes(tx)}</span>`;
+      `<span class="rx">↓ ${fmtBytes(rx)}</span>` +
+      `<span class="tx">↑ ${fmtBytes(tx)}</span>`;
   } catch (_) { /* daemon not ready */ }
 }
 
@@ -244,8 +271,9 @@ async function refreshIface() {
 }
 function buildIfaceMenu() {
   const item = (name, label, on) =>
-    `<button class="ifm-item${on ? " on" : ""}" data-iface="${esc(name)}">${esc(label)}${on ? " ✓" : ""}</button>`;
-  let html = item("", t("iface.auto"), ifaceSel === "");
+    `<button class="ifm-item${on ? " on" : ""}" data-iface="${esc(name)}"><span class="ifm-lbl">${esc(label)}</span>${on ? `<span class="ifm-mark">✓</span>` : ""}</button>`;
+  let html = `<div class="ifm-head">${t("tip.captureIface")}</div>`;
+  html += item("", t("iface.auto"), ifaceSel === "");
   ifaceOpts.forEach((o) => { html += item(o.name, o.display, ifaceSel === o.name); });
   const m = $("iface-menu");
   m.innerHTML = html;

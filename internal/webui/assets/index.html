@@ -5,15 +5,15 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>netscope</title>
 <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+<link rel="stylesheet" href="fonts/fonts.css" />
 <link rel="stylesheet" href="panel.css" />
 </head>
 <body>
 <div class="panel">
   <header class="drag">
-    <img class="logo" src="favicon.svg" alt="" />
     <span class="brand">netscope</span>
-    <span class="spacer"></span>
     <span class="dot" id="dot"></span>
+    <span class="spacer"></span>
     <button class="meta" id="meta" aria-label="Capture interface" data-i18n="status.connecting"
             data-i18n-aria="tip.captureIface" data-i18n-tip="tip.captureIface" data-tip="Capture interface" data-tip-down>connecting…</button>
     <button class="iconbtn" id="pause-btn" aria-label="Pause capture"
@@ -26,32 +26,32 @@
     <span class="ub-go" data-i18n="pop.updateGo">Update ↻</span>
   </button>
 
+  <div class="today">
+    <div class="k" data-i18n="card.todayTotal">Today · total</div>
+    <div class="big" id="t-total"><span class="n">—</span></div>
+    <div class="today-split" id="t-split"></div>
+  </div>
+
   <section class="rates">
     <div class="rate down">
-      <div class="line"><span class="arrow">▼</span><span class="v" id="rx">0</span></div>
-      <div class="lbl" data-i18n="download">download</div>
+      <div class="k" data-i18n="rate.down">down</div>
+      <div class="line"><span class="v" id="rx">—</span></div>
     </div>
     <div class="rate up">
-      <div class="line"><span class="arrow">▲</span><span class="v" id="tx">0</span></div>
-      <div class="lbl" data-i18n="upload">upload</div>
+      <div class="k" data-i18n="rate.up">up</div>
+      <div class="line"><span class="v" id="tx">—</span></div>
     </div>
   </section>
-
-  <div class="today">
-    <span class="t-cap" data-i18n="pop.today">Today</span>
-    <span class="t-total" id="t-total">—</span>
-    <span class="t-split" id="t-split"></span>
-  </div>
 
   <canvas id="spark"></canvas>
 
   <div class="section-head">
-    <span data-i18n="pop.topApps">Top apps</span><span class="hint" id="active"></span>
+    <span class="k" data-i18n="pop.topApps">Top apps</span><span class="hint" id="active"></span>
   </div>
   <ul class="apps" id="apps"></ul>
 
   <footer>
-    <button class="primary" id="dash" aria-label="Open Dashboard" data-i18n-aria="pop.openDash"><span data-i18n="pop.openDash">Open Dashboard</span> <span class="ext">↗</span></button>
+    <button class="primary" id="dash" aria-label="Open Dashboard" data-i18n-aria="pop.openDash"><span data-i18n="pop.openDash">Open Dashboard</span></button>
     <button class="ghost" id="alerts-btn" aria-label="Settings"
             data-i18n-aria="tip.settings" data-i18n-tip="tip.settings" data-tip="Settings">⚙</button>
     <button class="ghost" id="quit" aria-label="Quit netscope"
@@ -65,57 +65,65 @@
     </div>
 
     <div class="set-body">
-      <div class="set-sub" data-i18n="set.alerts">Alerts</div>
-      <p class="set-hint" data-i18n="set.alertsHint">Notify when today's usage crosses a daily limit, in GB. 0 = off.
-        Upload-only watches data leaving your Mac (backups, cloud sync).</p>
-      <div class="alert-grid">
-        <span></span>
-        <span class="ag-head"><span data-i18n="set.totalHead">↓↑ Total</span><small>GB</small></span>
-        <span class="ag-head up"><span data-i18n="set.uploadHead">↑ Upload</span><small>GB</small></span>
+      <div class="set-sect raised">
+        <div class="set-sub k" data-i18n="set.alerts">Alerts</div>
+        <p class="set-hint" data-i18n="set.alertsHint">Notify when today's usage crosses a daily limit, in GB. 0 = off.
+          Upload-only watches data leaving your Mac (backups, cloud sync).</p>
+        <div class="alert-grid">
+          <span></span>
+          <span class="ag-head"><span data-i18n="set.totalHead">↓↑ total</span></span>
+          <span class="ag-head up"><span data-i18n="set.uploadHead">↑ upload</span></span>
 
-        <span class="set-lbl" data-i18n="set.allApps">All apps</span>
-        <input type="number" id="set-daily" min="0" step="0.5" placeholder="0" />
-        <input type="number" id="set-up-daily" min="0" step="0.5" placeholder="0" />
+          <span class="set-lbl" data-i18n="set.allApps">All apps</span>
+          <input type="number" id="set-daily" min="0" step="0.5" placeholder="0" />
+          <input type="number" id="set-up-daily" min="0" step="0.5" placeholder="0" />
 
-        <span class="set-lbl" data-i18n="set.oneApp">One app</span>
-        <input type="number" id="set-app" min="0" step="0.5" placeholder="0" />
-        <input type="number" id="set-up-app" min="0" step="0.5" placeholder="0" />
+          <span class="set-lbl" data-i18n="set.oneApp">One app</span>
+          <input type="number" id="set-app" min="0" step="0.5" placeholder="0" />
+          <input type="number" id="set-up-app" min="0" step="0.5" placeholder="0" />
+        </div>
       </div>
 
-      <div class="set-sub" data-i18n="set.appearance">Appearance</div>
-      <label class="set-row">
-        <span class="set-lbl" data-i18n="set.theme">Theme</span>
-        <select id="set-theme" class="set-sel">
-          <option value="auto" data-i18n="set.followSystem">Follow system</option>
-          <option value="light" data-i18n="set.light">Light</option>
-          <option value="dark" data-i18n="set.dark">Dark</option>
-        </select>
-      </label>
-
-      <div class="set-sub" data-i18n="set.menubar">Menu bar</div>
-      <label class="set-row">
-        <span class="set-lbl" data-i18n="set.rateDisplay">Rate display</span>
-        <select id="set-menubar" class="set-sel"></select>
-      </label>
-      <label class="set-row">
-        <span class="set-lbl" data-i18n="set.color">Color ↓ / ↑</span>
-        <input type="checkbox" id="set-menubar-color" class="set-chk" />
-      </label>
-      <label class="set-row">
-        <span class="set-lbl" data-i18n="set.anim">Animate icon</span>
-        <input type="checkbox" id="set-menubar-anim" class="set-chk" />
-      </label>
-
-      <div class="set-sub" data-i18n="set.updates">Updates</div>
-      <label class="set-row">
-        <span class="set-lbl" data-i18n="set.autocheck">Check automatically</span>
-        <input type="checkbox" id="set-autocheck" class="set-chk" />
-      </label>
-      <div class="set-row">
-        <span class="set-lbl upd-status" id="upd-status">—</span>
-        <button class="mini" id="upd-check" data-i18n="set.checkNow">Check now</button>
+      <div class="set-sect">
+        <div class="set-sub k" data-i18n="set.appearance">Appearance</div>
+        <label class="set-row">
+          <span class="set-lbl" data-i18n="set.theme">Theme</span>
+          <select id="set-theme" class="set-sel">
+            <option value="auto" data-i18n="set.followSystem">Follow system</option>
+            <option value="light" data-i18n="set.light">Light</option>
+            <option value="dark" data-i18n="set.dark">Dark</option>
+          </select>
+        </label>
       </div>
-      <button class="primary upd-now" id="upd-now" hidden data-i18n="upd.now">Update &amp; Restart</button>
+
+      <div class="set-sect raised">
+        <div class="set-sub k" data-i18n="set.menubar">Menu bar</div>
+        <label class="set-row">
+          <span class="set-lbl" data-i18n="set.rateDisplay">Rate display</span>
+          <select id="set-menubar" class="set-sel"></select>
+        </label>
+        <label class="set-row">
+          <span class="set-lbl" data-i18n="set.color">Color ↓ / ↑</span>
+          <input type="checkbox" id="set-menubar-color" class="set-chk" />
+        </label>
+        <label class="set-row">
+          <span class="set-lbl" data-i18n="set.anim">Animate icon</span>
+          <input type="checkbox" id="set-menubar-anim" class="set-chk" />
+        </label>
+      </div>
+
+      <div class="set-sect">
+        <div class="set-sub k" data-i18n="set.updates">Updates</div>
+        <label class="set-row">
+          <span class="set-lbl" data-i18n="set.autocheck">Check automatically</span>
+          <input type="checkbox" id="set-autocheck" class="set-chk" />
+        </label>
+        <div class="set-row">
+          <span class="set-lbl upd-status" id="upd-status">—</span>
+          <button class="mini" id="upd-check" data-i18n="set.checkNow">Check now</button>
+        </div>
+        <button class="primary upd-now" id="upd-now" hidden data-i18n="upd.now">Update &amp; Restart</button>
+      </div>
     </div>
   </div>
 </div>
