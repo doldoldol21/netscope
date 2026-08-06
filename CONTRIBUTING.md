@@ -27,6 +27,17 @@ You usually **don't need root** to develop: `make demo` runs a synthetic-traffic
 daemon over a user socket and launches the UI. For real capture, run
 `sudo bin/netscoped` in one terminal and the app/CLI in another.
 
+## Start with an issue
+
+Open an issue before the pull request, and link it (`Closes #123` in the
+description, or the Development section in the sidebar). A CI check enforces
+this for outside contributions, so an unlinked PR can't be merged.
+
+It isn't paperwork for its own sake: the issue is where the problem gets
+discussed, and it stays useful after the code that fixed it has been rewritten.
+For housekeeping — a typo, a dependency bump — a maintainer can add the
+`no-issue` label to skip the check.
+
 ## Before you open a PR
 
 Run the same checks CI runs — all must pass:

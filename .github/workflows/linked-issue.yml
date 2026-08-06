@@ -1,0 +1,77 @@
+name: Linked issue
+
+# GitHub can require a PR, reviews and passing checks, but it has no setting for
+# "this PR must reference an issue". This job is that setting: it is registered
+# as a required status check, so a pull request that isn't tied to an issue
+# can't be merged.
+#
+# Outside contributions carry the requirement; maintainers, bots and anything
+# labelled no-issue pass straight through — the point is to get context for work
+# that arrives from outside, not to make every typo fix start with paperwork.
+
+on:
+  pull_request_target:
+    types: [opened, edited, reopened, synchronize, labeled, unlabeled]
+
+permissions:
+  contents: read
+  pull-requests: read
+  issues: read
+
+jobs:
+  linked-issue:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check the pull request closes an issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+          AUTHOR_ASSOCIATION: ${{ github.event.pull_request.author_association }}
+          AUTHOR: ${{ github.event.pull_request.user.login }}
+          LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+        run: |
+          set -euo pipefail
+
+          case ",$LABELS," in
+            *,no-issue,*)
+              echo "Labelled no-issue — skipping."; exit 0 ;;
+          esac
+          case "$AUTHOR" in
+            dependabot\[bot\]|github-actions\[bot\])
+              echo "Automated author ($AUTHOR) — skipping."; exit 0 ;;
+          esac
+          case "$AUTHOR_ASSOCIATION" in
+            OWNER|MEMBER|COLLABORATOR)
+              echo "Maintainer PR ($AUTHOR_ASSOCIATION) — skipping."; exit 0 ;;
+          esac
+
+          # closingIssuesReferences is the real link GitHub tracks (from a
+          # "Closes #12" keyword or the Development sidebar), not any stray #12
+          # in the body.
+          count=$(gh api graphql \
+            -f query='query($owner:String!,$name:String!,$pr:Int!){
+              repository(owner:$owner,name:$name){
+                pullRequest(number:$pr){ closingIssuesReferences(first:1){ totalCount } }
+              }
+            }' \
+            -F owner="${REPO%/*}" -F name="${REPO#*/}" -F pr="$PR" \
+            --jq '.data.repository.pullRequest.closingIssuesReferences.totalCount')
+
+          if [ "$count" -gt 0 ]; then
+            echo "Linked to $count issue(s)."
+            exit 0
+          fi
+
+          cat >&2 <<'MSG'
+          This pull request isn't linked to an issue.
+
+          Open an issue describing the bug or the change first, then either put
+          "Closes #<number>" in the PR description or link it from the
+          Development section in the sidebar. That gives the change somewhere to
+          discuss the problem separately from the code that fixes it.
+
+          A maintainer can add the `no-issue` label to bypass this for trivial
+          or housekeeping changes.
+          MSG
+          exit 1
