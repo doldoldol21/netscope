@@ -420,15 +420,18 @@ const GB = 1024 * 1024 * 1024;
 // override it for testing, so don't pass undefined here).
 const fmtDate = (unix) => new Date(unix * 1000).toLocaleDateString(NS_I18N.lang, { month: "short", day: "numeric" });
 
+// Stacked sidebar layout (Field Notebook): label + % on one line, then the
+// used-of-limit figure, the bar, and mono sub lines. Everything wraps
+// vertically — a single-line header cannot fit the 296px sidebar.
 function planViewHTML(p) {
   const cfg = p.config || {}, st = p.status || {};
   if (!st.enabled) {
     return `<div class="plan-card plan-empty">
-      <div>
-        <div class="plan-title">${t("plan.title")}</div>
-        <div class="plan-sub">${t("plan.setupSub")}</div>
+      <div class="plan-head">
+        <span class="k">${t("plan.title")}</span>
+        <button class="hdr-btn" id="plan-edit">${t("plan.setup")}</button>
       </div>
-      <button class="hdr-btn" id="plan-edit">${t("plan.setup")}</button>
+      <div class="plan-sub">${t("plan.setupSub")}</div>
     </div>`;
   }
   const pct = Number(st.percent) || 0;
@@ -443,18 +446,20 @@ function planViewHTML(p) {
     const over = st.projectedBytes > st.limitBytes;
     bits.push(`${over ? "⚠ " : ""}${t("plan.projected", { v: fmtBytes(st.projectedBytes).str })}`);
   }
+  bits.push(t("plan.cycleFrom", { date: fmtDate(st.cycleStart) }));
+  const used = fmtBytes(st.usedBytes);
   return `<div class="plan-card">
     <div class="plan-head">
-      <div class="plan-title">${t("plan.title")} <span class="chip">📱 ${esc(scope)}</span></div>
-      <div class="plan-nums">
-        <b class="${level}">${fmtBytes(st.usedBytes).str}</b>
-        <span class="plan-of">${t("plan.of", { v: fmtBytes(st.limitBytes).str })}</span>
-        <span class="plan-pct ${level}">${pct.toFixed(pct < 10 ? 1 : 0)}%</span>
-        <button class="hdr-btn" id="plan-edit">${t("plan.edit")}</button>
-      </div>
+      <span class="k plan-scope" title="${esc(scope)}">${t("plan.title")} · ${esc(scope)}</span>
+      <span class="plan-pct ${level}">${pct.toFixed(pct < 10 ? 1 : 0)}%</span>
+      <button class="hdr-btn" id="plan-edit">${t("plan.edit")}</button>
+    </div>
+    <div class="plan-val">
+      <span class="n ${level}">${used.num}</span>
+      <span class="plan-of">${used.unit} ${t("plan.of", { v: fmtBytes(st.limitBytes).str })}</span>
     </div>
     <div class="plan-bar ${level}"><i style="width:${Math.min(100, pct).toFixed(1)}%"></i></div>
-    <div class="plan-sub">${esc(bits.join(" · "))} · ${t("plan.cycleFrom", { date: fmtDate(st.cycleStart) })}</div>
+    <div class="plan-sub">${esc(bits.join(" · "))}</div>
   </div>`;
 }
 
@@ -466,7 +471,7 @@ function planFormHTML(p) {
       `<option value="${esc(n.iface)}"${cfg.iface === n.iface ? " selected" : ""}>${esc(n.friendly || n.iface)}${n.tether ? t("plan.tetherSuffix") : ""}</option>`)
   ).join("");
   return `<div class="plan-card plan-form">
-    <div class="plan-title">${t("plan.title")}</div>
+    <div class="k">${t("plan.title")}</div>
     <div class="plan-fields">
       <label>${t("plan.allowance")} <span><input id="plan-limit" type="number" min="0" step="0.5" value="${limitGB}" /> GB</span></label>
       <label>${t("plan.cycleDay")} <input id="plan-day" type="number" min="1" max="31" value="${cfg.startDay || 1}" /></label>
@@ -656,11 +661,16 @@ function sizeCanvas(c) {
   return { w: r.width, h: r.height, g };
 }
 
+// niceMax rounds a peak up to a clean axis top. The unit ranges over [1, 1024)
+// because pow steps in 1024s, so the candidate list must cover that whole
+// range — the old 1/2/5/10 list capped the axis at 10·pow and let a 64 MB/s
+// spike draw far above a 10 MB/s top.
 function niceMax(v) {
   if (v <= 0) return 1024;
   const pow = Math.pow(1024, Math.floor(Math.log(v) / Math.log(1024)));
   const unit = v / pow;
-  const step = unit <= 1 ? 1 : unit <= 2 ? 2 : unit <= 5 ? 5 : 10;
+  const steps = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1024];
+  const step = steps.find((s) => unit <= s) || 1024;
   return step * pow;
 }
 
