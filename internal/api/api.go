@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"sort"
 	"strconv"
 	"time"
 
@@ -426,17 +425,19 @@ func (s *Server) handleSummary(w http.ResponseWriter, r *http.Request) {
 
 	out.AppCount = len(apps)
 	out.DomainCount = len(domains)
+	// Linear max scans: this endpoint is polled every 10-15s and only needs the
+	// top entry — sorting thousands of domain rows for index 0 was waste.
 	for _, a := range apps {
 		out.TotalRx += a.RxBytes
 		out.TotalTx += a.TxBytes
+		if a.Total() > out.TopApp.Bytes {
+			out.TopApp = topItem{Name: a.Name, Bytes: a.Total()}
+		}
 	}
-	sort.Slice(apps, func(i, j int) bool { return apps[i].Total() > apps[j].Total() })
-	sort.Slice(domains, func(i, j int) bool { return domains[i].Total() > domains[j].Total() })
-	if len(apps) > 0 {
-		out.TopApp = topItem{Name: apps[0].Name, Bytes: apps[0].Total()}
-	}
-	if len(domains) > 0 {
-		out.TopDomain = topItem{Name: domains[0].Domain, Bytes: domains[0].Total()}
+	for _, d := range domains {
+		if d.Total() > out.TopDomain.Bytes {
+			out.TopDomain = topItem{Name: d.Domain, Bytes: d.Total()}
+		}
 	}
 	writeJSON(w, out)
 }

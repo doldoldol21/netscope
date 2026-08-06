@@ -74,6 +74,10 @@ install_helper() {
 set -e
 label="$1"; plist="$2"; exe="$3"; sock="$4"
 mkdir -p /var/run/netscope
+# Kill any stray daemon not managed by launchd (e.g. an old sudo-spawned
+# bootstrap). Two daemons on one database double-count traffic and fight over
+# the write lock; launchd restarts the managed one right below.
+pkill -x netscoped 2>/dev/null || true
 cat > "$plist" <<PL
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

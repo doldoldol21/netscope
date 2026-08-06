@@ -263,10 +263,17 @@ canvas#chart { display: block; width: 100%; height: 150px; margin-top: 4px; }
 #conns .tbl th:first-child, #conns .tbl td:first-child { width: auto; }
 .tbl th {
   font: 500 10px/1 var(--sans); text-transform: uppercase; letter-spacing: 1.2px;
-  color: var(--muted); text-align: left; padding: 6px 8px; cursor: pointer;
+  color: var(--muted); text-align: left; padding: 6px 8px;
   border-bottom: 1px solid var(--line-soft); white-space: nowrap;
   user-select: none; -webkit-user-select: none;
+  /* Stay visible while long lists scroll under (main is the scroll container). */
+  position: sticky; top: 0; z-index: 2; background: var(--bg);
 }
+/* Only genuinely sortable headers advertise clickability. */
+.tbl th[data-key] { cursor: pointer; }
+.tbl th[data-key]:hover { color: var(--fg); }
+#conns .tbl th { background: var(--surface); }
+#drill-domains .tbl th { background: var(--bg); }
 .tbl th, .tbl td { padding-left: 8px; padding-right: 8px; }
 .tbl th:first-child, .tbl td:first-child { padding-left: 24px; }
 .tbl th:last-child, .tbl td:last-child { padding-right: 24px; }
@@ -285,6 +292,22 @@ canvas#chart { display: block; width: 100%; height: 150px; margin-top: 4px; }
 .tbl td.num.rx, td.rx { color: var(--rx); }
 .tbl td.num.tx, td.tx { color: var(--tx); }
 tr.clickable { cursor: pointer; }
+/* Drill-down affordance: a chevron appears on hover/focus of an app row, and
+   keyboard focus gets a visible ring (rows are tabbable). */
+tr.clickable .cell-name::after {
+  content: "›"; flex: none; color: var(--faint);
+  font: 400 13px/1 var(--sans); opacity: 0; transition: opacity .12s;
+}
+tr.clickable:hover .cell-name::after,
+tr.clickable:focus-visible .cell-name::after { opacity: 1; color: var(--accent); }
+tr.clickable:focus-visible,
+.tbl th[data-key]:focus-visible {
+  outline: 1.5px solid var(--accent); outline-offset: -1.5px;
+}
+button:focus-visible, .search:focus-visible, select:focus-visible, input:focus-visible {
+  outline: 1.5px solid var(--accent); outline-offset: 2px;
+}
+.tabs button:focus-visible { outline-offset: 1px; }
 
 .cell-name { display: flex; align-items: baseline; gap: 7px; min-width: 0; overflow: hidden; }
 .cell-name .label {
@@ -362,12 +385,15 @@ aside .state { padding: 10px 0; }
 .plan-actions .hdr-btn.on { color: var(--accent); font-weight: 600; }
 
 /* ---------- drill-down overlay ---------- */
+/* visibility (not just opacity) keeps the closed dialog's buttons out of the
+   Tab order and the accessibility tree. */
 .drill {
   position: fixed; inset: 0; z-index: 40; display: flex;
   align-items: center; justify-content: center; padding: 28px;
-  background: var(--overlay); opacity: 0; pointer-events: none; transition: opacity .15s;
+  background: var(--overlay); opacity: 0; pointer-events: none; visibility: hidden;
+  transition: opacity .15s, visibility .15s;
 }
-.drill.show { opacity: 1; pointer-events: auto; }
+.drill.show { opacity: 1; pointer-events: auto; visibility: visible; }
 .drill-card {
   width: 760px; max-width: 100%; max-height: min(640px, 90vh);
   display: flex; flex-direction: column; overflow: hidden;
@@ -419,21 +445,27 @@ footer kbd {
 footer .keys { white-space: nowrap; }
 
 /* ---------- shared tooltip + truncation peek (tooltip.js) ---------- */
+/* tooltip.js toggles style.display, so hide via display (opacity:0 here left
+   the tip permanently invisible). */
 #ns-tip {
-  position: fixed; z-index: 60; pointer-events: none; opacity: 0;
-  transition: opacity .1s; max-width: 340px;
+  position: fixed; z-index: 60; pointer-events: none; display: none;
+  max-width: 340px;
   background: var(--surface); color: var(--fg);
   border: 1px solid var(--line); border-radius: 4px; box-shadow: var(--shadow-pop);
   padding: 6px 9px; font: 400 12px/1.5 var(--sans);
 }
 #ns-peek {
-  position: fixed; z-index: 60; max-width: 420px;
+  position: fixed; z-index: 60; max-width: 420px; display: none;
   background: var(--surface); color: var(--fg);
   border: 1px solid var(--line); border-radius: 4px; box-shadow: var(--shadow-pop);
   padding: 7px 10px; font: 400 12.5px/1.5 var(--mono);
   cursor: copy; word-break: break-all;
 }
 #ns-peek .pk-sub { color: var(--muted); font-size: 11px; margin-top: 2px; }
+#ns-peek .pk-hint {
+  color: var(--faint); font: 400 9.5px/1 var(--sans);
+  text-transform: uppercase; letter-spacing: 1px; margin-top: 6px;
+}
 
 /* ---------- responsive (narrow window) ----------
    Step down instead of falling off a cliff: slimmer sidebar and tighter

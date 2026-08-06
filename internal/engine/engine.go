@@ -17,6 +17,7 @@ import (
 	"net"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/doldoldol21/netscope/internal/classify"
@@ -134,6 +135,9 @@ type Engine struct {
 	res   Resolver
 	dns   *dnscache.Cache
 	store *storage.Store
+	// maintaining is set while an hourly maintenance run (purge/vacuum) is in
+	// flight, so a slow run and the next tick can't overlap.
+	maintaining atomic.Bool
 
 	mu sync.Mutex
 	// window: reset each flush, persisted to storage.
@@ -263,7 +267,15 @@ func (e *Engine) Run(ctx context.Context, flows <-chan types.Flow) error {
 			e.doResetSession()
 			e.updateSnapshot() // publish the zeroed view immediately
 		case <-maintC:
-			e.maintainStore()
+			// Off the hot loop: a VACUUM can take seconds and used to stall
+			// ingest/flush/snapshot for its whole duration. maintaining guards
+			// against overlap if one run outlives the hourly tick.
+			if e.maintaining.CompareAndSwap(false, true) {
+				go func() {
+					defer e.maintaining.Store(false)
+					e.maintainStore()
+				}()
+			}
 		}
 	}
 }
@@ -285,7 +297,10 @@ func (e *Engine) maintainStore() {
 	capped, _ := e.store.EnforceSizeCap(e.cfg.MaxDBBytes)
 	e.store.Checkpoint()
 	if purged && !capped {
-		_ = e.store.Vacuum() // reclaim space from the time-based purge
+		// Only rewrite the file when there's real space to reclaim — the
+		// rolling retention purge frees a little every hour, and a full
+		// VACUUM each time was constant IO for nothing.
+		_ = e.store.VacuumIfWorthwhile()
 	}
 }
 
@@ -331,12 +346,21 @@ func (e *Engine) ingest(f types.Flow) {
 			e.cfg.Hinter.Enqueue(f.RemoteIP)
 		}
 	}
-	cat := classify.Category(host)
-	country := geoip.Lookup(net.ParseIP(f.RemoteIP))
 	now := e.nowFn()
 
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	// Classify + GeoIP run per flow, but their results are only consumed when a
+	// new accumulator entry appears — in steady state the session entry already
+	// carries them, so reuse it and skip the lookups (net.ParseIP allocated on
+	// every packet otherwise).
+	var cat, country string
+	if d := e.sessDomains[domKey{domain: host, app: proc.Name}]; d != nil && d.country != "" {
+		cat, country = d.category, d.country
+	} else {
+		cat = classify.Category(host)
+		country = geoip.Lookup(net.ParseIP(f.RemoteIP))
+	}
 	applyTo(e.winApps, e.winDomains, f, proc, host, cat, country, now)
 	applyTo(e.sessApps, e.sessDomains, f, proc, host, cat, country, now)
 
@@ -527,11 +551,13 @@ func (e *Engine) updateSnapshot() {
 
 	sortApps(apps)
 	sortDomains(domains)
+	// Copy the kept prefix instead of reslicing: a bare [:N] pins the whole
+	// session-sized backing array inside the published snapshot for a second.
 	if len(apps) > e.cfg.LiveTopN {
-		apps = apps[:e.cfg.LiveTopN]
+		apps = append(make([]types.AppTraffic, 0, e.cfg.LiveTopN), apps[:e.cfg.LiveTopN]...)
 	}
 	if len(domains) > e.cfg.LiveTopN {
-		domains = domains[:e.cfg.LiveTopN]
+		domains = append(make([]types.DomainStat, 0, e.cfg.LiveTopN), domains[:e.cfg.LiveTopN]...)
 	}
 
 	snap := types.Snapshot{
