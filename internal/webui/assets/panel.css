@@ -165,7 +165,8 @@ button, input, select, canvas { --wails-draggable: no-drag; }
   padding: 8px 16px; border-top: 1px solid var(--line-soft);
 }
 .apps li:first-child { border-top: 0; }
-.apps li:hover { background: var(--surface); }
+/* No hover highlight: these rows aren't interactive, and lighting them up
+   teaches the dashboard's "hover = clickable" vocabulary falsely. */
 .apps .rk { font: 400 10.5px/1.4 var(--mono); color: var(--faint); }
 .apps .mid { min-width: 0; }
 .apps .nm {
@@ -201,12 +202,15 @@ footer {
 .ghost:hover { color: var(--fg); border-color: var(--accent); }
 
 /* ---------- settings overlay ---------- */
+/* visibility (not just opacity/pointer-events) — otherwise the hidden
+   overlay's inputs stay in the Tab order and are focusable while invisible. */
 .settings {
   position: absolute; inset: 0; z-index: 20; display: flex; flex-direction: column;
   background: var(--bg); border-radius: 11px;
-  opacity: 0; pointer-events: none; transition: opacity .15s;
+  opacity: 0; pointer-events: none; visibility: hidden;
+  transition: opacity .15s, visibility .15s;
 }
-.settings.show { opacity: 1; pointer-events: auto; }
+.settings.show { opacity: 1; pointer-events: auto; visibility: visible; }
 .set-head {
   flex: 0 0 auto; display: flex; align-items: center; gap: 8px;
   padding: 14px 16px 12px; background: var(--surface); border-bottom: 1px solid var(--line);
@@ -263,6 +267,27 @@ footer {
 .mini:disabled { opacity: .5; cursor: default; }
 .settings .upd-now { width: 100%; margin-top: 12px; }
 .settings .upd-now[hidden] { display: none; }
+
+/* ---------- shared tooltip + truncation peek (tooltip.js) ---------- */
+#ns-tip {
+  position: fixed; z-index: 60; pointer-events: none; display: none;
+  max-width: 300px;
+  background: var(--surface); color: var(--fg);
+  border: 1px solid var(--line); border-radius: 4px; box-shadow: var(--shadow-pop);
+  padding: 6px 9px; font: 400 12px/1.5 var(--sans);
+}
+#ns-peek {
+  position: fixed; z-index: 60; max-width: 300px; display: none;
+  background: var(--surface); color: var(--fg);
+  border: 1px solid var(--line); border-radius: 4px; box-shadow: var(--shadow-pop);
+  padding: 7px 10px; font: 400 12.5px/1.5 var(--mono);
+  cursor: copy; word-break: break-all;
+}
+#ns-peek .pk-sub { color: var(--muted); font-size: 11px; margin-top: 2px; }
+#ns-peek .pk-hint {
+  color: var(--faint); font: 400 9.5px/1 var(--sans);
+  text-transform: uppercase; letter-spacing: 1px; margin-top: 6px;
+}
 
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }

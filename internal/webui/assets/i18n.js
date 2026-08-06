@@ -69,6 +69,7 @@ const NS_I18N = (() => {
       "tip.settings": "Settings",
       "tip.quit": "Quit",
       "peek.copied": "Copied ✓",
+      "peek.copyHint": "click to copy",
 
       // summary cards
       "card.todayTotal": "Today · total",
@@ -240,6 +241,7 @@ const NS_I18N = (() => {
       "tip.settings": "설정",
       "tip.quit": "종료",
       "peek.copied": "복사됨 ✓",
+      "peek.copyHint": "클릭하면 복사",
 
       "card.todayTotal": "오늘 · 합계",
       "card.activeNow": "현재 활성",
@@ -403,6 +405,7 @@ const NS_I18N = (() => {
       "tip.settings": "設定",
       "tip.quit": "終了",
       "peek.copied": "コピーしました ✓",
+      "peek.copyHint": "クリックでコピー",
 
       "card.todayTotal": "今日 · 合計",
       "card.activeNow": "現在アクティブ",

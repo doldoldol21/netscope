@@ -17,22 +17,33 @@ const numUnitHTML = (n, rate) => {
 };
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
-// Theme colors for the canvas, re-read on draw (cheap at 1 Hz) so the spark
-// follows light/dark switches without a cache-invalidation dance.
+// Theme colors for the canvas, cached — getComputedStyle is a forced style
+// resolution and drawSpark runs every second. Invalidated on theme change
+// (applyTheme) and on OS light/dark flips.
+let sparkColorCache = null;
 function sparkColors() {
+  if (sparkColorCache) return sparkColorCache;
   const css = getComputedStyle(document.body);
-  return {
+  sparkColorCache = {
     rx: css.getPropertyValue("--rx").trim(),
     tx: css.getPropertyValue("--tx").trim(),
     rxFill: css.getPropertyValue("--rx-fill").trim(),
     txFill: css.getPropertyValue("--tx-fill").trim(),
   };
+  return sparkColorCache;
 }
+window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { sparkColorCache = null; });
 
 // ---- sparkline ----
 const spark = $("spark"), sx = spark.getContext("2d"), hist = [], MAXP = 80;
+// The popover is fixed-size, so cache the canvas rect instead of forcing
+// layout with getBoundingClientRect on every 1 Hz draw (right after the DOM
+// writes in render(), which made it a guaranteed reflow).
+let sparkRect = null;
+window.addEventListener("resize", () => { sparkRect = null; });
 function drawSpark() {
-  const dpr = window.devicePixelRatio || 1, r = spark.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  const r = sparkRect && sparkRect.width >= 1 ? sparkRect : (sparkRect = spark.getBoundingClientRect());
   // While the popover is hidden the canvas has no layout size; skip so we don't
   // blank it to nothing (which made the graph "disappear" until the next tick).
   if (r.width < 1 || r.height < 1) return;
@@ -94,6 +105,22 @@ function render(s) {
   const el = $("apps");
   if (!apps.length) { if (appsSig !== "empty") { el.innerHTML = `<li class="empty">${t("state.waiting")}</li>`; appsSig = "empty"; } return; }
   const max = Math.max(1, ...apps.map((a) => Number(a.rxBytes) + Number(a.txBytes)));
+  // Signature on the app identity/order only; totals and bars are patched in
+  // place (a whole-markup signature embedded the live byte counts, so the six
+  // rows re-innerHTML'd every second while the popover was open).
+  const sig = apps.map((a) => a.name || "unknown").join("|");
+  if (sig === appsSig && el.children.length === apps.length) {
+    for (let i = 0; i < apps.length; i++) {
+      const a = apps[i], li = el.children[i];
+      setText(li.querySelector(".by"), fmtBytes(Number(a.rxBytes) + Number(a.txBytes)));
+      const seg = li.querySelector(".ub").children;
+      const rxW = (100 * Number(a.rxBytes) / max).toFixed(1) + "%";
+      const txW = (100 * Number(a.txBytes) / max).toFixed(1) + "%";
+      if (seg[0].style.width !== rxW) seg[0].style.width = rxW;
+      if (seg[1].style.width !== txW) seg[1].style.width = txW;
+    }
+    return;
+  }
   const html = apps.map((a, i) => {
     const name = a.name || "unknown";
     const total = Number(a.rxBytes) + Number(a.txBytes);
@@ -104,9 +131,8 @@ function render(s) {
       `<span class="ub"><i class="rx" style="width:${rxW}%"></i><i class="tx" style="width:${txW}%"></i></span></span>` +
       `<span class="by">${fmtBytes(total)}</span></li>`;
   }).join("");
-  // Skip the rebuild when nothing changed — the popover list re-`innerHTML`d
-  // every second, flickering the rows.
-  if (html !== appsSig) { el.innerHTML = html; appsSig = html; }
+  el.innerHTML = html;
+  appsSig = sig;
 }
 
 function setDisconnected() { $("dot").classList.remove("live"); $("meta").textContent = t("status.reconnecting"); }
@@ -203,6 +229,7 @@ function applyTheme(mode) {
   const m = ["auto", "light", "dark"].includes(mode) ? mode : "auto";
   if (m === "auto") document.documentElement.removeAttribute("data-theme");
   else document.documentElement.setAttribute("data-theme", m);
+  sparkColorCache = null; // canvas colors changed with the theme
   const sel = $("set-theme");
   if (sel) sel.value = m;
 }
@@ -226,7 +253,12 @@ function applyPausedFromSnapshot(p) {
 function reflectPaused(p) {
   capPaused = p;
   const b = $("pause-btn");
-  if (b) { b.textContent = p ? "▶" : "⏸"; b.setAttribute("data-tip", p ? t("tip.resume") : t("tip.pause")); }
+  if (b) {
+    b.textContent = p ? "▶" : "⏸";
+    b.setAttribute("data-tip", p ? t("tip.resume") : t("tip.pause"));
+    // aria-label overrides content — keep it in sync or AT hears the old action.
+    b.setAttribute("aria-label", p ? t("tip.resume") : t("tip.pause"));
+  }
   $("dot").classList.toggle("paused", p);
   if (p) $("dot").classList.remove("live");
   updateMetaText();

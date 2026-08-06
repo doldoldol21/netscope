@@ -75,12 +75,19 @@ function tableHTML(items, target) {
   });
   const max = Math.max(1, ...sorted.map((x) => Number(x.rxBytes) + Number(x.txBytes)));
 
+  // Sortable headers are focusable and expose aria-sort so sorting works from
+  // the keyboard (Enter/Space in wireSort) and reads correctly to AT.
+  const sortTh = (key, label, cls) => {
+    const sorted = s.key === key;
+    const aria = sorted ? (s.dir === 1 ? "ascending" : "descending") : "none";
+    return `<th class="${cls || ""} ${sorted ? "sorted" : ""}" data-key="${key}" tabindex="0" aria-sort="${aria}">${label}<span class="caret">${sorted && s.dir === 1 ? "▲" : "▼"}</span></th>`;
+  };
   const head = `<thead><tr>
     <th></th>
-    <th data-key="name">${isApps ? t("col.app") : t("col.domain")}</th>
-    <th class="num ${th("down", target)}" data-key="down">${t("col.down")}<span class="caret">▼</span></th>
-    <th class="num ${th("up", target)}" data-key="up">${t("col.up")}<span class="caret">▼</span></th>
-    <th class="num ${th("total", target)}" data-key="total">${t("col.total")}<span class="caret">▼</span></th>
+    ${sortTh("name", isApps ? t("col.app") : t("col.domain"))}
+    ${sortTh("down", t("col.down"), "num")}
+    ${sortTh("up", t("col.up"), "num")}
+    ${sortTh("total", t("col.total"), "num")}
   </tr></thead>`;
 
   let rows = "";
@@ -89,7 +96,7 @@ function tableHTML(items, target) {
     const name = isApps ? (it.name || "unknown") : it.domain;
     const sub = isApps ? "" : (it.appName && it.appName !== "unknown" ? ` <small>· ${esc(it.appName)}</small>` : "");
     const cat = (!isApps && it.category) ? ` <span class="chip">${esc(it.category)}</span>` : "";
-    const rowAttr = isApps ? ` data-app="${esc(name)}" class="clickable"` : "";
+    const rowAttr = isApps ? ` data-app="${esc(name)}" class="clickable" tabindex="0" role="button" aria-label="${esc(name)}"` : "";
     // Apps show their real macOS icon (served by /appicon, resolved via
     // NSWorkspace); the colored dot stays underneath as the fallback when no
     // icon resolves (the <img> removes itself on error).
@@ -121,7 +128,6 @@ function usebar(rx, tx, max) {
   return `<div class="usebar"><i class="rx" style="width:${rxW}%"></i><i class="tx" style="width:${txW}%"></i></div>`;
 }
 
-const th = (key, target) => sortState[target].key === key ? "sorted" : "";
 function sortVal(x, key) {
   if (key === "down") return Number(x.rxBytes);
   if (key === "up") return Number(x.txBytes);
@@ -167,15 +173,16 @@ function patchRows(tbody, sorted, target) {
     const it = sorted[i], tr = tbody.children[i];
     if (!tr) continue;
     const total = Number(it.rxBytes) + Number(it.txBytes);
-    const nums = tr.querySelectorAll("td.num");
+    // Structural cell access — the row layout is fixed (rank, name, down, up,
+    // total), and querySelectorAll per row per tick was ~200 selector runs/s.
     // Only write when the formatted value actually changed: assigning identical
     // text still triggers a repaint of the tabular-nums cell every tick.
-    setText(nums[0], fmtBytes(it.rxBytes).str);
-    setText(nums[1], fmtBytes(it.txBytes).str);
-    setText(nums[2], fmtBytes(total).str);
+    setText(tr.cells[2], fmtBytes(it.rxBytes).str);
+    setText(tr.cells[3], fmtBytes(it.txBytes).str);
+    setText(tr.cells[4], fmtBytes(total).str);
     // Skip identical width writes: with the .45s width transition, rewriting
     // the same value every second kept the bars perpetually mid-animation.
-    const seg = tr.querySelectorAll(".usebar i");
+    const seg = tr.cells[1].lastElementChild.children;
     if (seg.length === 2) {
       const rxW = (100 * Number(it.rxBytes) / max).toFixed(1) + "%";
       const txW = (100 * Number(it.txBytes) / max).toFixed(1) + "%";
@@ -223,12 +230,20 @@ async function loadHistory(target, range) {
 
 function wireSort(target) {
   $(target).querySelectorAll("th[data-key]").forEach((thEl) => {
-    thEl.onclick = () => {
+    const apply = () => {
       const key = thEl.dataset.key;
       const s = sortState[target];
       if (s.key === key) s.dir *= -1; else { s.key = key; s.dir = key === "name" ? 1 : -1; }
-      if (rangeState[target] === "session") renderPanel(target);
+      if (rangeState[target] === "session") { liveSig[target] = ""; renderPanel(target); }
       else $(target).innerHTML = tableHTML(JSON.parse($(target).dataset.cache || "[]"), target), wireSort(target);
+      // Re-focus the same column's header after the rebuild so keyboard
+      // sorting doesn't dump focus back to the top of the page.
+      const again = $(target).querySelector(`th[data-key="${key}"]`);
+      if (again && document.activeElement === document.body) again.focus();
+    };
+    thEl.onclick = apply;
+    thEl.onkeydown = (e) => {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); apply(); }
     };
   });
 }
@@ -258,14 +273,35 @@ function countriesHTML(domains) {
     </div>`;
   }).join("");
 }
+// Signature on country order only; totals/bars are patched in place (the old
+// whole-markup signature embedded live byte counts, so it rebuilt every tick).
 let countriesSig = "";
 function renderCountries() {
   const el = $("countries"); // tolerate a stale cached HTML without this panel
   if (!el || rangeState.countries !== "session") return;
-  const html = countriesHTML(liveDomains);
-  // Skip rebuild when unchanged: countries re-derived the same table every
-  // second, restarting bar transitions and dropping hover.
-  if (html !== countriesSig) { el.innerHTML = html; countriesSig = html; }
+  const by = new Map();
+  (liveDomains || []).forEach((d) => {
+    const cc = d.country;
+    if (!cc) return;
+    const e = by.get(cc) || { cc, rx: 0, tx: 0, domains: 0 };
+    e.rx += Number(d.rxBytes) || 0; e.tx += Number(d.txBytes) || 0; e.domains++;
+    by.set(cc, e);
+  });
+  const list = [...by.values()].sort((a, b) => (b.rx + b.tx) - (a.rx + a.tx)).slice(0, 8);
+  const sig = list.map((c) => c.cc).join(",");
+  if (sig && sig === countriesSig && el.children.length === list.length) {
+    const max = Math.max(1, ...list.map((c) => c.rx + c.tx));
+    for (let i = 0; i < list.length; i++) {
+      const c = list[i], row = el.children[i];
+      setText(row.querySelector(".side-num"), fmtBytes(c.rx + c.tx).str);
+      const bar = row.querySelector(".mini-bar i");
+      const w = (100 * (c.rx + c.tx) / max).toFixed(1) + "%";
+      if (bar && bar.style.width !== w) bar.style.width = w;
+    }
+    return;
+  }
+  el.innerHTML = countriesHTML(liveDomains);
+  countriesSig = sig;
 }
 async function loadCountries(range) {
   const el = $("countries");
@@ -290,15 +326,20 @@ function connMatch(c, q) {
     (c.remoteIP || "").toLowerCase().includes(q) || String(c.remotePort).includes(q);
 }
 
-function connsHTML(list) {
-  let items = list || [];
+// connsView applies the search filter + display cap, shared by render and patch.
+function connsView() {
+  let items = connsList || [];
   const q = filterState.conns.toLowerCase();
   if (q) items = items.filter((c) => connMatch(c, q));
+  return { items: items.slice(0, 100), q };
+}
+
+function connsHTML(items, q) {
   if (!items.length) {
     return `<div class="state">${q ? t("state.noMatches", { q: esc(q) }) : t("state.noConns")}</div>`;
   }
   const max = Math.max(1, ...items.map((c) => Number(c.rxBytes) + Number(c.txBytes)));
-  const rows = items.slice(0, 100).map((c) => {
+  const rows = items.map((c) => {
     const total = Number(c.rxBytes) + Number(c.txBytes);
     const host = c.host || c.remoteIP;
     const ico = `<span class="cell-ico"><span class="swatch" style="background:${swatchColor(c.app)}"></span>` +
@@ -321,14 +362,37 @@ function connsHTML(list) {
   </tr></thead><tbody>${rows}</tbody></table>`;
 }
 
+// Signature on connection identity only (not the live byte counters — those
+// change every poll, which made the old whole-markup signature useless: the
+// 100-row table with an <img> per row rebuilt every 2s). When identities match,
+// patch the numbers and bar widths in place.
 let connsSig = "";
 function renderConns() {
   const el = $("conns");
   if (!el) return;
-  const html = connsHTML(connsList);
-  // Skip the rebuild when the rendered markup is identical — re-`innerHTML`ing
-  // 100 rows of <img> icons every refresh dropped hover and re-ran lazy-load.
-  if (html !== connsSig) { el.innerHTML = html; connsSig = html; }
+  const { items, q } = connsView();
+  const sig = items.map((c) => `${c.app}|${c.remoteIP}:${c.remotePort}|${c.proto}|${c.host || ""}`).join("~");
+  const tbody = el.querySelector("tbody");
+  if (tbody && sig === connsSig && tbody.children.length === items.length) {
+    const max = Math.max(1, ...items.map((c) => Number(c.rxBytes) + Number(c.txBytes)));
+    for (let i = 0; i < items.length; i++) {
+      const c = items[i], tr = tbody.children[i];
+      if (!tr) continue;
+      setText(tr.cells[3], fmtBytes(c.rxBytes).str);
+      setText(tr.cells[4], fmtBytes(c.txBytes).str);
+      setText(tr.cells[5], fmtBytes(Number(c.rxBytes) + Number(c.txBytes)).str);
+      const seg = tr.cells[1].lastElementChild.children;
+      if (seg.length === 2) {
+        const rxW = (100 * Number(c.rxBytes) / max).toFixed(1) + "%";
+        const txW = (100 * Number(c.txBytes) / max).toFixed(1) + "%";
+        if (seg[0].style.width !== rxW) seg[0].style.width = rxW;
+        if (seg[1].style.width !== txW) seg[1].style.width = txW;
+      }
+    }
+    return;
+  }
+  el.innerHTML = connsHTML(items, q);
+  connsSig = items.length ? sig : "";
 }
 
 async function refreshConnections() {
@@ -383,12 +447,22 @@ function netUsageHTML(list) {
   }).join("");
 }
 
+// Same identity-signature + in-place patch pattern as countries (5s poll).
 let netUsageSig = "";
 function renderNetUsage() {
   const el = $("netusage");
   if (!el) return;
-  const html = netUsageHTML(netUsage);
-  if (html !== netUsageSig) { el.innerHTML = html; netUsageSig = html; }
+  const nets = netUsage || [];
+  const sig = nets.map((n) => `${n.iface}|${n.tether ? 1 : 0}|${n.active ? 1 : 0}`).join(",");
+  if (sig && sig === netUsageSig && el.children.length === nets.length) {
+    for (let i = 0; i < nets.length; i++) {
+      setText(el.children[i].querySelector(".side-num"),
+        fmtBytes(Number(nets[i].rxBytes) + Number(nets[i].txBytes)).str);
+    }
+    return;
+  }
+  el.innerHTML = netUsageHTML(nets);
+  netUsageSig = sig;
 }
 
 async function loadNetUsage(range) {
@@ -623,6 +697,9 @@ let shareSig = "";
 function renderShare() {
   const wrap = $("share");
   if (!wrap) return;
+  // Session share only makes sense against the live view — under a day/week
+  // chart it reads as if it described that range.
+  if (chartMode !== "live") { wrap.hidden = true; shareSig = ""; return; }
   const tot = (x) => Number(x.rxBytes) + Number(x.txBytes);
   const sorted = [...liveApps].sort((a, b) => tot(b) - tot(a));
   const sum = sorted.reduce((a, x) => a + tot(x), 0);
@@ -788,6 +865,7 @@ document.querySelectorAll("#chart-tabs button").forEach((btn) => {
     } else {
       loadHistChart(chartMode);
     }
+    renderShare(); // hides the session-share strip on history ranges
   };
 });
 
@@ -1002,10 +1080,18 @@ function renderSnapshot(s) {
   if (chartMode === "live") drawChart(); // don't clobber a history view
 }
 
-// When the dashboard becomes visible again, immediately repaint from the latest
-// snapshot so it doesn't show a frame of stale data until the next tick.
+// Hidden window: close the SSE stream entirely — the daemon otherwise keeps
+// serializing a full 25-app+25-domain snapshot every second for a minimized
+// window, indefinitely. On re-show, refill the live buffer from /api/ratehist
+// (covers the gap), reconnect, and repaint from the last snapshot immediately.
 document.addEventListener("visibilitychange", () => {
-  if (!document.hidden && lastSnap) renderSnapshot(lastSnap);
+  if (document.hidden) {
+    if (es) { es.close(); es = null; }
+    return;
+  }
+  seedLive();
+  if (!es) connect();
+  if (lastSnap) renderSnapshot(lastSnap);
 });
 
 function sessionAge(iso) {
@@ -1035,6 +1121,8 @@ function reflectPaused(p) {
   if (b) {
     b.textContent = p ? t("btn.resume") : t("btn.pause");
     b.setAttribute("data-tip", p ? t("tip.resume") : t("tip.pause"));
+    // aria-label overrides content — keep it in sync or AT hears the old action.
+    b.setAttribute("aria-label", p ? t("tip.resume") : t("tip.pause"));
     b.classList.toggle("on", p);
   }
 }
@@ -1097,11 +1185,18 @@ function scheduleStale() {
 
 let es = null;
 function connect() {
+  if (es) return;
   setStatus("warn", t("status.connecting"));
   es = new EventSource(`${API}/api/live`);
   es.onopen = () => markFresh();
   es.onmessage = (e) => { markFresh(); try { onSnapshot(JSON.parse(e.data)); } catch (_) {} };
-  es.onerror = () => { setStatus("warn", t("status.reconnecting")); scheduleStale(); es.close(); setTimeout(connect, 2000); };
+  es.onerror = () => {
+    setStatus("warn", t("status.reconnecting"));
+    scheduleStale();
+    if (es) { es.close(); es = null; }
+    // Don't reconnect while hidden — visibilitychange reconnects on re-show.
+    setTimeout(() => { if (!document.hidden) connect(); }, 2000);
+  };
 }
 
 // keyboard shortcuts
@@ -1141,9 +1236,11 @@ async function loadVersion() {
 const drillState = { app: null, range: "today" };
 let drillCache = [], drillDomains = [];
 
+let drillPrevFocus = null; // restore focus to the opening row on close
 function openDrill(app) {
   drillState.app = app;
   drillState.range = "today";
+  drillPrevFocus = document.activeElement;
   $("drill-name").textContent = app;
   $("drill-name").title = app;
   document.querySelectorAll("#drill-tabs button").forEach((b) =>
@@ -1152,9 +1249,15 @@ function openDrill(app) {
   $("drill-totals").textContent = "";
   $("drill-domains").innerHTML = "";
   $("drill").classList.add("show");
+  $("drill-close").focus(); // move focus into the dialog (Tab stays inside view)
   loadDrill();
 }
-function closeDrill() { $("drill").classList.remove("show"); drillState.app = null; }
+function closeDrill() {
+  $("drill").classList.remove("show");
+  drillState.app = null;
+  if (drillPrevFocus && drillPrevFocus.focus) drillPrevFocus.focus();
+  drillPrevFocus = null;
+}
 
 async function loadDrill() {
   const app = drillState.app, range = drillState.range;
@@ -1267,6 +1370,12 @@ $("apps").addEventListener("click", (e) => {
   const tr = e.target.closest("tr[data-app]");
   if (tr) openDrill(tr.dataset.app);
 });
+// Keyboard path: rows are tabbable (tabindex=0); Enter/Space drills in.
+$("apps").addEventListener("keydown", (e) => {
+  if (e.key !== "Enter" && e.key !== " ") return;
+  const tr = e.target.closest && e.target.closest("tr[data-app]");
+  if (tr) { e.preventDefault(); openDrill(tr.dataset.app); }
+});
 document.querySelectorAll("#drill-tabs button").forEach((btn) => {
   btn.onclick = () => {
     document.querySelectorAll("#drill-tabs button").forEach((b) => b.classList.remove("active"));
@@ -1345,6 +1454,11 @@ $("reset-session").onclick = async () => {
 };
 
 // boot
+// Seed the panels so a cold start (or a daemon that isn't running) shows
+// loading placeholders instead of a blank main column.
+$("apps").innerHTML = skeletonTable();
+$("domains").innerHTML = skeletonTable();
+$("conns").innerHTML = `<div class="state">${t("state.waiting")}</div>`;
 seedLive(); // prefill the live chart from the daemon's recent history
 connect();
 loadSummary();

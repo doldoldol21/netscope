@@ -105,13 +105,26 @@
     return peek;
   }
 
+  // copyText extracts the value worth copying from a name cell: decorations
+  // (country flag, category chip) and the "· app" suffix are display-only, and
+  // any emoji that rides along in a label is stripped — pasting "🇺🇸 chatgpt.com
+  // · ChatGPT" into a terminal or a filter is never what anyone wants.
+  function copyText(target) {
+    const clone = target.cloneNode(true);
+    clone.querySelectorAll(".flag, .chip, small").forEach((n) => n.remove());
+    return clone.textContent
+      .replace(/[\u{1F1E6}-\u{1F1FF}\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}️]/gu, "")
+      .trim();
+  }
+
   function showPeek(target) {
-    const text = target.textContent.trim();
+    const text = copyText(target);
     if (!text) return;
     // The peek replaces the native tooltip; keep the title's info as a sub line.
     const title = target.getAttribute("title");
     if (title) { target.dataset.peekTitle = title; target.removeAttribute("title"); }
     const extra = target.dataset.peekTitle;
+    const small = target.querySelector("small");
 
     const p = peekEl();
     p.dataset.text = text;
@@ -120,12 +133,18 @@
     main.className = "pk-main";
     main.textContent = text;
     p.appendChild(main);
-    if (extra && extra !== text) {
+    const subText = [small ? small.textContent.replace(/^·\s*/, "") : "", extra && extra !== text ? extra : ""]
+      .filter(Boolean).join(" · ");
+    if (subText) {
       const sub = document.createElement("div");
       sub.className = "pk-sub";
-      sub.textContent = extra;
+      sub.textContent = subText;
       p.appendChild(sub);
     }
+    const hint = document.createElement("div");
+    hint.className = "pk-hint";
+    hint.textContent = typeof t === "function" ? t("peek.copyHint") : "click to copy";
+    p.appendChild(hint);
     p.style.display = "block";
     const r = target.getBoundingClientRect(), pr = p.getBoundingClientRect();
     let top = r.bottom + 6;
@@ -136,16 +155,24 @@
     peekTarget = target;
   }
 
+  // Truncated names peek immediately (the full text is information); full-width
+  // names peek after a beat, purely as a copy affordance — instant popups on
+  // every row hover would be noise.
+  let peekShowTimer = 0;
   document.addEventListener("mouseover", (e) => {
     const target = e.target.closest && e.target.closest(".label, .nm");
     if (!target) return;
     clearTimeout(peekHideTimer);
+    clearTimeout(peekShowTimer);
     if (target === peekTarget) return;
     if (target.scrollWidth > target.clientWidth + 1) showPeek(target);
-    else hidePeek();
+    else peekShowTimer = setTimeout(() => showPeek(target), 550);
   });
   document.addEventListener("mouseout", (e) => {
-    if (e.target.closest && e.target.closest(".label, .nm")) schedulePeekHide();
+    if (e.target.closest && e.target.closest(".label, .nm")) {
+      clearTimeout(peekShowTimer);
+      schedulePeekHide();
+    }
   });
   // Clicks outside the peek (it stops propagation) and scrolls dismiss it.
   document.addEventListener("click", (e) => {

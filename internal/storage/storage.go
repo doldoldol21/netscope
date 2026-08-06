@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/doldoldol21/netscope/pkg/types"
@@ -16,8 +17,9 @@ import (
 
 // Store is a handle to the netscope database.
 type Store struct {
-	db   *sql.DB
-	path string // db file path, for on-disk size accounting
+	db   *sql.DB // single-connection writer (flushes, maintenance)
+	rdb  *sql.DB // read-only pool for history queries; == db for :memory:
+	path string  // db file path, for on-disk size accounting
 }
 
 const schema = `
@@ -113,11 +115,30 @@ func openOnce(path string) (*Store, error) {
 	_, _ = db.Exec(`ALTER TABLE domain_samples ADD COLUMN country TEXT NOT NULL DEFAULT ''`)
 	// Cap the WAL's auto-checkpoint so it can't balloon between maintenance runs.
 	_, _ = db.Exec(`PRAGMA wal_autocheckpoint=1000`) // ~4MB of pages
-	return &Store{db: db, path: path}, nil
+
+	st := &Store{db: db, rdb: db, path: path}
+	// Separate read-only pool for history queries. With one shared connection,
+	// dashboard reads queued behind the engine's 10s flushes and any VACUUM —
+	// under WAL, readers don't block the writer (and vice versa), so give reads
+	// their own connections. :memory: can't be opened twice (a second connection
+	// would see a different empty DB), so tests fall back to the write handle.
+	if path != ":memory:" && !strings.Contains(path, "mode=memory") {
+		rdsn := fmt.Sprintf("file:%s?_pragma=busy_timeout(5000)&_pragma=query_only(1)", path)
+		if rdb, err := sql.Open("sqlite", rdsn); err == nil {
+			rdb.SetMaxOpenConns(3)
+			st.rdb = rdb
+		}
+	}
+	return st, nil
 }
 
 // Close closes the underlying database.
-func (s *Store) Close() error { return s.db.Close() }
+func (s *Store) Close() error {
+	if s.rdb != nil && s.rdb != s.db {
+		_ = s.rdb.Close()
+	}
+	return s.db.Close()
+}
 
 // FlushApps adds the per-app counters for the given bucket. Repeated flushes to
 // the same bucket accumulate rather than overwrite.
@@ -201,7 +222,7 @@ type IfaceUsage struct {
 // IfaceUsageAllSince returns per-interface totals for every interface with usage
 // on or after sinceDay (unix seconds at local midnight), most-used first.
 func (s *Store) IfaceUsageAllSince(sinceDay int64) ([]IfaceUsage, error) {
-	rows, err := s.db.Query(`
+	rows, err := s.rdb.Query(`
 		SELECT iface, SUM(rx), SUM(tx) FROM iface_usage
 		WHERE day >= ? GROUP BY iface ORDER BY SUM(rx)+SUM(tx) DESC`, sinceDay)
 	if err != nil {
@@ -221,7 +242,7 @@ func (s *Store) IfaceUsageAllSince(sinceDay int64) ([]IfaceUsage, error) {
 
 // Apps returns per-app totals over [since, until), ranked by total bytes.
 func (s *Store) Apps(since, until time.Time) ([]types.AppTraffic, error) {
-	rows, err := s.db.Query(`
+	rows, err := s.rdb.Query(`
 		SELECT app, MAX(path), SUM(rx), SUM(tx), MAX(conns)
 		FROM app_samples
 		WHERE bucket >= ? AND bucket < ?
@@ -245,7 +266,7 @@ func (s *Store) Apps(since, until time.Time) ([]types.AppTraffic, error) {
 
 // Domains returns per-domain totals over [since, until), ranked by total bytes.
 func (s *Store) Domains(since, until time.Time) ([]types.DomainStat, error) {
-	rows, err := s.db.Query(`
+	rows, err := s.rdb.Query(`
 		SELECT domain, MAX(app), SUM(rx), SUM(tx), MAX(category), MAX(country)
 		FROM domain_samples
 		WHERE bucket >= ? AND bucket < ?
@@ -270,7 +291,7 @@ func (s *Store) Domains(since, until time.Time) ([]types.DomainStat, error) {
 // DomainsForApp returns per-domain totals for a single app over [since, until),
 // ranked by total bytes — backs the dashboard's per-app drill-down.
 func (s *Store) DomainsForApp(app string, since, until time.Time) ([]types.DomainStat, error) {
-	rows, err := s.db.Query(`
+	rows, err := s.rdb.Query(`
 		SELECT domain, MAX(app), SUM(rx), SUM(tx), MAX(category), MAX(country)
 		FROM domain_samples
 		WHERE bucket >= ? AND bucket < ? AND app = ?
@@ -299,7 +320,7 @@ func (s *Store) TimeSeries(since, until time.Time, step time.Duration) ([]types.
 	if stepSec <= 0 {
 		stepSec = 60
 	}
-	rows, err := s.db.Query(`
+	rows, err := s.rdb.Query(`
 		SELECT (bucket / ?) * ? AS slot, SUM(rx), SUM(tx)
 		FROM app_samples
 		WHERE bucket >= ? AND bucket < ?
@@ -330,7 +351,7 @@ func (s *Store) AppTimeSeries(app string, since, until time.Time, step time.Dura
 	if stepSec <= 0 {
 		stepSec = 60
 	}
-	rows, err := s.db.Query(`
+	rows, err := s.rdb.Query(`
 		SELECT (bucket / ?) * ? AS slot, SUM(rx), SUM(tx)
 		FROM app_samples
 		WHERE bucket >= ? AND bucket < ? AND app = ?
@@ -394,6 +415,29 @@ func (s *Store) Checkpoint() {
 func (s *Store) Vacuum() error {
 	_, err := s.db.Exec(`VACUUM`)
 	return err
+}
+
+// VacuumIfWorthwhile vacuums only when enough of the file is dead space to
+// justify rewriting it. The hourly retention purge always frees *something*,
+// and unconditionally vacuuming after it rewrote the whole database every
+// hour — steady IO/battery burn for a few reclaimed KB. Threshold: free pages
+// exceed 20% of the file and at least ~8MB.
+func (s *Store) VacuumIfWorthwhile() error {
+	var freelist, pages, pageSize int64
+	if err := s.db.QueryRow(`PRAGMA freelist_count`).Scan(&freelist); err != nil {
+		return err
+	}
+	if err := s.db.QueryRow(`PRAGMA page_count`).Scan(&pages); err != nil {
+		return err
+	}
+	if err := s.db.QueryRow(`PRAGMA page_size`).Scan(&pageSize); err != nil {
+		return err
+	}
+	const minFreeBytes = 8 << 20
+	if pages == 0 || freelist*pageSize < minFreeBytes || freelist*5 < pages {
+		return nil
+	}
+	return s.Vacuum()
 }
 
 // EnforceSizeCap is the disk safety net: independent of time-based retention, it
