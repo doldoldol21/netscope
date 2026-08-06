@@ -697,7 +697,7 @@ function drawChart() {
 
   // gridlines + y labels — the left padding is sized to the widest label
   // (a fixed 52px clipped e.g. "1.50 MB/s"); hover math reuses it via chartPadL.
-  g.font = "10px " + tvar("--mono");
+  g.font = "11px " + tvar("--mono");
   const yLabels = [0, 1, 2, 3, 4].map((i) => fmtRate(top * (1 - i / 4)));
   const padL = yAxisPad(g, yLabels);
   chartPadL = padL;
@@ -833,14 +833,14 @@ function drawHistChart() {
   const cTx = tvar("--tx");
   const padB = 18, padT = 8, padR = 6;
   if (!histPoints.length) {
-    g.fillStyle = cMuted; g.font = "12px " + tvar("--sans");
+    g.fillStyle = cMuted; g.font = "13px " + tvar("--sans");
     g.textAlign = "center"; g.textBaseline = "middle";
     g.fillText(t("state.noTrafficRange"), w / 2, h / 2);
     return;
   }
   const peak = Math.max(1, ...histPoints.map((p) => Math.max(Number(p.rxBytes), Number(p.txBytes))));
   const top = niceMax(peak);
-  g.font = "10px " + tvar("--mono");
+  g.font = "11px " + tvar("--mono");
   const yLabels = [0, 1, 2, 3, 4].map((i) => fmtBytes(top * (1 - i / 4)).str);
   const padL = yAxisPad(g, yLabels);
   chartPadL = padL;
@@ -1219,7 +1219,7 @@ function drawDrillChart(points) {
   const cRx = tvar("--rx");
   const cTx = tvar("--tx");
   if (!points.length) {
-    g.fillStyle = cMuted; g.font = "12px " + tvar("--sans");
+    g.fillStyle = cMuted; g.font = "13px " + tvar("--sans");
     g.textAlign = "center"; g.textBaseline = "middle";
     g.fillText(t("state.noTrafficRange"), w / 2, h / 2);
     return;
@@ -1227,7 +1227,7 @@ function drawDrillChart(points) {
   const padB = 4, padT = 8, padR = 6;
   const peak = Math.max(1, ...points.map((p) => Math.max(Number(p.rxBytes), Number(p.txBytes))));
   const top = niceMax(peak);
-  g.font = "10px " + tvar("--mono");
+  g.font = "11px " + tvar("--mono");
   const yLabels = [0, 1, 2, 3, 4].map((i) => fmtBytes(top * (1 - i / 4)).str);
   const padL = yAxisPad(g, yLabels);
   const plotW = w - padL - padR, plotH = h - padT - padB;
