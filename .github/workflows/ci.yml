@@ -30,6 +30,22 @@ jobs:
         run: go build ./...
       - name: test
         run: go test -race ./...
+      # The stored history is keyed by local midnight, so the storage layer is
+      # timezone-sensitive by construction: a shipped release once mis-keyed a
+      # whole backfill because Go and SQLite disagreed about what "midnight"
+      # meant. These zones cover a negative offset with DST, a positive one, no
+      # offset, and a half-hour offset with a 30-minute DST shift.
+      - name: test storage across timezones
+        run: |
+          # Havana/Santiago/Beirut/Cairo shift AT midnight (that local day has no
+          # 00:00), Lord_Howe and Chatham shift by 30 or 45 minutes, New_York has
+          # the 25-hour fall-back day that once double-counted an hour.
+          for tz in America/New_York America/Havana America/Santiago Asia/Beirut \
+                    Africa/Cairo Australia/Lord_Howe Pacific/Chatham \
+                    Europe/Berlin UTC Asia/Seoul; do
+            echo "== TZ=$tz"
+            TZ=$tz go test -count=1 ./internal/storage/ ./internal/engine/ ./internal/api/ || exit 1
+          done
 
   linux:
     # Cross-platform sanity: pure Go packages compile and pass tests on Linux.

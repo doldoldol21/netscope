@@ -193,7 +193,8 @@ func (s *Store) FlushApps(bucket int64, apps []types.AppTraffic) error {
 			rx    = rx + excluded.rx,
 			tx    = tx + excluded.tx,
 			conns = MAX(conns, excluded.conns),
-			path  = excluded.path`)
+			-- A flush whose resolver came up empty must not erase a known path.
+			path  = CASE WHEN excluded.path != '' THEN excluded.path ELSE path END`)
 	if err != nil {
 		return err
 	}
@@ -207,7 +208,8 @@ func (s *Store) FlushApps(bucket int64, apps []types.AppTraffic) error {
 			rx    = rx + excluded.rx,
 			tx    = tx + excluded.tx,
 			conns = MAX(conns, excluded.conns),
-			path  = excluded.path`)
+			-- A flush whose resolver came up empty must not erase a known path.
+			path  = CASE WHEN excluded.path != '' THEN excluded.path ELSE path END`)
 	if err != nil {
 		return err
 	}
@@ -224,12 +226,61 @@ func (s *Store) FlushApps(bucket int64, apps []types.AppTraffic) error {
 	return tx.Commit()
 }
 
+// Day boundaries come from Go's calendar and nowhere else. The rollups were
+// first written with a parallel SQL expression for "local midnight", and the
+// two disagreed twice: once by the whole UTC offset (a formatting bug that
+// shipped in v0.19.0), and again in zones whose DST jump happens AT midnight,
+// where 00:00 doesn't exist on the transition day. Arithmetic on 86400 has the
+// same problem — DST days are 23 or 25 hours long. So every day key and every
+// day boundary below is computed with dayStart/nextDay.
+
+// repairRollupKeys wipes the rollups when any stored key isn't a real local
+// midnight, so the backfill rebuilds them. That covers databases written by
+// v0.19.0 and machines whose timezone has changed since the rows were written
+// (their old keys are no longer midnights, and would otherwise sit alongside
+// correctly-keyed rows and be counted twice).
+func repairRollupKeys(db *sql.DB) error {
+	for _, t := range []string{"app_daily", "domain_daily"} {
+		rows, err := db.Query(`SELECT DISTINCT day FROM ` + t)
+		if err != nil {
+			return err
+		}
+		bad := 0
+		for rows.Next() {
+			var day int64
+			if err := rows.Scan(&day); err != nil {
+				rows.Close()
+				return err
+			}
+			if day != dayStart(day) {
+				bad++
+			}
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		if bad == 0 {
+			continue
+		}
+		log.Printf("storage: rebuilding daily rollups (%d day keys in %s are not local midnights)", bad, t)
+		for _, w := range []string{"app_daily", "domain_daily"} {
+			if _, err := db.Exec(`DELETE FROM ` + w); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	return nil
+}
+
 // backfillDaily fills the rollup tables from the raw samples when they're empty
-// (a database written before rollups existed). It runs once: afterwards the
-// flush path keeps them current. Local midnight is computed in SQL via
-// unixepoch(..., 'unixepoch', 'localtime', 'start of day') so the keys match
-// localMidnight exactly, DST included.
+// (a database written before rollups existed, or one just repaired above). It
+// runs once: afterwards the flush path keeps them current.
 func backfillDaily(db *sql.DB) error {
+	if err := repairRollupKeys(db); err != nil {
+		return err
+	}
 	for _, m := range []struct{ daily, samples, cols, group string }{
 		{"app_daily", "app_samples",
 			"day, app, path, rx, tx, conns",
@@ -245,29 +296,147 @@ func backfillDaily(db *sql.DB) error {
 		if n > 0 {
 			continue // already rolled up
 		}
-		var agg string
-		if m.daily == "app_daily" {
-			agg = `SELECT unixepoch(bucket, 'unixepoch', 'localtime', 'start of day') AS day,
-				app, MAX(path), SUM(rx), SUM(tx), MAX(conns) FROM app_samples GROUP BY day, app`
-		} else {
-			agg = `SELECT unixepoch(bucket, 'unixepoch', 'localtime', 'start of day') AS day,
-				domain, app, SUM(rx), SUM(tx), MAX(category), MAX(country) FROM domain_samples
-				GROUP BY day, domain, app`
-		}
-		if _, err := db.Exec(`INSERT INTO ` + m.daily + ` (` + m.cols + `) ` + agg); err != nil {
+		// Rebuild a day at a time with boundaries computed in Go, so the keys are
+		// identical to the ones the flush path writes even on DST days.
+		var lo, hi sql.NullInt64
+		if err := db.QueryRow(`SELECT MIN(bucket), MAX(bucket) FROM `+m.samples).Scan(&lo, &hi); err != nil {
 			return err
+		}
+		if !lo.Valid {
+			continue // no samples to roll up
+		}
+		for day := dayStart(lo.Int64); day <= hi.Int64; day = nextDay(day) {
+			if err := rebuildDay(db, m.daily, m.cols, day); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
 }
 
-// localMidnight floors a unix timestamp to local midnight — the day key shared
-// by iface_usage and the rollup tables (and by the API's "today" range).
-func localMidnight(unix int64) int64 {
+// rebuildDay recomputes one rollup day from the samples that fall inside it.
+// Both bounds are Go-computed, so a 23- or 25-hour DST day is covered exactly.
+func rebuildDay(db *sql.DB, daily, cols string, day int64) error {
+	end := nextDay(day)
+	// One transaction: the engine flushes every few seconds on the same handle,
+	// and a flush landing between the delete and the insert would either be
+	// erased or collide with the rebuilt row's primary key. The upsert covers
+	// the same race from the other side.
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`DELETE FROM `+daily+` WHERE day = ?`, day); err != nil {
+		return err
+	}
+	var q string
+	if daily == "app_daily" {
+		q = `INSERT INTO app_daily (day, app, path, rx, tx, conns)
+			SELECT ?, app, MAX(path), SUM(rx), SUM(tx), MAX(conns) FROM app_samples
+			WHERE bucket >= ? AND bucket < ? GROUP BY app
+			ON CONFLICT(day, app) DO UPDATE SET
+				rx = excluded.rx, tx = excluded.tx, conns = excluded.conns, path = excluded.path`
+	} else {
+		q = `INSERT INTO domain_daily (day, domain, app, rx, tx, category, country)
+			SELECT ?, domain, app, SUM(rx), SUM(tx), MAX(category), MAX(country) FROM domain_samples
+			WHERE bucket >= ? AND bucket < ? GROUP BY domain, app
+			ON CONFLICT(day, domain, app) DO UPDATE SET
+				rx = excluded.rx, tx = excluded.tx,
+				category = excluded.category, country = excluded.country`
+	}
+	if _, err := tx.Exec(q, day, day, end); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// VerifyRollups re-checks the last `days` local days: for each one it compares
+// the rollup's totals against the raw samples and rebuilds any day that
+// disagrees. The rollup is what the dashboard's ranked lists are read from, so
+// a divergence would show wrong numbers with nothing to notice it — this makes
+// the database self-correcting instead of trusting that every write path stays
+// in step forever. Bounded to a few days so it stays cheap enough to run from
+// the hourly maintenance pass. Reports whether anything was repaired.
+func (s *Store) VerifyRollups(days int) (bool, error) {
+	if days <= 0 {
+		days = 3
+	}
+	repaired := false
+	for _, m := range []struct{ daily, samples, cols string }{
+		{"app_daily", "app_samples", "day, app, path, rx, tx, conns"},
+		{"domain_daily", "domain_samples", "day, domain, app, rx, tx, category, country"},
+	} {
+		// Orphans first: rollup days with no samples left behind them (retention
+		// or the size cap dropped the samples). They are invisible to a
+		// samples-driven comparison, and would keep inflating the ranked lists
+		// while the chart — which reads the samples — showed the truth.
+		var oldest sql.NullInt64
+		if err := s.db.QueryRow(`SELECT MIN(bucket) FROM ` + m.samples).Scan(&oldest); err != nil {
+			return repaired, err
+		}
+		cut := int64(0)
+		if oldest.Valid {
+			cut = dayStart(oldest.Int64)
+		}
+		res, err := s.db.Exec(`DELETE FROM `+m.daily+` WHERE day < ?`, cut)
+		if err != nil {
+			return repaired, err
+		}
+		if n, _ := res.RowsAffected(); n > 0 {
+			log.Printf("storage: dropped %d orphaned %s rows (their samples are gone)", n, m.daily)
+			repaired = true
+		}
+
+		// Then the recent days, one at a time, against the samples they came from.
+		day := dayStart(nowFn().Unix())
+		for i := 0; i < days; i++ {
+			end := nextDay(day)
+			var srx, stx, rrx, rtx uint64
+			if err := s.db.QueryRow(`SELECT IFNULL(SUM(rx),0), IFNULL(SUM(tx),0) FROM `+m.samples+
+				` WHERE bucket >= ? AND bucket < ?`, day, end).Scan(&srx, &stx); err != nil {
+				return repaired, err
+			}
+			if err := s.db.QueryRow(`SELECT IFNULL(SUM(rx),0), IFNULL(SUM(tx),0) FROM `+m.daily+
+				` WHERE day = ?`, day).Scan(&rrx, &rtx); err != nil {
+				return repaired, err
+			}
+			if srx != rrx || stx != rtx {
+				log.Printf("storage: %s day %s out of step (rollup %d/%d, samples %d/%d) — rebuilding",
+					m.daily, time.Unix(day, 0).Format("2006-01-02"), rrx, rtx, srx, stx)
+				if err := rebuildDay(s.db, m.daily, m.cols, day); err != nil {
+					return repaired, err
+				}
+				repaired = true
+			}
+			day = prevDay(day)
+		}
+	}
+	return repaired, nil
+}
+
+// dayStart floors a unix timestamp to local midnight — the day key shared by
+// iface_usage and the rollup tables (and by the API's "today" range).
+func dayStart(unix int64) int64 {
 	t := time.Unix(unix, 0)
 	y, m, d := t.Date()
 	return time.Date(y, m, d, 0, 0, 0, 0, t.Location()).Unix()
 }
+
+// nextDay / prevDay step by calendar days, not by 86400 seconds: DST days are
+// 23 or 25 hours long, and in a few zones the transition happens at midnight,
+// so the local day can start at 01:00 or 23:00 the evening before.
+func nextDay(unix int64) int64 { return addDays(unix, 1) }
+func prevDay(unix int64) int64 { return addDays(unix, -1) }
+
+func addDays(unix int64, n int) int64 {
+	t := time.Unix(unix, 0)
+	y, m, d := t.Date()
+	return time.Date(y, m, d+n, 0, 0, 0, 0, t.Location()).Unix()
+}
+
+// localMidnight is retained for callers outside the rollup path.
+func localMidnight(unix int64) int64 { return dayStart(unix) }
 
 // FlushDomains adds the per-domain counters for the given bucket.
 func (s *Store) FlushDomains(bucket int64, domains []types.DomainStat) error {
@@ -284,7 +453,13 @@ func (s *Store) FlushDomains(bucket int64, domains []types.DomainStat) error {
 		VALUES (?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(bucket, domain, app) DO UPDATE SET
 			rx = rx + excluded.rx,
-			tx = tx + excluded.tx`)
+			tx = tx + excluded.tx,
+			-- Category/country are often learned a flush or two after the first
+			-- packet. Keep them once known and never overwrite with a blank —
+			-- the rollup already did this, so without it the same domain showed
+			-- a country on week ranges and none on hour ranges.
+			category = CASE WHEN excluded.category != '' THEN excluded.category ELSE category END,
+			country  = CASE WHEN excluded.country  != '' THEN excluded.country  ELSE country  END`)
 	if err != nil {
 		return err
 	}
@@ -361,25 +536,47 @@ func (s *Store) IfaceUsageAllSince(sinceDay int64) ([]IfaceUsage, error) {
 // almost never fire. When there isn't a whole day inside, everything collapses
 // onto the sample path (dayFrom == dayTo == since leaves both edge windows
 // covering the full range).
-func splitRange(since, until time.Time) (dayFrom, dayTo int64) {
-	s, u := since.Unix(), until.Unix()
-	dayFrom = localMidnight(s)
-	if dayFrom < s { // partial first day: the rollup starts at the next midnight
-		dayFrom = localMidnight(s + 86400)
+func (s *Store) splitRange(since, until time.Time) (dayFrom, dayTo int64) {
+	from, to := since.Unix(), until.Unix()
+	dayFrom = dayStart(from)
+	if dayFrom < from { // partial first day: the rollup starts at the next midnight
+		dayFrom = nextDay(from)
 	}
-	dayTo = localMidnight(u)
+	dayTo = dayStart(to)
+	// The last, partial day can come from the rollup too — but only when the
+	// range truly reaches the end of the data. The rollup row holds the whole
+	// day, so using it for a range that stops earlier would count bytes
+	// recorded after `until`. Ask the data, not the clock: if no sample exists
+	// at or after `until`, the row and the window contain exactly the same
+	// bytes. (Guessing with a grace period got this wrong; see the audit test.)
+	if s.noSamplesAtOrAfter(to) {
+		dayTo = nextDay(to)
+	}
 	if dayTo <= dayFrom {
-		return s, s
+		return from, from
 	}
 	return dayFrom, dayTo
 }
+
+// noSamplesAtOrAfter reports whether the sample tables are empty from ts
+// onwards — an indexed existence probe, not a scan.
+func (s *Store) noSamplesAtOrAfter(ts int64) bool {
+	var one int
+	err := s.rdb.QueryRow(`
+		SELECT 1 WHERE EXISTS (SELECT 1 FROM app_samples    WHERE bucket >= ?1)
+		            OR EXISTS (SELECT 1 FROM domain_samples WHERE bucket >= ?1)`, ts).Scan(&one)
+	return err == sql.ErrNoRows
+}
+
+// nowFn is time.Now, overridable in tests.
+var nowFn = time.Now
 
 // Apps returns per-app totals over [since, until), ranked by total bytes.
 // Whole days come from the daily rollup and only the partial edges touch the
 // raw samples: aggregating a week of 10s buckets took ~600ms and grew with
 // retention, while the rollup answers the same question in ~15ms.
 func (s *Store) Apps(since, until time.Time) ([]types.AppTraffic, error) {
-	dayFrom, dayTo := splitRange(since, until)
+	dayFrom, dayTo := s.splitRange(since, until)
 	rows, err := s.rdb.Query(`
 		SELECT app, MAX(path), SUM(rx), SUM(tx), MAX(conns) FROM (
 			SELECT app, path, rx, tx, conns FROM app_daily
@@ -412,7 +609,7 @@ func (s *Store) Apps(since, until time.Time) ([]types.AppTraffic, error) {
 // Domains returns per-domain totals over [since, until), ranked by total bytes.
 // Whole days come from the daily rollup (see Apps).
 func (s *Store) Domains(since, until time.Time) ([]types.DomainStat, error) {
-	dayFrom, dayTo := splitRange(since, until)
+	dayFrom, dayTo := s.splitRange(since, until)
 	rows, err := s.rdb.Query(`
 		SELECT domain, MAX(app), SUM(rx), SUM(tx), MAX(category), MAX(country) FROM (
 			SELECT domain, app, rx, tx, category, country FROM domain_daily
@@ -445,7 +642,7 @@ func (s *Store) Domains(since, until time.Time) ([]types.DomainStat, error) {
 // DomainsForApp returns per-domain totals for a single app over [since, until),
 // ranked by total bytes — backs the dashboard's per-app drill-down.
 func (s *Store) DomainsForApp(app string, since, until time.Time) ([]types.DomainStat, error) {
-	dayFrom, dayTo := splitRange(since, until)
+	dayFrom, dayTo := s.splitRange(since, until)
 	rows, err := s.rdb.Query(`
 		SELECT domain, MAX(app), SUM(rx), SUM(tx), MAX(category), MAX(country) FROM (
 			SELECT domain, app, rx, tx, category, country FROM domain_daily
@@ -549,15 +746,22 @@ func (s *Store) Purge(before time.Time) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	// Rollup rows are keyed by the day they cover, so drop whole days that fall
-	// entirely before the cutoff — otherwise ranked history would outlive the
-	// retention window the raw samples obey.
-	day := localMidnight(cut)
-	if _, err := s.db.Exec(`DELETE FROM app_daily WHERE day < ?`, day); err != nil {
-		return false, err
-	}
-	if _, err := s.db.Exec(`DELETE FROM domain_daily WHERE day < ?`, day); err != nil {
-		return false, err
+	// Rollups follow the samples exactly. Days entirely before the cutoff go;
+	// the day the cutoff lands inside kept some samples and lost others, so it
+	// is recomputed rather than left holding the deleted bytes.
+	day := dayStart(cut)
+	for _, t := range []struct{ daily, cols string }{
+		{"app_daily", "day, app, path, rx, tx, conns"},
+		{"domain_daily", "day, domain, app, rx, tx, category, country"},
+	} {
+		if _, err := s.db.Exec(`DELETE FROM `+t.daily+` WHERE day < ?`, day); err != nil {
+			return false, err
+		}
+		if cut > day { // partial day at the boundary
+			if err := rebuildDay(s.db, t.daily, t.cols, day); err != nil {
+				return false, err
+			}
+		}
 	}
 	n1, _ := r1.RowsAffected()
 	n2, _ := r2.RowsAffected()
@@ -632,18 +836,21 @@ func (s *Store) EnforceSizeCap(maxBytes int64) (bool, error) {
 		if !oldest.Valid {
 			break // table empty; can't shrink further by deleting rows
 		}
-		cut := oldest.Int64 + 86400 // drop the oldest day
+		// Drop the oldest *whole local day*, so samples and rollups always cut at
+		// the same boundary. (Adding 86400 seconds cut mid-day on DST days and
+		// stranded that day's rollup row, which then inflated the ranked lists
+		// while the chart, read from the samples, showed the truth.)
+		cut := nextDay(oldest.Int64)
 		if _, err := s.db.Exec(`DELETE FROM app_samples WHERE bucket < ?`, cut); err != nil {
 			return deleted, err
 		}
 		if _, err := s.db.Exec(`DELETE FROM domain_samples WHERE bucket < ?`, cut); err != nil {
 			return deleted, err
 		}
-		day := localMidnight(cut)
-		if _, err := s.db.Exec(`DELETE FROM app_daily WHERE day < ?`, day); err != nil {
+		if _, err := s.db.Exec(`DELETE FROM app_daily WHERE day < ?`, cut); err != nil {
 			return deleted, err
 		}
-		if _, err := s.db.Exec(`DELETE FROM domain_daily WHERE day < ?`, day); err != nil {
+		if _, err := s.db.Exec(`DELETE FROM domain_daily WHERE day < ?`, cut); err != nil {
 			return deleted, err
 		}
 		deleted = true
