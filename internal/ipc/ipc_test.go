@@ -4,6 +4,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -70,5 +71,39 @@ func TestReverseProxyOverSocket(t *testing.T) {
 	body, _ := io.ReadAll(resp.Body)
 	if string(body) != "pong" {
 		t.Fatalf("proxied body = %q, want pong", body)
+	}
+}
+
+func TestListenSingleInstance(t *testing.T) {
+	sock := filepath.Join(t.TempDir(), "one.sock")
+	ln, err := Listen(sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	// A second daemon on the same socket path must refuse to start.
+	if _, err := Listen(sock); err == nil {
+		t.Fatal("second Listen on the same path must fail while the first instance holds the lock")
+	}
+}
+
+func TestCloseLeavesSocketFileForSuccessor(t *testing.T) {
+	// Short tempdir: t.TempDir() embeds the test name and overflows the 104-byte
+	// sun_path limit for unix sockets on macOS.
+	dir, err := os.MkdirTemp("", "ns")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	sock := filepath.Join(dir, "keep.sock")
+	ln, lerr := Listen(sock)
+	if lerr != nil {
+		t.Fatal(lerr)
+	}
+	ln.Close()
+	// Closing must NOT unlink the path: a superseded instance shutting down
+	// would otherwise delete the socket a newer daemon re-bound at this path.
+	if _, err := os.Stat(sock); err != nil {
+		t.Fatalf("socket file must survive listener Close, got %v", err)
 	}
 }
