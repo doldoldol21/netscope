@@ -19,6 +19,10 @@ const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&l
 // setText assigns textContent only when it changed, avoiding a needless repaint
 // of cells that re-render the same value each snapshot.
 const setText = (el, s) => { if (el && el.textContent !== s) el.textContent = s; };
+// Same idea for attributes and innerHTML: rewriting an identical value still
+// replaces nodes / dirties style, which reads as a flicker on a 1 Hz update.
+const setAttr = (el, name, v) => { if (el && el.getAttribute(name) !== v) el.setAttribute(name, v); };
+const setHTML = (el, html) => { if (el && el.innerHTML !== html) el.innerHTML = html; };
 
 // stable color per name
 function hueOf(s) {
@@ -96,7 +100,9 @@ function tableHTML(items, target) {
     const name = isApps ? (it.name || "unknown") : it.domain;
     const sub = isApps ? "" : (it.appName && it.appName !== "unknown" ? ` <small>· ${esc(it.appName)}</small>` : "");
     const cat = (!isApps && it.category) ? ` <span class="chip">${esc(it.category)}</span>` : "";
-    const rowAttr = isApps ? ` data-app="${esc(name)}" class="clickable" tabindex="0" role="button" aria-label="${esc(name)}"` : "";
+    // data-k keys the row for in-place reordering (see reorderRows).
+    const rowAttr = ` data-k="${esc(name)}"` +
+      (isApps ? ` data-app="${esc(name)}" class="clickable" tabindex="0" role="button" aria-label="${esc(name)}"` : "");
     // Apps show their real macOS icon (served by /appicon, resolved via
     // NSWorkspace); the colored dot stays underneath as the fallback when no
     // icon resolves (the <img> removes itself on error).
@@ -135,9 +141,28 @@ function sortVal(x, key) {
   return Number(x.rxBytes) + Number(x.txBytes);
 }
 
-// liveSig remembers the row identity+order so we can patch values in place when
-// nothing structural changed — avoiding a full innerHTML rebuild every second
-// (which thrashed layout, dropped hover, and made the live view feel choppy).
+// reorderRows moves existing <tr> nodes into the given key order. Ranking
+// changes constantly under live traffic, and rebuilding the table for a reorder
+// re-created every app-icon <img> and dropped hover/focus — the flicker. Moving
+// nodes keeps them (and their loaded images, transitions and hover state) alive.
+// Returns false when a key is missing, so the caller falls back to a rebuild.
+function reorderRows(tbody, keys) {
+  const byKey = new Map();
+  for (const tr of tbody.children) byKey.set(tr.dataset.k, tr);
+  let prev = null;
+  for (const k of keys) {
+    const el = byKey.get(k);
+    if (!el) return false;
+    const target = prev ? prev.nextSibling : tbody.firstChild;
+    if (el !== target) tbody.insertBefore(el, target);
+    prev = el;
+  }
+  return true;
+}
+
+// liveSig remembers which rows are present (order-independent) so a re-rank
+// reorders nodes instead of rebuilding the table; only a changed row *set*
+// (or sort key) rebuilds.
 const liveSig = { apps: "", domains: "" };
 function renderPanel(target) {
   if (rangeState[target] !== "session") return; // history handled by loadHistory
@@ -154,14 +179,16 @@ function renderPanel(target) {
     const av = sortVal(a, s.key), bv = sortVal(b, s.key);
     return (av < bv ? -1 : av > bv ? 1 : 0) * s.dir;
   }).slice(0, 50);
-  const sig = sorted.map((x) => (isApps ? (x.name || "unknown") : x.domain)).join("|") + "#" + s.key + s.dir;
+  const keys = sorted.map((x) => (isApps ? (x.name || "unknown") : x.domain));
+  const sig = [...keys].sort().join("|") + "#" + s.key + s.dir; // set, not order
   const el = $(target);
   const tbody = el.querySelector("tbody");
-  if (tbody && liveSig[target] === sig && tbody.children.length === sorted.length) {
-    patchRows(tbody, sorted, target); // same rows: just update numbers + bar widths
+  if (tbody && liveSig[target] === sig && tbody.children.length === sorted.length &&
+      reorderRows(tbody, keys)) {
+    patchRows(tbody, sorted, target); // same rows: reordered, then values patched
     return;
   }
-  el.innerHTML = tableHTML(items, target); // structure changed: rebuild
+  el.innerHTML = tableHTML(items, target); // row set changed: rebuild
   wireSort(target);
   liveSig[target] = sig;
 }
@@ -177,6 +204,7 @@ function patchRows(tbody, sorted, target) {
     // total), and querySelectorAll per row per tick was ~200 selector runs/s.
     // Only write when the formatted value actually changed: assigning identical
     // text still triggers a repaint of the tabular-nums cell every tick.
+    setText(tr.cells[0], String(i + 1)); // rank follows the reorder
     setText(tr.cells[2], fmtBytes(it.rxBytes).str);
     setText(tr.cells[3], fmtBytes(it.txBytes).str);
     setText(tr.cells[4], fmtBytes(total).str);
@@ -345,7 +373,7 @@ function connsHTML(items, q) {
     const ico = `<span class="cell-ico"><span class="swatch" style="background:${swatchColor(c.app)}"></span>` +
       `<img class="app-ico" alt="" loading="lazy" onerror="this.remove()" ` +
       `src="/appicon?path=${encodeURIComponent(c.path || "")}&name=${encodeURIComponent(c.app || "")}"></span>`;
-    return `<tr>
+    return `<tr data-k="${esc(c.app + "|" + c.remoteIP + ":" + c.remotePort + "|" + c.proto)}">
       <td><div class="cell-name">${ico}<span class="label" title="${esc(c.app)}">${esc(c.app || "unknown")}</span></div></td>
       <td><div class="cell-name"><span class="flag">${flagEmoji(c.country)}</span>
         <span class="label" title="${esc(host)}:${c.remotePort}">${esc(host)}<small>:${c.remotePort}</small></span></div>
@@ -371,9 +399,11 @@ function renderConns() {
   const el = $("conns");
   if (!el) return;
   const { items, q } = connsView();
-  const sig = items.map((c) => `${c.app}|${c.remoteIP}:${c.remotePort}|${c.proto}|${c.host || ""}`).join("~");
+  const keys = items.map((c) => `${c.app}|${c.remoteIP}:${c.remotePort}|${c.proto}`);
+  const sig = [...keys].sort().join("~"); // set, not order — a re-rank reorders
   const tbody = el.querySelector("tbody");
-  if (tbody && sig === connsSig && tbody.children.length === items.length) {
+  if (tbody && sig === connsSig && tbody.children.length === items.length &&
+      reorderRows(tbody, keys)) {
     const max = Math.max(1, ...items.map((c) => Number(c.rxBytes) + Number(c.txBytes)));
     for (let i = 0; i < items.length; i++) {
       const c = items[i], tr = tbody.children[i];
@@ -391,7 +421,7 @@ function renderConns() {
     }
     return;
   }
-  el.innerHTML = connsHTML(items, q);
+  setHTML(el, connsHTML(items, q));
   connsSig = items.length ? sig : "";
 }
 
@@ -514,13 +544,18 @@ function planViewHTML(p) {
   const scope = cfg.iface
     ? (counted[0] && counted[0].friendly) || cfg.iface
     : counted.length ? counted.map((n) => n.friendly || n.iface).join(", ") : t("plan.scopeFallback");
-  const bits = [t("plan.left", { v: fmtBytes(st.remainingBytes).str })];
-  if (st.daysLeft > 0) bits.push(tn("plan.day1", "plan.dayN", st.daysLeft, { date: fmtDate(st.cycleEnd) }));
+  // Label/value rows rather than one long sentence: in a 248px sidebar the
+  // run-on version wrapped into four lines of dense mono that nobody could scan.
+  const over = st.projectedBytes > st.limitBytes;
+  const rows = [
+    [t("plan.rowLeft"), fmtBytes(st.remainingBytes).str +
+      (st.daysLeft > 0 ? " · " + tn("plan.days1", "plan.daysN", st.daysLeft) : ""), ""],
+  ];
   if (st.projectedBytes > 0) {
-    const over = st.projectedBytes > st.limitBytes;
-    bits.push(`${over ? "⚠ " : ""}${t("plan.projected", { v: fmtBytes(st.projectedBytes).str })}`);
+    rows.push([t("plan.rowProjected"),
+      (over ? "⚠ " : "") + fmtBytes(st.projectedBytes).str, over ? "over" : ""]);
   }
-  bits.push(t("plan.cycleFrom", { date: fmtDate(st.cycleStart) }));
+  rows.push([t("plan.rowCycle"), `${fmtDate(st.cycleStart)} – ${fmtDate(st.cycleEnd)}`, ""]);
   const used = fmtBytes(st.usedBytes);
   return `<div class="plan-card">
     <div class="plan-head">
@@ -533,7 +568,8 @@ function planViewHTML(p) {
       <span class="plan-of">${used.unit} ${t("plan.of", { v: fmtBytes(st.limitBytes).str })}</span>
     </div>
     <div class="plan-bar ${level}"><i style="width:${Math.min(100, pct).toFixed(1)}%"></i></div>
-    <div class="plan-sub">${esc(bits.join(" · "))}</div>
+    <dl class="plan-rows">${rows.map(([k, v, cls]) =>
+      `<dt>${esc(k)}</dt><dd class="${cls}">${esc(v)}</dd>`).join("")}</dl>
   </div>`;
 }
 
@@ -681,8 +717,8 @@ async function loadSummary() {
   try {
     const s = await fetchWithRetry(`${API}/api/summary?range=today`);
     const total = fmtBytes(Number(s.totalRx) + Number(s.totalTx));
-    $("c-total").innerHTML = `<span class="n">${total.num}</span><span class="u">${total.unit}</span>`;
-    $("c-total-sub").innerHTML = `<span class="rx">↓ ${fmtBytes(s.totalRx).str}</span><span class="tx">↑ ${fmtBytes(s.totalTx).str}</span>`;
+    setHTML($("c-total"), `<span class="n">${total.num}</span><span class="u">${total.unit}</span>`);
+    setHTML($("c-total-sub"), `<span class="rx">↓ ${fmtBytes(s.totalRx).str}</span><span class="tx">↑ ${fmtBytes(s.totalTx).str}</span>`);
   } catch (e) {
     // fetchWithRetry already tried 3 times; wait for next interval
     console.error("loadSummary failed:", e);
@@ -711,13 +747,24 @@ function renderShare() {
   }));
   const rest = sorted.slice(3).reduce((a, x) => a + tot(x), 0);
   if (rest > 0) seg.push({ name: t("share.rest"), cls: "s-rest", pct: 100 * rest / sum });
-  const sig = seg.map((x) => x.name + Math.round(x.pct)).join("|");
-  if (sig === shareSig) return;
-  shareSig = sig;
   wrap.hidden = false;
-  $("share-bar").innerHTML = seg.map((x) =>
+  const bar = $("share-bar"), legend = $("share-legend");
+  const sig = seg.map((x) => x.name).join("|"); // membership, not the numbers
+  if (sig === shareSig && bar.children.length === seg.length) {
+    // Same apps: slide the segment widths and update the percentages in place.
+    // Rebuilding the strip whenever a rounded percent moved made the legend
+    // blink and killed the width transition mid-flight.
+    for (let i = 0; i < seg.length; i++) {
+      const w = seg[i].pct.toFixed(1) + "%";
+      if (bar.children[i].style.width !== w) bar.children[i].style.width = w;
+      setText(legend.children[i].querySelector(".pc"), Math.round(seg[i].pct) + "%");
+    }
+    return;
+  }
+  shareSig = sig;
+  bar.innerHTML = seg.map((x) =>
     `<i class="${x.cls}" style="width:${x.pct.toFixed(1)}%"></i>`).join("");
-  $("share-legend").innerHTML = seg.map((x) =>
+  legend.innerHTML = seg.map((x) =>
     `<span class="key"><i class="${x.cls}"></i><span class="nm" title="${esc(x.name)}">${esc(x.name)}</span><span class="pc">${Math.round(x.pct)}%</span></span>`).join("");
 }
 
@@ -787,7 +834,7 @@ function drawChart() {
     g.fillStyle = cMuted; g.textAlign = "right";
     g.fillText(yLabels[i], padL - 8, y);
   }
-  if (rateHist.length < 2) { $("chart-peak").textContent = ""; return; }
+  if (rateHist.length < 2) { setText($("chart-peak"), ""); return; }
 
   const x = (i) => padL + (plotW * i) / (MAXP - 1);
   const y = (v) => padT + plotH * (1 - v / top);
@@ -847,7 +894,7 @@ function drawChart() {
       g.fillStyle = col; g.beginPath(); g.arc(px, y(p[key]), 3, 0, 7); g.fill();
     });
   }
-  $("chart-peak").textContent = t("chart.peak", { v: fmtRate(peak) });
+  setText($("chart-peak"), t("chart.peak", { v: fmtRate(peak) }));
 }
 
 // ---- throughput range (live vs day/week/month history) ----
@@ -975,7 +1022,7 @@ function drawHistChart() {
       g.fillStyle = col; g.beginPath(); g.arc(px, y(Number(p[key])), 3, 0, 7); g.fill();
     });
   }
-  $("chart-peak").textContent = t("chart.peakBucket", { v: fmtBytes(peak).str });
+  setText($("chart-peak"), t("chart.peakBucket", { v: fmtBytes(peak).str }));
 }
 
 // Coalesce hover redraws to one per animation frame: mousemove fires far faster
@@ -1115,14 +1162,17 @@ function applyPausedFromSnapshot(p) {
   pausePendingUntil = 0;
   reflectPaused(p);
 }
+// Called on every snapshot, so every write is guarded: rewriting the same
+// label/attributes each second repainted the button (visible as a flicker,
+// especially while hovered).
 function reflectPaused(p) {
   capPaused = p;
   const b = $("pause-btn");
   if (b) {
-    b.textContent = p ? t("btn.resume") : t("btn.pause");
-    b.setAttribute("data-tip", p ? t("tip.resume") : t("tip.pause"));
+    setText(b, p ? t("btn.resume") : t("btn.pause"));
+    setAttr(b, "data-tip", p ? t("tip.resume") : t("tip.pause"));
     // aria-label overrides content — keep it in sync or AT hears the old action.
-    b.setAttribute("aria-label", p ? t("tip.resume") : t("tip.pause"));
+    setAttr(b, "aria-label", p ? t("tip.resume") : t("tip.pause"));
     b.classList.toggle("on", p);
   }
 }

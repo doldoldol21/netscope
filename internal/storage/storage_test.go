@@ -236,3 +236,120 @@ func TestPurge(t *testing.T) {
 		t.Fatalf("purge wrong, remaining: %+v", apps)
 	}
 }
+
+// The daily rollups must answer whole-day ranges with exactly what the raw
+// samples would have said — otherwise the dashboard's week view silently
+// disagrees with the data it was derived from.
+func TestDailyRollupMatchesSamples(t *testing.T) {
+	s, err := Open(filepath.Join(t.TempDir(), "roll.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	now := time.Now()
+	midnight := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	// Three buckets spread across today, including one in a later hour.
+	for i, off := range []time.Duration{0, 3 * time.Hour, 11 * time.Hour} {
+		b := midnight.Add(off).Unix()
+		if err := s.FlushApps(b, []types.AppTraffic{
+			{Name: "claude", Path: "/Applications/Claude.app", RxBytes: uint64(100 * (i + 1)), TxBytes: 10, Connections: i + 1},
+			{Name: "ssh", RxBytes: 5, TxBytes: 5},
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.FlushDomains(b, []types.DomainStat{
+			{Domain: "api.anthropic.com", AppName: "claude", RxBytes: uint64(90 * (i + 1)), TxBytes: 9, Category: "ai", Country: "US"},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	tomorrow := midnight.AddDate(0, 0, 1)
+	// Day-aligned: served from the rollup.
+	apps, err := s.Apps(midnight, tomorrow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(apps) != 2 || apps[0].Name != "claude" || apps[0].RxBytes != 600 || apps[0].TxBytes != 30 {
+		t.Fatalf("rollup apps = %+v, want claude rx=600 tx=30 ranked first", apps)
+	}
+	if apps[0].Path != "/Applications/Claude.app" {
+		t.Errorf("rollup lost the app path: %q", apps[0].Path)
+	}
+	doms, err := s.Domains(midnight, tomorrow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(doms) != 1 || doms[0].RxBytes != 540 || doms[0].Country != "US" || doms[0].Category != "ai" {
+		t.Fatalf("rollup domains = %+v, want rx=540 with ai/US kept", doms)
+	}
+
+	// Same range widened by a minute on both ends: now it has no whole day
+	// inside, so it is answered purely from the samples — same totals.
+	raw, err := s.Apps(midnight.Add(-time.Minute), tomorrow.Add(time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(raw) != 2 || raw[0].RxBytes != 600 {
+		t.Fatalf("sample-path apps = %+v, want the same totals", raw)
+	}
+}
+
+// A database written before rollups existed must still answer ranked queries:
+// Open backfills the rollup from whatever samples are already there.
+func TestBackfillsRollupOnOpen(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "old.db")
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	midnight := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	if err := s.FlushApps(midnight.Add(time.Hour).Unix(), []types.AppTraffic{{Name: "claude", RxBytes: 42}}); err != nil {
+		t.Fatal(err)
+	}
+	// Simulate a pre-rollup database: samples present, rollup empty.
+	if _, err := s.db.Exec(`DELETE FROM app_daily`); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+
+	s2, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s2.Close()
+	apps, err := s2.Apps(midnight, midnight.AddDate(0, 0, 1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(apps) != 1 || apps[0].RxBytes != 42 {
+		t.Fatalf("after backfill apps = %+v, want the pre-existing 42 bytes", apps)
+	}
+}
+
+// Retention must drop rollup days too, or ranked history outlives the samples.
+func TestPurgeDropsRollupDays(t *testing.T) {
+	s, err := Open(filepath.Join(t.TempDir(), "purge.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	now := time.Now()
+	midnight := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	old := midnight.AddDate(0, 0, -10)
+	if err := s.FlushApps(old.Add(time.Hour).Unix(), []types.AppTraffic{{Name: "old", RxBytes: 7}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Purge(midnight.AddDate(0, 0, -1)); err != nil {
+		t.Fatal(err)
+	}
+	apps, err := s.Apps(old, old.AddDate(0, 0, 1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(apps) != 0 {
+		t.Fatalf("purged day still ranked: %+v", apps)
+	}
+}

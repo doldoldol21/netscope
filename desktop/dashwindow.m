@@ -115,7 +115,12 @@ void openDashWindow(const char *curl) {
       gDash.titleVisibility = NSWindowTitleVisible;   // show "netscope" in the title bar
       gDash.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
       gDash.backgroundColor = [NSColor colorWithSRGBRed:13/255.0 green:17/255.0 blue:23/255.0 alpha:1.0];
-      [gDash setMinSize:NSMakeSize(760, 480)];
+      // Don't let the window shrink past the point where the tables still show
+      // every column. Below ~1080 the numeric columns start crowding the name
+      // out; the CSS can cope (it stacks the panels), but a dashboard whose
+      // columns you have to hunt for isn't worth offering. 640 tall keeps the
+      // chart plus a few rows visible.
+      [gDash setMinSize:NSMakeSize(1080, 640)];
       gDashDelegate = [[NSDashDelegate alloc] init];
       gDash.delegate = gDashDelegate;
 

@@ -15,6 +15,7 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"regexp"
 	"strconv"
@@ -115,7 +116,9 @@ func main() {
 					// WebView's on-disk cache is keyed by full URL — so an identical
 					// host:port would otherwise serve a stale dashboard.html cached
 					// before no-store landed. The static file server ignores the query.
-					openDashWindow(fmt.Sprintf("%s/dashboard.html?p=%d", dashboardURL, os.Getpid()))
+					// k= carries the per-launch UI token; the server turns it into a
+					// session cookie so later fetches from app.js authenticate too.
+					openDashWindow(fmt.Sprintf("%s/dashboard.html?p=%d&k=%s", dashboardURL, os.Getpid(), url.QueryEscape(uiToken)))
 				}
 			})
 			// Alert-threshold settings, edited in the popover.
@@ -300,8 +303,12 @@ func startLoopbackUI(proxy http.Handler) string {
 		}
 		files.ServeHTTP(w, r)
 	}))
-	go func() { _ = http.Serve(ln, mux) }()
-	return "http://" + ln.Addr().String()
+	// Gate the whole loopback server behind the per-launch token + origin checks
+	// (see uiauth.go): loopback keeps remote hosts out, this keeps other local
+	// processes and browser pages out.
+	self := "http://" + ln.Addr().String()
+	go func() { _ = http.Serve(ln, authUI(self, mux)) }()
+	return self
 }
 
 // onStatusItemClick toggles the popover window beneath the status item. Runs on

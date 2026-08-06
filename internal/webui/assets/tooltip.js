@@ -105,26 +105,35 @@
     return peek;
   }
 
-  // copyText extracts the value worth copying from a name cell: decorations
-  // (country flag, category chip) and the "· app" suffix are display-only, and
-  // any emoji that rides along in a label is stripped — pasting "🇺🇸 chatgpt.com
-  // · ChatGPT" into a terminal or a filter is never what anyone wants.
-  function copyText(target) {
+  const stripEmoji = (s) => s
+    .replace(/[\u{1F1E6}-\u{1F1FF}\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}️]/gu, "")
+    .trim();
+
+  // peekParts splits a name cell into the identifier worth copying and the
+  // display-only extras. Decorations (country flag, category chip) go away, and
+  // a <small> is meta only when it reads as one ("· Safari"): ":443" belongs to
+  // the host it follows, so it stays part of the identifier — splitting it off
+  // put the port on its own line and repeated the host underneath.
+  function peekParts(target) {
     const clone = target.cloneNode(true);
-    clone.querySelectorAll(".flag, .chip, small").forEach((n) => n.remove());
-    return clone.textContent
-      .replace(/[\u{1F1E6}-\u{1F1FF}\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}️]/gu, "")
-      .trim();
+    clone.querySelectorAll(".flag, .chip").forEach((n) => n.remove());
+    let meta = "";
+    clone.querySelectorAll("small").forEach((n) => {
+      const s = n.textContent.trim();
+      if (s.startsWith("·")) { meta = s.replace(/^·\s*/, ""); n.remove(); }
+    });
+    return { main: stripEmoji(clone.textContent), meta: stripEmoji(meta) };
   }
 
   function showPeek(target) {
-    const text = copyText(target);
+    const { main: text, meta } = peekParts(target);
     if (!text) return;
-    // The peek replaces the native tooltip; keep the title's info as a sub line.
+    // The peek replaces the native tooltip; keep the title's info as a sub line
+    // — unless it just restates the identifier (a domain cell's title is the
+    // domain, a remote cell's is host:port).
     const title = target.getAttribute("title");
     if (title) { target.dataset.peekTitle = title; target.removeAttribute("title"); }
-    const extra = target.dataset.peekTitle;
-    const small = target.querySelector("small");
+    const extra = stripEmoji(target.dataset.peekTitle || "");
 
     const p = peekEl();
     p.dataset.text = text;
@@ -133,7 +142,7 @@
     main.className = "pk-main";
     main.textContent = text;
     p.appendChild(main);
-    const subText = [small ? small.textContent.replace(/^·\s*/, "") : "", extra && extra !== text ? extra : ""]
+    const subText = [meta, extra && extra !== text ? extra : ""]
       .filter(Boolean).join(" · ");
     if (subText) {
       const sub = document.createElement("div");
