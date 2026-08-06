@@ -107,7 +107,7 @@ const NS_I18N = (() => {
       "chip.live": "live",
 
       // data-plan meter
-      "plan.title": "Monthly data plan",
+      "plan.title": "Monthly plan",
       "plan.setupSub": "Set your tethering allowance to see how much of it you've used this cycle.",
       "plan.setup": "Set up",
       "plan.edit": "Edit",
@@ -274,7 +274,7 @@ const NS_I18N = (() => {
       "chip.tethering": "📱 테더링",
       "chip.live": "사용 중",
 
-      "plan.title": "월간 데이터 요금제",
+      "plan.title": "월간 요금제",
       "plan.setupSub": "테더링 데이터 제공량을 설정하면 이번 주기에 얼마나 썼는지 보여줍니다.",
       "plan.setup": "설정",
       "plan.edit": "편집",
@@ -437,7 +437,7 @@ const NS_I18N = (() => {
       "chip.tethering": "📱 テザリング",
       "chip.live": "使用中",
 
-      "plan.title": "月間データプラン",
+      "plan.title": "月間プラン",
       "plan.setupSub": "テザリングのデータ容量を設定すると、今サイクルの使用状況が表示されます。",
       "plan.setup": "設定",
       "plan.edit": "編集",
