@@ -2,7 +2,11 @@
 
 ## What & why
 
-<!-- What does this change, and why? Link any issue: Closes #123 -->
+Closes #
+
+<!-- Outside contributions need a linked issue (a CI check enforces it) — open
+     one first so the problem can be discussed apart from the code that fixes
+     it. Maintainers can add the `no-issue` label for housekeeping changes. -->
 
 ## How tested
 
