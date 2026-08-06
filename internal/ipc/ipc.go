@@ -7,6 +7,7 @@ package ipc
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -60,14 +61,32 @@ func NewReverseProxy(sock string) *httputil.ReverseProxy {
 	}
 }
 
-// Listen creates the unix socket listener for the daemon. It ensures the parent
-// directory exists, removes a stale socket, and (when running as root) hands
-// ownership of the socket to the target user with 0600 perms so only that user
-// and root can connect.
+// instanceLock holds the flock that guarantees one daemon per socket path.
+// Package-global so the *os.File lives for the daemon's lifetime — if it were
+// garbage-collected, its finalizer would close the fd and release the lock.
+var instanceLock *os.File
+
+// Listen creates the unix socket listener for the daemon. It takes a
+// single-instance lock, ensures the parent directory exists, removes a stale
+// socket, and (when running as root) hands ownership of the socket to the
+// target user with 0600 perms so only that user and root can connect.
 func Listen(sock string) (net.Listener, error) {
 	if err := os.MkdirAll(filepath.Dir(sock), 0o755); err != nil {
 		return nil, err
 	}
+	// Single-instance guard: an exclusive flock next to the socket. A second
+	// daemon on the same path exits immediately instead of silently sharing
+	// the database (two live daemons double-counted traffic and stalled
+	// history queries on SQLite's write lock for a month before being found).
+	lf, err := os.OpenFile(sock+".lock", os.O_CREATE|os.O_RDWR, 0o644)
+	if err != nil {
+		return nil, fmt.Errorf("instance lock: %w", err)
+	}
+	if err := syscall.Flock(int(lf.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		lf.Close()
+		return nil, fmt.Errorf("another netscoped is already serving %s (lock held)", sock)
+	}
+	instanceLock = lf
 	// A leftover socket from an unclean shutdown would make Listen fail.
 	// Remove unconditionally: a Stat-then-Remove gate skips cleanup when Stat
 	// errors for a reason other than absence, leaving Listen to fail on bind.
@@ -75,6 +94,13 @@ func Listen(sock string) (net.Listener, error) {
 	ln, err := net.Listen("unix", sock)
 	if err != nil {
 		return nil, err
+	}
+	// Never unlink the path on Close. Go's default unlink-on-close removes the
+	// file *by name*, so a superseded instance shutting down would delete the
+	// socket a newer daemon has since bound at the same path (observed: killing
+	// a stale daemon cut the live one off). Startup handles stale files above.
+	if ul, ok := ln.(*net.UnixListener); ok {
+		ul.SetUnlinkOnClose(false)
 	}
 	secureSocket(sock)
 	// At boot the daemon (a system LaunchDaemon) binds the socket before anyone
