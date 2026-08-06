@@ -75,11 +75,9 @@ function tableHTML(items, target) {
   });
   const max = Math.max(1, ...sorted.map((x) => Number(x.rxBytes) + Number(x.txBytes)));
 
-  const spark = isApps && rangeState[target] === "session"; // live per-app trend
   const head = `<thead><tr>
     <th></th>
     <th data-key="name">${isApps ? t("col.app") : t("col.domain")}</th>
-    ${spark ? `<th class="spark-col">${t("col.trend")}</th>` : ""}
     <th class="num ${th("down", target)}" data-key="down">${t("col.down")}<span class="caret">▼</span></th>
     <th class="num ${th("up", target)}" data-key="up">${t("col.up")}<span class="caret">▼</span></th>
     <th class="num ${th("total", target)}" data-key="total">${t("col.total")}<span class="caret">▼</span></th>
@@ -99,14 +97,13 @@ function tableHTML(items, target) {
       ? `<span class="cell-ico"><span class="swatch" style="background:${swatchColor(name)}"></span>` +
         `<img class="app-ico" alt="" loading="lazy" onerror="this.remove()" ` +
         `src="/appicon?path=${encodeURIComponent(it.path || "")}&name=${encodeURIComponent(name)}"></span>`
-      : `<span class="swatch" style="background:${swatchColor(name)}"></span>`;
+      : "";
     rows += `<tr${rowAttr}>
       <td class="rank">${i + 1}</td>
       <td><div class="cell-name">
         ${ico}
         <span class="label" title="${esc(isApps ? (it.path || name) : name)}">${isApps ? "" : flagChip(it.country)}${esc(name)}${sub}</span>${cat}
-      </div><div class="usebar"><i style="width:${(100 * total / max).toFixed(1)}%"></i></div></td>
-      ${spark ? `<td class="spark-col">${sparkSVG((appHist.get(name) || {}).pts)}</td>` : ""}
+      </div>${usebar(it.rxBytes, it.txBytes, max)}</td>
       <td class="num rx">${fmtBytes(it.rxBytes).str}</td>
       <td class="num tx">${fmtBytes(it.txBytes).str}</td>
       <td class="num">${fmtBytes(total).str}</td>
@@ -114,52 +111,14 @@ function tableHTML(items, target) {
   });
   return `<table class="tbl">${head}<tbody>${rows}</tbody></table>`;
 }
-// Per-app live throughput history (client-side): each snapshot we diff an app's
-// cumulative session bytes to get a per-tick delta, building a small ring buffer
-// for the row's mini sparkline. No backend change needed.
-const appHist = new Map(); // name -> { prev: number, pts: number[] }
-const SPARK_PTS = 24;
-function updateAppHist(apps) {
-  const seen = new Set();
-  for (const a of apps || []) {
-    const name = a.name || "unknown";
-    seen.add(name);
-    const total = Number(a.rxBytes) + Number(a.txBytes);
-    let h = appHist.get(name);
-    if (!h) { h = { prev: total, pts: [] }; appHist.set(name, h); }
-    const delta = Math.max(0, total - h.prev);
-    h.prev = total;
-    h.pts.push(delta);
-    if (h.pts.length > SPARK_PTS) h.pts.shift();
-  }
-  for (const k of appHist.keys()) if (!seen.has(k)) appHist.delete(k); // drop gone apps
-}
 
-// sparkSVG renders a tiny throughput trend as an inline SVG polyline (cheap to
-// update every second, unlike a per-row canvas).
-// sparkPoints returns just the polyline "points" string (or "" if too few
-// points), so the live patch path can update an existing polyline's attribute
-// instead of re-parsing a whole SVG subtree every second.
-function sparkPoints(pts) {
-  if (!pts || pts.length < 2) return "";
-  const w = 60, h = 16, max = Math.max(1, ...pts), step = w / (pts.length - 1);
-  return pts.map((v, i) => `${(i * step).toFixed(1)},${(h - 1 - (v / max) * (h - 2)).toFixed(1)}`).join(" ");
-}
-function sparkSVG(pts) {
-  const d = sparkPoints(pts);
-  if (!d) return "";
-  return `<svg class="spark-svg" viewBox="0 0 60 16" preserveAspectRatio="none" aria-hidden="true">` +
-    `<polyline points="${d}" fill="none" stroke="var(--accent)" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/></svg>`;
-}
-// setSparkCell updates a row's trend cell in place: patch the existing
-// polyline's points (cheap) and only rebuild the SVG when it first appears or
-// disappears.
-function setSparkCell(cell, pts) {
-  const d = sparkPoints(pts);
-  const line = cell.querySelector("polyline");
-  if (d && line) { if (line.getAttribute("points") !== d) line.setAttribute("points", d); return; }
-  const html = sparkSVG(pts);
-  if (cell.innerHTML !== html) cell.innerHTML = html;
+// usebar renders a row's split usage bar: download and upload as adjacent
+// segments, both scaled against the list's max total so proportions compare
+// across rows (Field Notebook style — replaces the single-total bar).
+function usebar(rx, tx, max) {
+  const rxW = (100 * Number(rx) / max).toFixed(1);
+  const txW = (100 * Number(tx) / max).toFixed(1);
+  return `<div class="usebar"><i class="rx" style="width:${rxW}%"></i><i class="tx" style="width:${txW}%"></i></div>`;
 }
 
 const th = (key, target) => sortState[target].key === key ? "sorted" : "";
@@ -204,7 +163,6 @@ function renderPanel(target) {
 // patchRows updates the numeric cells and bar widths of existing rows in place.
 function patchRows(tbody, sorted, target) {
   const max = Math.max(1, ...sorted.map((x) => Number(x.rxBytes) + Number(x.txBytes)));
-  const spark = target === "apps" && rangeState.apps === "session";
   for (let i = 0; i < sorted.length; i++) {
     const it = sorted[i], tr = tbody.children[i];
     if (!tr) continue;
@@ -215,16 +173,14 @@ function patchRows(tbody, sorted, target) {
     setText(nums[0], fmtBytes(it.rxBytes).str);
     setText(nums[1], fmtBytes(it.txBytes).str);
     setText(nums[2], fmtBytes(total).str);
-    const bar = tr.querySelector(".usebar i");
-    if (bar) {
-      const wpct = (100 * total / max).toFixed(1) + "%";
-      // Skip identical width writes: with the .45s width transition, rewriting
-      // the same value every second kept the bars perpetually mid-animation.
-      if (bar.style.width !== wpct) bar.style.width = wpct;
-    }
-    if (spark) {
-      const cell = tr.querySelector(".spark-col");
-      if (cell) setSparkCell(cell, (appHist.get(it.name || "unknown") || {}).pts);
+    // Skip identical width writes: with the .45s width transition, rewriting
+    // the same value every second kept the bars perpetually mid-animation.
+    const seg = tr.querySelectorAll(".usebar i");
+    if (seg.length === 2) {
+      const rxW = (100 * Number(it.rxBytes) / max).toFixed(1) + "%";
+      const txW = (100 * Number(it.txBytes) / max).toFixed(1) + "%";
+      if (seg[0].style.width !== rxW) seg[0].style.width = rxW;
+      if (seg[1].style.width !== txW) seg[1].style.width = txW;
     }
   }
 }
@@ -291,21 +247,16 @@ function countriesHTML(domains) {
   const list = [...by.values()].sort((a, b) => (b.rx + b.tx) - (a.rx + a.tx));
   if (!list.length) return `<div class="state">${t("state.noGeo")}</div>`;
   const max = Math.max(1, ...list.map((c) => c.rx + c.tx));
-  const rows = list.slice(0, 50).map((c, i) => {
+  // Compact sidebar rows (Field Notebook): code, a thin share bar, total.
+  // The flag + domain count ride the tooltip peek via title.
+  return list.slice(0, 8).map((c) => {
     const total = c.rx + c.tx;
-    return `<tr>
-      <td class="rank">${i + 1}</td>
-      <td><div class="cell-name"><span class="flag">${flagEmoji(c.cc)}</span>
-        <span class="label">${esc(c.cc)} <small>· ${tn("countries.domain1", "countries.domainN", c.domains)}</small></span>
-      </div><div class="usebar"><i style="width:${(100 * total / max).toFixed(1)}%"></i></div></td>
-      <td class="num rx">${fmtBytes(c.rx).str}</td>
-      <td class="num tx">${fmtBytes(c.tx).str}</td>
-      <td class="num">${fmtBytes(total).str}</td>
-    </tr>`;
+    return `<div class="side-row country" title="${flagEmoji(c.cc)} ${esc(c.cc)} · ${tn("countries.domain1", "countries.domainN", c.domains)}">
+      <span class="cc">${esc(c.cc)}</span>
+      <span class="mini-bar"><i style="width:${(100 * total / max).toFixed(1)}%"></i></span>
+      <span class="side-num">${fmtBytes(total).str}</span>
+    </div>`;
   }).join("");
-  return `<table class="tbl"><thead><tr><th></th><th>${t("col.country")}</th>
-    <th class="num">${t("col.down")}</th><th class="num">${t("col.up")}</th><th class="num">${t("col.total")}</th></tr></thead>
-    <tbody>${rows}</tbody></table>`;
 }
 let countriesSig = "";
 function renderCountries() {
@@ -319,7 +270,6 @@ function renderCountries() {
 async function loadCountries(range) {
   const el = $("countries");
   countriesSig = ""; // history view: force a clean rebuild when back to live
-  if (!el.querySelector(".tbl")) el.innerHTML = skeletonTable();
   try {
     const data = await fetchJSON(`${API}/api/domains?range=${range}`);
     el.innerHTML = countriesHTML(data || []);
@@ -358,7 +308,7 @@ function connsHTML(list) {
       <td><div class="cell-name">${ico}<span class="label" title="${esc(c.app)}">${esc(c.app || "unknown")}</span></div></td>
       <td><div class="cell-name"><span class="flag">${flagEmoji(c.country)}</span>
         <span class="label" title="${esc(host)}:${c.remotePort}">${esc(host)}<small>:${c.remotePort}</small></span></div>
-        <div class="usebar"><i style="width:${(100 * total / max).toFixed(1)}%"></i></div></td>
+        ${usebar(c.rxBytes, c.txBytes, max)}</td>
       <td><span class="chip">${esc(c.proto)}</span></td>
       <td class="num rx">${fmtBytes(c.rxBytes).str}</td>
       <td class="num tx">${fmtBytes(c.txBytes).str}</td>
@@ -421,24 +371,16 @@ function netUsageHTML(list) {
   if (!nets.length) {
     return `<div class="state">${t("state.noNetUsage")}</div>`;
   }
-  const max = Math.max(1, ...nets.map((n) => Number(n.rxBytes) + Number(n.txBytes)));
-  const rows = nets.map((n, i) => {
+  // Compact sidebar rows: friendly name, tether/live tags, total.
+  return nets.map((n) => {
     const total = Number(n.rxBytes) + Number(n.txBytes);
     const friendly = n.friendly && n.friendly !== n.iface ? n.friendly : n.iface;
-    const badges = `${n.tether ? ` <span class="chip">${t("chip.tethering")}</span>` : ""}${n.active ? ` <span class="chip">${t("chip.live")}</span>` : ""}`;
-    return `<tr>
-      <td class="rank">${i + 1}</td>
-      <td><div class="cell-name">
-        <span class="label" title="${esc(n.iface)}">${esc(friendly)}</span>${badges}
-      </div><div class="usebar"><i style="width:${(100 * total / max).toFixed(1)}%"></i></div></td>
-      <td class="num rx">${fmtBytes(n.rxBytes).str}</td>
-      <td class="num tx">${fmtBytes(n.txBytes).str}</td>
-      <td class="num">${fmtBytes(total).str}</td>
-    </tr>`;
+    const tags = `${n.tether ? `<span class="tag">${t("chip.tethering")}</span>` : ""}${n.active ? `<span class="tag">${t("chip.live")}</span>` : ""}`;
+    return `<div class="side-row net" title="${esc(n.iface)} · ↓ ${fmtBytes(n.rxBytes).str} · ↑ ${fmtBytes(n.txBytes).str}">
+      <span class="side-label">${esc(friendly)}</span>${tags}
+      <span class="side-num">${fmtBytes(total).str}</span>
+    </div>`;
   }).join("");
-  return `<table class="tbl"><thead><tr><th></th><th>${t("col.network")}</th>
-    <th class="num">${t("col.down")}</th><th class="num">${t("col.up")}</th><th class="num">${t("col.total")}</th></tr></thead>
-    <tbody>${rows}</tbody></table>`;
 }
 
 let netUsageSig = "";
@@ -597,7 +539,7 @@ let themeMode = "auto";
 // forced style resolution — doing it on every snapshot (for the chart/sparkline)
 // was needless main-thread work since the values only change on a theme switch.
 // Cache them and refresh only when the theme actually changes.
-const THEME_VARS = ["--line", "--muted", "--rx", "--tx", "--accent", "--mono", "--sans"];
+const THEME_VARS = ["--line", "--muted", "--rx", "--tx", "--rx-fill", "--tx-fill", "--accent", "--mono", "--sans"];
 let themeCache = null;
 function refreshThemeCache() {
   const css = getComputedStyle(document.body);
@@ -655,25 +597,46 @@ window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () 
   };
 });
 
-// ============================================================ summary cards
+// ============================================================ sidebar summary
 async function loadSummary() {
   try {
     const s = await fetchWithRetry(`${API}/api/summary?range=today`);
-    const total = Number(s.totalRx) + Number(s.totalTx);
-    $("c-total").textContent = fmtBytes(total).str;
-    $("c-total-sub").innerHTML = `<span style="color:var(--rx)">↓ ${fmtBytes(s.totalRx).str}</span> &nbsp; <span style="color:var(--tx)">↑ ${fmtBytes(s.totalTx).str}</span>`;
-    if (s.topApp && s.topApp.name) {
-      $("c-top").textContent = s.topApp.name;
-      $("c-top-sub").textContent = t("card.bytesToday", { v: fmtBytes(s.topApp.bytes).str });
-    }
-    if (s.topDomain && s.topDomain.name) {
-      $("c-topdomain").textContent = s.topDomain.name;
-      $("c-topdomain-sub").textContent = t("card.bytesToday", { v: fmtBytes(s.topDomain.bytes).str });
-    }
+    const total = fmtBytes(Number(s.totalRx) + Number(s.totalTx));
+    $("c-total").innerHTML = `<span class="n">${total.num}</span><span class="u">${total.unit}</span>`;
+    $("c-total-sub").innerHTML = `<span class="rx">↓ ${fmtBytes(s.totalRx).str}</span><span class="tx">↑ ${fmtBytes(s.totalTx).str}</span>`;
   } catch (e) {
     // fetchWithRetry already tried 3 times; wait for next interval
     console.error("loadSummary failed:", e);
   }
+}
+
+// ============================================================ session share strip
+// Composition of the session's traffic: top three apps + everything else, as a
+// stacked strip under the chart. Recomputed each tick but only re-rendered when
+// the rounded percentages change (innerHTML churn drops hover).
+let shareSig = "";
+function renderShare() {
+  const wrap = $("share");
+  if (!wrap) return;
+  const tot = (x) => Number(x.rxBytes) + Number(x.txBytes);
+  const sorted = [...liveApps].sort((a, b) => tot(b) - tot(a));
+  const sum = sorted.reduce((a, x) => a + tot(x), 0);
+  if (!sum) { wrap.hidden = true; shareSig = ""; return; }
+  const seg = sorted.slice(0, 3).map((x, i) => ({
+    name: x.name || "unknown",
+    cls: "s" + (i + 1),
+    pct: 100 * tot(x) / sum,
+  }));
+  const rest = sorted.slice(3).reduce((a, x) => a + tot(x), 0);
+  if (rest > 0) seg.push({ name: t("share.rest"), cls: "s-rest", pct: 100 * rest / sum });
+  const sig = seg.map((x) => x.name + Math.round(x.pct)).join("|");
+  if (sig === shareSig) return;
+  shareSig = sig;
+  wrap.hidden = false;
+  $("share-bar").innerHTML = seg.map((x) =>
+    `<i class="${x.cls}" style="width:${x.pct.toFixed(1)}%"></i>`).join("");
+  $("share-legend").innerHTML = seg.map((x) =>
+    `<span class="key"><i class="${x.cls}"></i><span class="nm" title="${esc(x.name)}">${esc(x.name)}</span><span class="pc">${Math.round(x.pct)}%</span></span>`).join("");
 }
 
 // ============================================================ throughput chart
@@ -742,20 +705,32 @@ function drawChart() {
   const x = (i) => padL + (plotW * i) / (MAXP - 1);
   const y = (v) => padT + plotH * (1 - v / top);
 
+  // Field Notebook: step traces (instrument-chart look) with a flat soft fill.
   const series = (key, color, soft) => {
-    g.beginPath();
-    rateHist.forEach((p, i) => { const px = x(i + (MAXP - rateHist.length)), py = y(p[key]); i ? g.lineTo(px, py) : g.moveTo(px, py); });
-    const lastX = x(MAXP - 1), firstX = x(MAXP - rateHist.length);
-    g.lineTo(lastX, y(0)); g.lineTo(firstX, y(0)); g.closePath();
-    const grad = g.createLinearGradient(0, padT, 0, padT + plotH);
-    grad.addColorStop(0, soft); grad.addColorStop(1, "transparent");
-    g.fillStyle = grad; g.fill();
-    g.beginPath();
-    rateHist.forEach((p, i) => { const px = x(i + (MAXP - rateHist.length)), py = y(p[key]); i ? g.lineTo(px, py) : g.moveTo(px, py); });
-    g.strokeStyle = color; g.lineWidth = 1.6; g.lineJoin = "round"; g.stroke();
+    const off = MAXP - rateHist.length;
+    const trace = () => {
+      g.beginPath();
+      rateHist.forEach((p, i) => {
+        const px = x(i + off), py = y(p[key]);
+        if (!i) { g.moveTo(px, py); return; }
+        g.lineTo(px, y(rateHist[i - 1][key]));
+        g.lineTo(px, py);
+      });
+    };
+    trace();
+    g.lineTo(x(MAXP - 1), y(0)); g.lineTo(x(off), y(0)); g.closePath();
+    g.fillStyle = soft; g.fill();
+    trace();
+    g.strokeStyle = color; g.lineWidth = 1.3; g.lineJoin = "round"; g.stroke();
   };
-  series("rx", cRx, "rgba(63,185,80,.28)");
-  series("tx", cTx, "rgba(240,136,62,.28)");
+  series("rx", cRx, tvar("--rx-fill"));
+  series("tx", cTx, tvar("--tx-fill"));
+
+  // Dashed session-average reference line (download), echoed in the hint text.
+  const avgRx = rateHist.reduce((a, p) => a + p.rx, 0) / rateHist.length;
+  g.setLineDash([4, 4]); g.strokeStyle = cMuted; g.globalAlpha = 0.8;
+  g.beginPath(); g.moveTo(padL, y(Math.min(avgRx, top))); g.lineTo(w - padR, y(Math.min(avgRx, top))); g.stroke();
+  g.setLineDash([]); g.globalAlpha = 1;
 
   // x time ticks on a fixed 30s grid (now, -30s, -60s, …) — quarter-of-buffer
   // ticks landed on odd values like -29s/-58s. Each tick sits on the sample
@@ -872,18 +847,23 @@ function drawHistChart() {
   const x = (i) => padL + (n === 1 ? plotW / 2 : (plotW * i) / (n - 1));
   const y = (v) => padT + plotH * (1 - v / top);
   const series = (key, color, soft) => {
-    g.beginPath();
-    histPoints.forEach((p, i) => { const px = x(i), py = y(Number(p[key])); i ? g.lineTo(px, py) : g.moveTo(px, py); });
+    const trace = () => {
+      g.beginPath();
+      histPoints.forEach((p, i) => {
+        const px = x(i), py = y(Number(p[key]));
+        if (!i) { g.moveTo(px, py); return; }
+        g.lineTo(px, y(Number(histPoints[i - 1][key])));
+        g.lineTo(px, py);
+      });
+    };
+    trace();
     g.lineTo(x(n - 1), y(0)); g.lineTo(x(0), y(0)); g.closePath();
-    const grad = g.createLinearGradient(0, padT, 0, padT + plotH);
-    grad.addColorStop(0, soft); grad.addColorStop(1, "transparent");
-    g.fillStyle = grad; g.fill();
-    g.beginPath();
-    histPoints.forEach((p, i) => { const px = x(i), py = y(Number(p[key])); i ? g.lineTo(px, py) : g.moveTo(px, py); });
-    g.strokeStyle = color; g.lineWidth = 1.6; g.lineJoin = "round"; g.stroke();
+    g.fillStyle = soft; g.fill();
+    trace();
+    g.strokeStyle = color; g.lineWidth = 1.3; g.lineJoin = "round"; g.stroke();
   };
-  series("rxBytes", cRx, "rgba(63,185,80,.28)");
-  series("txBytes", cTx, "rgba(240,136,62,.28)");
+  series("rxBytes", cRx, tvar("--rx-fill"));
+  series("txBytes", cTx, tvar("--tx-fill"));
   // x time/date ticks
   g.fillStyle = cMuted; g.textAlign = "center"; g.textBaseline = "top";
   const day = chartMode === "day";
@@ -962,22 +942,6 @@ chart.addEventListener("mousemove", (e) => {
 chart.addEventListener("mouseleave", () => { hoverIdx = -1; tip.style.opacity = 0; scheduleChart(); });
 window.addEventListener("resize", () => { chartMode === "live" ? drawChart() : drawHistChart(); });
 
-// mini sparklines on cards
-function drawSpark(id, color) {
-  const c = $(id); if (!c) return;
-  const { w, h, g } = sizeCanvas(c);
-  g.clearRect(0, 0, w, h);
-  if (rateHist.length < 2) return;
-  const data = rateHist.map((p) => p.rx + p.tx);
-  const max = Math.max(1, ...data);
-  g.beginPath();
-  data.forEach((v, i) => { const px = (w * i) / (data.length - 1), py = h - (v / max) * (h - 3) - 2; i ? g.lineTo(px, py) : g.moveTo(px, py); });
-  g.lineTo(w, h); g.lineTo(0, h); g.closePath();
-  const grad = g.createLinearGradient(0, 0, 0, h);
-  grad.addColorStop(0, color + "44"); grad.addColorStop(1, "transparent");
-  g.fillStyle = grad; g.fill();
-}
-
 // ============================================================ live wiring
 let lastSnap = null;
 let resetWaitFrom = 0; // ignore snapshots from before a just-issued session reset
@@ -994,7 +958,6 @@ function onSnapshot(s) {
   // Always keep lightweight state current so the view is correct the instant
   // the window is shown again — but skip the expensive DOM work while hidden.
   liveApps = s.apps || [];
-  updateAppHist(liveApps);
   liveDomains = s.domains || [];
   rateHist.push({ t: new Date(s.time).getTime() || Date.now(), rx: Number(s.rxPerSec) || 0, tx: Number(s.txPerSec) || 0 });
   while (rateHist.length > MAXP) rateHist.shift();
@@ -1014,14 +977,19 @@ function renderSnapshot(s) {
   setText($("rxps"), fmtRate(s.rxPerSec));
   setText($("txps"), fmtRate(s.txPerSec));
   setText($("c-active"), String(s.activeApps != null ? s.activeApps : liveApps.length));
-  renderPanel("apps"); renderPanel("domains"); renderCountries();
+  // avg/peak of the live buffer under the Today total (Field Notebook sidebar).
+  if (rateHist.length > 1) {
+    const peak = Math.max(...rateHist.map((p) => Math.max(p.rx, p.tx)));
+    const avg = rateHist.reduce((a, p) => a + p.rx + p.tx, 0) / rateHist.length;
+    setText($("c-avgpeak"), t("side.avgPeak", { avg: fmtRate(avg), peak: fmtRate(peak) }));
+  }
+  renderPanel("apps"); renderPanel("domains"); renderCountries(); renderShare();
 
   // Refresh live connections at most ~every 2s (snapshots arrive ~1s).
   const tnow = Date.now();
   if (tnow - connsLastFetch > 2000) { connsLastFetch = tnow; refreshConnections(); }
 
   if (chartMode === "live") drawChart(); // don't clobber a history view
-  drawSpark("spark-total", tvar("--accent"));
 }
 
 // When the dashboard becomes visible again, immediately repaint from the latest
@@ -1168,7 +1136,6 @@ function openDrill(app) {
   drillState.range = "today";
   $("drill-name").textContent = app;
   $("drill-name").title = app;
-  $("drill-swatch").style.background = swatchColor(app);
   document.querySelectorAll("#drill-tabs button").forEach((b) =>
     b.classList.toggle("active", b.dataset.range === "today"));
   // Fresh open: clear prior content so skeletons show (range switches keep it).
@@ -1220,9 +1187,8 @@ function drillDomainsHTML(items) {
     return `<tr>
       <td class="rank">${i + 1}</td>
       <td><div class="cell-name">
-        <span class="swatch" style="background:${swatchColor(d.domain)}"></span>
         <span class="label" title="${esc(d.domain)}">${flagChip(d.country)}${esc(d.domain)}</span>${cat}
-      </div><div class="usebar"><i style="width:${(100 * total / max).toFixed(1)}%"></i></div></td>
+      </div>${usebar(d.rxBytes, d.txBytes, max)}</td>
       <td class="num rx">${fmtBytes(d.rxBytes).str}</td>
       <td class="num tx">${fmtBytes(d.txBytes).str}</td>
       <td class="num">${fmtBytes(total).str}</td>
@@ -1267,18 +1233,23 @@ function drawDrillChart(points) {
   const x = (i) => padL + (n === 1 ? plotW / 2 : (plotW * i) / (n - 1));
   const y = (v) => padT + plotH * (1 - v / top);
   const series = (key, color, soft) => {
-    g.beginPath();
-    points.forEach((p, i) => { const px = x(i), py = y(Number(p[key])); i ? g.lineTo(px, py) : g.moveTo(px, py); });
+    const trace = () => {
+      g.beginPath();
+      points.forEach((p, i) => {
+        const px = x(i), py = y(Number(p[key]));
+        if (!i) { g.moveTo(px, py); return; }
+        g.lineTo(px, y(Number(points[i - 1][key])));
+        g.lineTo(px, py);
+      });
+    };
+    trace();
     g.lineTo(x(n - 1), y(0)); g.lineTo(x(0), y(0)); g.closePath();
-    const grad = g.createLinearGradient(0, padT, 0, padT + plotH);
-    grad.addColorStop(0, soft); grad.addColorStop(1, "transparent");
-    g.fillStyle = grad; g.fill();
-    g.beginPath();
-    points.forEach((p, i) => { const px = x(i), py = y(Number(p[key])); i ? g.lineTo(px, py) : g.moveTo(px, py); });
-    g.strokeStyle = color; g.lineWidth = 1.6; g.lineJoin = "round"; g.stroke();
+    g.fillStyle = soft; g.fill();
+    trace();
+    g.strokeStyle = color; g.lineWidth = 1.3; g.lineJoin = "round"; g.stroke();
   };
-  series("rxBytes", cRx, "rgba(63,185,80,.28)");
-  series("txBytes", cTx, "rgba(240,136,62,.28)");
+  series("rxBytes", cRx, tvar("--rx-fill"));
+  series("txBytes", cTx, tvar("--tx-fill"));
 }
 
 // wiring: click an app row to drill in; tabs/close/Esc/backdrop to navigate out
@@ -1354,12 +1325,11 @@ $("drill-export").onclick = exportDrillDomains;
 $("reset-session").onclick = async () => {
   resetWaitFrom = Date.now();
   liveApps = []; liveDomains = []; connsList = []; netUsageSig = "";
-  appHist.clear(); rateHist.length = 0;
+  rateHist.length = 0;
   setText($("rxps"), fmtRate(0)); setText($("txps"), fmtRate(0));
   setText($("c-active"), "0");
-  renderPanel("apps"); renderPanel("domains"); renderCountries(); renderConns();
+  renderPanel("apps"); renderPanel("domains"); renderCountries(); renderConns(); renderShare();
   if (chartMode === "live") drawChart();
-  drawSpark("spark-total", tvar("--accent"));
   try { await fetch(`${API}/api/session/reset`, { method: "POST" }); }
   catch (_) { /* daemon not ready */ }
 };
