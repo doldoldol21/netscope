@@ -46,8 +46,8 @@ body {
   font-family: var(--sans); color: var(--fg); font-size: 13.5px;
   -webkit-font-smoothing: antialiased; padding: 6px; overflow: hidden;
 }
-::-webkit-scrollbar { width: 8px; }
-::-webkit-scrollbar-thumb { background: var(--line); border-radius: 4px; border: 2px solid transparent; background-clip: content-box; }
+/* No ::-webkit-scrollbar rules: styling them turns off macOS overlay
+   scrollbars, leaving a permanent bar. See the note in styles.css. */
 
 .k {
   font: var(--label-font); text-transform: uppercase;

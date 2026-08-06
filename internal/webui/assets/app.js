@@ -544,13 +544,18 @@ function planViewHTML(p) {
   const scope = cfg.iface
     ? (counted[0] && counted[0].friendly) || cfg.iface
     : counted.length ? counted.map((n) => n.friendly || n.iface).join(", ") : t("plan.scopeFallback");
-  const bits = [t("plan.left", { v: fmtBytes(st.remainingBytes).str })];
-  if (st.daysLeft > 0) bits.push(tn("plan.day1", "plan.dayN", st.daysLeft, { date: fmtDate(st.cycleEnd) }));
+  // Label/value rows rather than one long sentence: in a 248px sidebar the
+  // run-on version wrapped into four lines of dense mono that nobody could scan.
+  const over = st.projectedBytes > st.limitBytes;
+  const rows = [
+    [t("plan.rowLeft"), fmtBytes(st.remainingBytes).str +
+      (st.daysLeft > 0 ? " · " + tn("plan.days1", "plan.daysN", st.daysLeft) : ""), ""],
+  ];
   if (st.projectedBytes > 0) {
-    const over = st.projectedBytes > st.limitBytes;
-    bits.push(`${over ? "⚠ " : ""}${t("plan.projected", { v: fmtBytes(st.projectedBytes).str })}`);
+    rows.push([t("plan.rowProjected"),
+      (over ? "⚠ " : "") + fmtBytes(st.projectedBytes).str, over ? "over" : ""]);
   }
-  bits.push(t("plan.cycleFrom", { date: fmtDate(st.cycleStart) }));
+  rows.push([t("plan.rowCycle"), `${fmtDate(st.cycleStart)} – ${fmtDate(st.cycleEnd)}`, ""]);
   const used = fmtBytes(st.usedBytes);
   return `<div class="plan-card">
     <div class="plan-head">
@@ -563,7 +568,8 @@ function planViewHTML(p) {
       <span class="plan-of">${used.unit} ${t("plan.of", { v: fmtBytes(st.limitBytes).str })}</span>
     </div>
     <div class="plan-bar ${level}"><i style="width:${Math.min(100, pct).toFixed(1)}%"></i></div>
-    <div class="plan-sub">${esc(bits.join(" · "))}</div>
+    <dl class="plan-rows">${rows.map(([k, v, cls]) =>
+      `<dt>${esc(k)}</dt><dd class="${cls}">${esc(v)}</dd>`).join("")}</dl>
   </div>`;
 }
 
