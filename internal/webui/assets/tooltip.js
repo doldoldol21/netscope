@@ -109,6 +109,35 @@
     .replace(/[\u{1F1E6}-\u{1F1FF}\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}️]/gu, "")
     .trim();
 
+  // shortPath answers "where does this live?" the way Finder does: it stops at
+  // the bundle and drops the machinery inside it. An executable's full path is
+  // ~200 characters of UUID and repeated bundle id (a system extension's
+  // .../Contents/MacOS/<same id again>), which wrapped into a wall of text in a
+  // 340px popover and said nothing the name hadn't already.
+  const BUNDLE_SUFFIXES = [".app", ".systemextension", ".appex", ".framework", ".xpc", ".bundle", ".plugin"];
+  const UUID_SEGMENT = /^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$/;
+  function shortPath(p, name) {
+    if (p.indexOf("/") < 0) return p;
+    const parts = p.split("/").filter(Boolean);
+    const bundleAt = parts.findIndex((seg) => BUNDLE_SUFFIXES.some((s) => seg.endsWith(s)));
+    let kept = bundleAt >= 0 ? parts.slice(0, bundleAt + 1) : parts;
+    // A staging UUID (system extensions live under one) is machine bookkeeping:
+    // it says nothing and costs 36 characters.
+    kept = kept.filter((seg) => !UUID_SEGMENT.test(seg));
+    // The last segment usually restates the name shown directly above — an app
+    // bundle is <name>.app, a system extension is <bundle id>.systemextension,
+    // a bare executable is the name itself. Drop it and the line answers the
+    // one thing the name doesn't: where this lives.
+    if (name && kept.length > 1 && kept[kept.length - 1].startsWith(name)) {
+      kept = kept.slice(0, -1);
+    }
+    let out = "/" + kept.join("/");
+    if (out.length > 64 && kept.length > 2) {
+      out = "/" + kept[0] + "/…/" + kept[kept.length - 1];
+    }
+    return out;
+  }
+
   // peekParts splits a name cell into the identifier worth copying and the
   // display-only extras. Decorations (country flag, category chip) go away, and
   // a <small> is meta only when it reads as one ("· Safari"): ":443" belongs to
@@ -142,7 +171,7 @@
     main.className = "pk-main";
     main.textContent = text;
     p.appendChild(main);
-    const subText = [meta, extra && extra !== text ? extra : ""]
+    const subText = [meta, extra && extra !== text ? shortPath(extra, text) : ""]
       .filter(Boolean).join(" · ");
     if (subText) {
       const sub = document.createElement("div");
