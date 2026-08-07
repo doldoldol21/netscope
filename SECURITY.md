@@ -36,7 +36,13 @@ netscope is local-only by design, which bounds the attack surface:
   its URL and then held in an origin-scoped cookie). Requests without it get
   401, and requests whose `Origin`/`Referer`/`Sec-Fetch-Site` indicate another
   site get 403 — so a page in your browser can't drive the API either.
-- All data stays on the machine; nothing is uploaded.
+- All captured data stays on the machine; none of it is uploaded.
+- netscope does make two outbound requests of its own, neither carrying capture
+  data: reverse-DNS (PTR) lookups for IPs that DNS and TLS SNI left unnamed, and
+  update checks against `api.github.com`. The PTR lookups do disclose which
+  addresses the machine contacted to whoever runs its resolver. `--no-revdns`
+  and `--no-update-check` turn them off; note the app performs its own update
+  check, disabled separately in its settings.
 
 Particularly valuable reports: anything that lets a non-root local process read
 the socket or escalate via the daemon, packet-parsing memory-safety issues in

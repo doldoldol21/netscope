@@ -7,8 +7,8 @@
 **See which apps are using your network — live, right from the menu bar.**
 
 A per-app network traffic monitor for macOS. Everything runs locally: no
-traffic contents are read, nothing leaves your Mac, and the capture daemon
-opens no network port.
+traffic contents are read, nothing captured leaves your Mac, and the capture
+daemon opens no network port.
 
 [![release](https://img.shields.io/github/v/release/doldoldol21/netscope?color=1f6f8b)](https://github.com/doldoldol21/netscope/releases)
 [![license](https://img.shields.io/badge/license-MIT-cf5b42)](LICENSE)
@@ -67,9 +67,35 @@ it through a loopback-only proxy. Details in
 
 ## Privacy
 
-Everything stays on your Mac. Bytes and hostnames only — payloads are never
-decrypted, and the country lookup uses an embedded offline database, so the IPs
-you contact are never sent to any third party.
+Captured data stays on your Mac. Bytes and hostnames only — payloads are never
+decrypted, nothing captured is uploaded, and the country lookup uses an embedded
+offline database, so no address is ever sent to a geolocation service.
+
+Two things do go out, both ordinary network requests rather than capture data:
+
+- **Reverse DNS.** Any IP that no observed DNS answer and no TLS SNI has already
+  named gets a PTR lookup, which tells whoever runs your resolver — an ISP, a
+  VPN, a workplace — which addresses this machine reached. DNS and SNI naming
+  are passive by comparison: they read replies your machine was receiving
+  anyway. `netscoped --no-revdns` stops the lookups; names an earlier run
+  already learned stay in the on-disk cache, since the flag prevents new
+  queries rather than erasing old answers.
+- **Update checks.** Every few hours the app asks `api.github.com` for the
+  latest release, and the daemon makes the same check to fill `/api/version`.
+  These are separate: *Automatic updates* in settings stops the app's check
+  only, and the daemon's needs `netscoped --no-update-check`.
+
+Daemon flags live in `/Library/LaunchDaemons/io.netscope.daemon.plist` under
+`ProgramArguments`. After editing it, make launchd re-read the file — a restart
+keeps the definition it already loaded:
+
+```sh
+sudo launchctl bootout system/io.netscope.daemon
+sudo launchctl bootstrap system /Library/LaunchDaemons/io.netscope.daemon.plist
+```
+
+Reinstalling the capture helper rewrites that plist, so flags added by hand need
+re-applying afterwards.
 
 ## Develop
 
