@@ -47,6 +47,24 @@ jobs:
             TZ=$tz go test -count=1 ./internal/storage/ ./internal/engine/ ./internal/api/ || exit 1
           done
 
+      # The named zones above pin calendar semantics, but they cannot pin the
+      # other timezone axis: where in its local day a run happens to land. Tests
+      # that write a sample at a fixed offset into today and then read up to
+      # time.Now() only break while now is still earlier than that offset — a
+      # window near local midnight that these runners, being UTC, drift through
+      # unpredictably. Every whole-hour offset is covered instead, so whenever
+      # CI runs, some zone is in the small hours and the failure is deterministic.
+      - name: test storage in every hour offset
+        run: |
+          for n in $(seq -12 14); do
+            if [ "$n" -eq 0 ]; then tz=UTC
+            elif [ "$n" -gt 0 ]; then tz="Etc/GMT-$n"
+            else tz="Etc/GMT+$(( -n ))"
+            fi
+            echo "== TZ=$tz (local $(TZ=$tz date +%H:%M))"
+            TZ=$tz go test -count=1 ./internal/storage/ || exit 1
+          done
+
   linux:
     # Cross-platform sanity: pure Go packages compile and pass tests on Linux.
     # Now includes real capture (libpcap) and resolver (/proc) implementations.

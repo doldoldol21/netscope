@@ -354,13 +354,29 @@ func TestPurgeDropsRollupDays(t *testing.T) {
 	}
 }
 
+// todayBucket returns a sample timestamp offset into today's local day, pulled
+// back to local midnight when that offset would land ahead of now.
+//
+// Tests that end a range at time.Now() have to write their samples behind it: a
+// bucket in the future is outside `bucket >= from AND bucket < to`, so the row
+// simply isn't there and the assertion reads as a rollup bug. Hard-coding
+// mid+2h made that happen for the first two hours of every local day — which CI
+// hits whenever a run lands there, its runners being UTC.
+func todayBucket(now, mid time.Time, offset time.Duration) time.Time {
+	if ts := mid.Add(offset); !ts.After(now) {
+		return ts
+	}
+	return mid
+}
+
 // An open-ended range (…until now) must take today from the rollup instead of
 // rescanning today's raw buckets — and must not double-count it.
 func TestOpenEndedRangeUsesTodayRollup(t *testing.T) {
 	s := openTemp(t)
 	now := time.Now()
 	mid := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
-	if err := s.FlushApps(mid.Add(2*time.Hour).Unix(), []types.AppTraffic{{Name: "claude", RxBytes: 100, TxBytes: 10}}); err != nil {
+	ts := todayBucket(now, mid, 2*time.Hour)
+	if err := s.FlushApps(ts.Unix(), []types.AppTraffic{{Name: "claude", RxBytes: 100, TxBytes: 10}}); err != nil {
 		t.Fatal(err)
 	}
 	apps, err := s.Apps(mid.AddDate(0, 0, -6), now)
@@ -370,9 +386,8 @@ func TestOpenEndedRangeUsesTodayRollup(t *testing.T) {
 	if len(apps) != 1 || apps[0].RxBytes != 100 || apps[0].TxBytes != 10 {
 		t.Fatalf("open-ended week = %+v, want exactly one claude row with rx=100 tx=10 (no double count)", apps)
 	}
-	// The same range asked as a closed window ending before now still works off
-	// the samples, and agrees.
-	closed, err := s.Apps(mid.AddDate(0, 0, -6), mid.Add(3*time.Hour))
+	// The same range asked as a closed window over the same sample agrees.
+	closed, err := s.Apps(mid.AddDate(0, 0, -6), ts.Add(time.Hour))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -545,7 +560,7 @@ func TestVerifyRollupsRepairsDrift(t *testing.T) {
 	s := openTemp(t)
 	now := time.Now()
 	mid := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
-	if err := s.FlushApps(mid.Add(time.Hour).Unix(), []types.AppTraffic{
+	if err := s.FlushApps(todayBucket(now, mid, time.Hour).Unix(), []types.AppTraffic{
 		{Name: "claude", RxBytes: 1000, TxBytes: 100},
 	}); err != nil {
 		t.Fatal(err)
