@@ -383,6 +383,10 @@ aside .state { padding: 10px 0; }
 .plan-bar > i { display: block; height: 100%; background: var(--accent); transition: width .45s ease; }
 .plan-bar.warn > i, .plan-bar.over > i { background: var(--tx); }
 .plan-sub { font: 400 11.5px/1.6 var(--mono); color: var(--muted); margin-top: 9px; }
+/* Shown when Save is pressed with no allowance. Uses the upload orange — the
+   palette's existing "attention" colour, also the plan bar's .over state. */
+.plan-err { font: 400 11.5px/1.6 var(--mono); color: var(--tx); margin-top: 8px; }
+.plan-err[hidden] { display: none; }
 .plan-card.plan-empty .plan-sub { margin-top: 8px; }
 /* Label/value rows: scannable in a narrow sidebar, unlike the run-on mono
    sentence this replaced (which wrapped to four lines). */

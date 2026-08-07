@@ -583,7 +583,7 @@ function planFormHTML(p) {
   return `<div class="plan-card plan-form">
     <div class="k">${t("plan.title")}</div>
     <div class="plan-fields">
-      <label>${t("plan.allowance")} <span><input id="plan-limit" type="number" min="0" step="0.5" value="${limitGB}" /> GB</span></label>
+      <label>${t("plan.allowance")} <span><input id="plan-limit" type="number" min="0.5" step="0.5" value="${limitGB}" required /> GB</span></label>
       <label>${t("plan.cycleDay")} <input id="plan-day" type="number" min="1" max="31" value="${cfg.startDay || 1}" /></label>
       <label>${t("plan.warnAt")} <span><input id="plan-warn" type="number" min="1" max="99" value="${cfg.warnPercent || 80}" /> %</span></label>
       <label>${t("plan.count")} <select id="plan-iface">${opts}</select></label>
@@ -593,6 +593,7 @@ function planFormHTML(p) {
       <button class="hdr-btn on" id="plan-save">${t("plan.save")}</button>
       ${cfg.limitBytes ? `<button class="hdr-btn" id="plan-off">${t("plan.off")}</button>` : ""}
     </div>
+    <div class="plan-err" id="plan-err" hidden>${t("plan.needAllowance")}</div>
     <div class="plan-sub">${t("plan.formHint")}</div>
   </div>`;
 }
@@ -608,8 +609,24 @@ function renderPlan() {
   if (edit) edit.onclick = () => { planEditing = true; renderPlan(); };
   const cancel = $("plan-cancel");
   if (cancel) cancel.onclick = () => { planEditing = false; renderPlan(); };
+  // A blank or zero allowance used to be coerced to 0 and saved, and 0 is the
+  // value that means "off" — so Save quietly turned the plan off and the form
+  // just closed. Turning off has its own button; Save now says what it needs.
   const save = $("plan-save");
-  if (save) save.onclick = () => savePlan(Math.max(0, Number($("plan-limit").value) || 0));
+  if (save) {
+    save.onclick = () => {
+      const gb = Number($("plan-limit").value);
+      if (!isFinite(gb) || gb <= 0) {
+        const err = $("plan-err");
+        if (err) err.hidden = false;
+        $("plan-limit").focus();
+        return;
+      }
+      savePlan(gb);
+    };
+  }
+  const limit = $("plan-limit");
+  if (limit) limit.oninput = () => { const e = $("plan-err"); if (e) e.hidden = true; };
   const off = $("plan-off");
   if (off) off.onclick = () => savePlan(0);
 }

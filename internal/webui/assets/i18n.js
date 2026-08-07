@@ -127,6 +127,7 @@ const NS_I18N = (() => {
       "plan.tetherSuffix": " (tethering)",
       "plan.cancel": "Cancel",
       "plan.save": "Save",
+      "plan.needAllowance": "Enter an allowance above 0 GB, or use Turn off.",
       "plan.off": "Turn off",
       "plan.formHint": "Auto counts networks macOS reports as a tethered phone (USB tethering, Bluetooth PAN). A hotspot joined over Wi-Fi looks like ordinary Wi-Fi, so pick that network by hand. Usage is measured from captured traffic — an estimate (±few %), not your carrier's meter.",
 
@@ -295,6 +296,7 @@ const NS_I18N = (() => {
       "plan.tetherSuffix": " (테더링)",
       "plan.cancel": "취소",
       "plan.save": "저장",
+      "plan.needAllowance": "제공량을 0 GB보다 크게 입력하세요. 끄려면 끄기를 누르세요.",
       "plan.off": "끄기",
       "plan.formHint": "자동은 macOS가 테더링된 폰으로 인식하는 네트워크(USB 테더링, 블루투스 PAN)를 집계합니다. Wi-Fi로 접속한 핫스팟은 일반 Wi-Fi로 보이므로 직접 선택하세요. 사용량은 캡처된 트래픽 기준 추정치(±수 %)이며 통신사 측정값과 다를 수 있습니다.",
 
@@ -459,6 +461,7 @@ const NS_I18N = (() => {
       "plan.tetherSuffix": "（テザリング）",
       "plan.cancel": "キャンセル",
       "plan.save": "保存",
+      "plan.needAllowance": "容量を 0 GB より大きく入力してください。オフにする場合はオフにするを押してください。",
       "plan.off": "オフにする",
       "plan.formHint": "自動では macOS がテザリング中のスマートフォンと認識するネットワーク（USB テザリング、Bluetooth PAN）を集計します。Wi-Fi 経由のホットスポットは通常の Wi-Fi に見えるため、手動で選択してください。使用量はキャプチャしたトラフィックからの推定値（±数 %）で、通信事業者の計測とは異なる場合があります。",
 
