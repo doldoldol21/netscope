@@ -120,3 +120,50 @@ func TestCycleKeyStableWithinCycle(t *testing.T) {
 		t.Errorf("key unchanged across the cycle boundary: %s", c)
 	}
 }
+
+// A cycle is one calendar month. CycleStart clamps a 29–31 start day to the
+// month's last day, so CycleEnd cannot advance by a day count: 32 days on from
+// January 31 is March 4, which skipped February's boundary entirely and left
+// the meter reporting a two-month cycle — doubling daysLeft and computing the
+// projection over the wrong window.
+func TestCycleIsOneMonthForLateStartDays(t *testing.T) {
+	for _, tc := range []struct {
+		now             string
+		day             int
+		wantStart, want string
+	}{
+		{"2026-02-15T12:00:00Z", 31, "2026-01-31", "2026-02-28"},
+		{"2026-03-01T12:00:00Z", 31, "2026-02-28", "2026-03-31"},
+		{"2026-03-15T12:00:00Z", 30, "2026-02-28", "2026-03-30"},
+		{"2026-02-10T12:00:00Z", 29, "2026-01-29", "2026-02-28"},
+		{"2026-04-10T12:00:00Z", 31, "2026-03-31", "2026-04-30"},
+		// A leap February still has a 29th to land on.
+		{"2028-02-10T12:00:00Z", 29, "2028-01-29", "2028-02-29"},
+		// Rolling into the next year must not rewind to January of this one.
+		{"2026-12-20T12:00:00Z", 31, "2026-11-30", "2026-12-31"},
+		{"2027-01-05T12:00:00Z", 31, "2026-12-31", "2027-01-31"},
+		// Ordinary start days were never affected; pin them so they stay put.
+		{"2026-06-15T12:00:00Z", 15, "2026-06-15", "2026-07-15"},
+		{"2026-02-15T12:00:00Z", 1, "2026-02-01", "2026-03-01"},
+	} {
+		now, err := time.ParseInLocation(time.RFC3339, tc.now, time.UTC)
+		if err != nil {
+			t.Fatal(err)
+		}
+		start, end := CycleStart(now, tc.day), CycleEnd(now, tc.day)
+		if got := start.Format("2006-01-02"); got != tc.wantStart {
+			t.Errorf("CycleStart(%s, %d) = %s, want %s", tc.now, tc.day, got, tc.wantStart)
+		}
+		if got := end.Format("2006-01-02"); got != tc.want {
+			t.Errorf("CycleEnd(%s, %d) = %s, want %s", tc.now, tc.day, got, tc.want)
+		}
+		// The invariants the meter depends on: the cycle contains now, and it
+		// is a month rather than a stretch of them.
+		if start.After(now) || !end.After(now) {
+			t.Errorf("cycle %s–%s does not contain %s", start, end, tc.now)
+		}
+		if days := int(end.Sub(start).Hours() / 24); days < 28 || days > 31 {
+			t.Errorf("cycle %s–%s spans %d days, want one month", start, end, days)
+		}
+	}
+}

@@ -46,8 +46,12 @@ func CycleStart(now time.Time, startDay int) time.Time {
 // cycle's start.
 func CycleEnd(now time.Time, startDay int) time.Time {
 	s := CycleStart(now, startDay)
-	next := s.AddDate(0, 0, 32) // safely inside the following month
-	return dayIn(next.Year(), next.Month(), clampStartDay(startDay), now.Location())
+	// Step one calendar month from the cycle's own month, clamping the day the
+	// same way its start was. Counting days instead cannot work: the start is
+	// already clamped to the month's last day, so "32 days on" from January 31
+	// lands on March 4 and February's boundary is skipped, leaving a cycle that
+	// runs two months. time.Date normalises month 13 into the next January.
+	return dayIn(s.Year(), s.Month()+1, clampStartDay(startDay), now.Location())
 }
 
 // dayIn builds local midnight on the given day-of-month, clamped to the month's
