@@ -103,8 +103,20 @@ func (c *Cache) SaveTo(path string) error {
 	if err != nil {
 		return err
 	}
+	// Owner-only: the cache is a list of every host this machine resolved, so it
+	// is as sensitive as the traffic database it sits next to.
+	//
+	// Drop any leftover temp file first. WriteFile applies its mode only when it
+	// creates the file, so a .tmp left behind by an interrupted save — or by a
+	// version that wrote 0644 — would keep that mode and hand it to the renamed
+	// cache. A removal that fails for any reason other than absence has to stop
+	// the save: writing into that file would publish the cache at whatever mode
+	// it already had.
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o644); err != nil {
+	if err := os.Remove(tmp); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	if err := os.WriteFile(tmp, b, 0o600); err != nil {
 		return err
 	}
 	return os.Rename(tmp, path)

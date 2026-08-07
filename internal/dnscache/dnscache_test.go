@@ -1,6 +1,7 @@
 package dnscache
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -105,5 +106,76 @@ func TestEviction(t *testing.T) {
 	}
 	if c.Lookup("3.3.3.3") != "c" {
 		t.Fatalf("newest entry missing")
+	}
+}
+
+// The persisted cache lists every host this machine resolved, so it must not be
+// readable by other local accounts.
+func TestSaveToIsOwnerOnly(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "dnscache.json")
+	c := New(time.Hour, 10)
+	c.Put("1.2.3.4", "example.com")
+	if err := c.SaveTo(path); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	fi, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mode := fi.Mode().Perm(); mode != 0o600 {
+		t.Errorf("cache mode = %#o, want 0600", mode)
+	}
+}
+
+// An interrupted save — or one from a version that wrote 0644 — leaves a .tmp
+// behind. WriteFile only applies its mode when it creates the file, so that
+// leftover would otherwise carry the old mode through the rename.
+func TestSaveToReplacesALeftoverTempFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "dnscache.json")
+	if err := os.WriteFile(path+".tmp", []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path+".tmp", 0o644); err != nil { // defeat the caller's umask
+		t.Fatal(err)
+	}
+	c := New(time.Hour, 10)
+	c.Put("1.2.3.4", "example.com")
+	if err := c.SaveTo(path); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	fi, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mode := fi.Mode().Perm(); mode != 0o600 {
+		t.Errorf("cache mode after a stale temp file = %#o, want 0600", mode)
+	}
+}
+
+// If the leftover cannot be removed, writing into it would publish the cache at
+// whatever mode that file already had — so the save has to fail instead.
+func TestSaveToStopsWhenAStaleTempSurvives(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: directory permissions do not prevent removal")
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "dnscache.json")
+	if err := os.WriteFile(path+".tmp", []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Removing a file needs write permission on its directory; writing to an
+	// already-open file does not. That is exactly the dangerous combination.
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+
+	c := New(time.Hour, 10)
+	c.Put("1.2.3.4", "example.com")
+	if err := c.SaveTo(path); err == nil {
+		t.Fatal("save reported success despite an unremovable temp file")
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Error("a cache file was published anyway")
 	}
 }

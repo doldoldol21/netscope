@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -87,6 +88,104 @@ CREATE TABLE IF NOT EXISTS domain_daily (
 );
 `
 
+// PrepareDir readies the directory that will hold the database.
+//
+// The daemon's data directory holds a complete record of which process talked to
+// which host and when, so it must not be reachable by other local accounts. The
+// directory mode is what actually gates that: with 0700 no other user can open
+// anything inside, including the SQLite sidecar files that are created lazily
+// and so cannot be restricted up front. macOS applies the same rule to its own
+// daemon state (/var/db/dhcpclient is 0700 root:wheel).
+//
+// A directory that already exists keeps its mode, with one exception: netscope's
+// own default location, which earlier versions created 0755 and which nothing
+// else has a claim on. Anywhere else the operator pointed --db is theirs — a
+// shared directory, or the working directory for a relative path — and silently
+// dropping group access from it would be a surprise, so PrepareDir leaves it be
+// and the database file's own 0600 does the work.
+func PrepareDir(dir, defaultDir string) error {
+	if _, err := os.Stat(dir); err != nil {
+		if !os.IsNotExist(err) {
+			return err
+		}
+		return os.MkdirAll(dir, 0o700)
+	}
+	if sameDir(dir, defaultDir) {
+		return os.Chmod(dir, 0o700)
+	}
+	return nil
+}
+
+// sameDir reports whether two paths name the same directory. Comparing the
+// strings is not enough on macOS, where the default /var/db/netscope is reached
+// through a symlink (/var -> /private/var): an operator who spelled the
+// resolved form would otherwise miss the migration. filepath.Dir has already
+// cleaned away any "..", so symlinks are the only difference left to resolve,
+// and a path that cannot be resolved simply isn't a match.
+func sameDir(a, b string) bool {
+	if a == b {
+		return true
+	}
+	ra, err := filepath.EvalSymlinks(a)
+	if err != nil {
+		return false
+	}
+	rb, err := filepath.EvalSymlinks(b)
+	if err != nil {
+		return false
+	}
+	return ra == rb
+}
+
+// isFileBacked reports whether path names a database that lives on disk. Open
+// takes a file path or the literal ":memory:" — the DSN below appends its own
+// query string, so a URI would not survive the trip — which leaves exactly two
+// spellings with no file behind them.
+//
+// Deliberately narrower than the mode=memory test openOnce uses to decide
+// whether a second read-only connection is possible. The two tests fail in
+// opposite directions: mistaking a real file for an in-memory database costs
+// that one nothing but skips the restriction here, and "mode=memory" is a
+// substring a legitimate filename can contain (netscope-mode=memory-backup.db).
+func isFileBacked(path string) bool {
+	return path != "" && path != ":memory:"
+}
+
+// secureFiles restricts the database and its sidecars to the owner, creating the
+// database if it isn't there yet.
+//
+// This has to happen before SQLite opens anything. A database left 0644 by an
+// earlier version stays readable by every local account for as long as it takes
+// to get to it, and the integrity check, schema and migration below all run
+// against the open file — so restricting afterwards leaves a window, and any of
+// those steps failing skips the restriction entirely. Creating the file here
+// also means SQLite never gets to make it with the process umask.
+func secureFiles(path string) error {
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	// OpenFile's mode applies only when it creates the file, so an existing
+	// database still needs the chmod. SQLite then copies the database's mode
+	// onto the -wal/-shm files it creates, which is why they need no umask
+	// handling; the chmod here is for stale ones left by an earlier version.
+	return restrictExisting(path, path+"-wal", path+"-shm")
+}
+
+// restrictExisting limits each path that exists to its owner. A missing file is
+// not an error — SQLite creates -wal/-shm lazily, on first write.
+func restrictExisting(paths ...string) error {
+	for _, p := range paths {
+		if err := os.Chmod(p, 0o600); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("restrict %s: %w", p, err)
+		}
+	}
+	return nil
+}
+
 // Open opens (creating if needed) the SQLite database at path and applies the
 // schema and connection pragmas. If the existing database is corrupt (e.g. after
 // power loss), it is quarantined aside and a fresh one is created — otherwise a
@@ -107,6 +206,11 @@ func Open(path string) (*Store, error) {
 	// Also clear any leftover WAL/SHM that belonged to the corrupt DB.
 	_ = os.Remove(path + "-wal")
 	_ = os.Remove(path + "-shm")
+	// The quarantined copy still holds the same traffic history, so it gets the
+	// same restriction as a live database.
+	if rerr := restrictExisting(corrupt); rerr != nil {
+		log.Printf("storage: %v", rerr)
+	}
 	log.Printf("storage: %s was unusable (%v); quarantined to %s and recreated", path, err, corrupt)
 	return openOnce(path)
 }
@@ -114,6 +218,11 @@ func Open(path string) (*Store, error) {
 // openOnce opens path, applies the schema, and runs a quick integrity check.
 // Any failure (including corruption) is returned so the caller can quarantine.
 func openOnce(path string) (*Store, error) {
+	if isFileBacked(path) {
+		if err := secureFiles(path); err != nil {
+			return nil, err
+		}
+	}
 	dsn := fmt.Sprintf("file:%s?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)", path)
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
