@@ -58,12 +58,13 @@ downloaded it).
 
 ## How it works
 
-A root capture daemon (`netscoped`, bundled in the app, managed by launchd)
-counts bytes per process with libpcap + `libproc` and maps IPs to domains from
-your own DNS replies, TLS SNI, and reverse DNS — HTTPS stays encrypted. It
-serves JSON over a `0600` unix socket only; the app's dashboard window talks to
-it through a loopback-only proxy. Details in
-[CONTRIBUTING.md](CONTRIBUTING.md).
+A root capture daemon (`netscoped`, bundled in the app and copied to
+`/Library/PrivilegedHelperTools` on install so what runs as root can't be
+swapped afterwards, managed by launchd) counts bytes per process with libpcap +
+`libproc` and maps IPs to domains from your own DNS replies, TLS SNI, and
+reverse DNS — HTTPS stays encrypted. It serves JSON over a `0600` unix socket
+only; the app's dashboard window talks to it through a loopback-only proxy.
+Details in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Privacy
 
@@ -113,6 +114,7 @@ make package    # dist/: app, zip, checksums, installer
 ```sh
 sudo launchctl bootout system/io.netscope.daemon 2>/dev/null
 sudo rm -f /Library/LaunchDaemons/io.netscope.daemon.plist
+sudo rm -f /Library/PrivilegedHelperTools/io.netscope.daemon
 rm -rf /Applications/netscope.app ~/Library/LaunchAgents/io.netscope.app.plist
 sudo rm -rf /var/db/netscope /var/run/netscope
 ```
