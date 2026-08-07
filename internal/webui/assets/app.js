@@ -95,24 +95,34 @@ function tableHTML(items, target) {
   </tr></thead>`;
 
   let rows = "";
-  sorted.slice(0, 50).forEach((it, i) => {
-    const total = Number(it.rxBytes) + Number(it.txBytes);
-    const name = isApps ? (it.name || "unknown") : it.domain;
-    const sub = isApps ? "" : (it.appName && it.appName !== "unknown" ? ` <small>· ${esc(it.appName)}</small>` : "");
-    const cat = (!isApps && it.category) ? ` <span class="chip">${esc(it.category)}</span>` : "";
-    // data-k keys the row for in-place reordering (see reorderRows).
-    const rowAttr = ` data-k="${esc(name)}"` +
-      (isApps ? ` data-app="${esc(name)}" class="clickable" tabindex="0" role="button" aria-label="${esc(name)}"` : "");
-    // Apps show their real macOS icon (served by /appicon, resolved via
-    // NSWorkspace); the colored dot stays underneath as the fallback when no
-    // icon resolves (the <img> removes itself on error).
-    const ico = isApps
-      ? `<span class="cell-ico"><span class="swatch" style="background:${swatchColor(name)}"></span>` +
-        `<img class="app-ico" alt="" loading="lazy" onerror="this.remove()" ` +
-        `src="/appicon?path=${encodeURIComponent(it.path || "")}&name=${encodeURIComponent(name)}"></span>`
-      : "";
-    rows += `<tr${rowAttr}>
-      <td class="rank">${i + 1}</td>
+  sorted.slice(0, 50).forEach((it, i) => { rows += rowHTML(it, i, max, isApps); });
+  return `<table class="tbl">${head}<tbody>${rows}</tbody></table>`;
+}
+
+// rowHTML renders one live row. Shared by the full build and by syncRows, so a
+// row inserted into an existing table is identical to one built from scratch.
+// The rank and bar widths it emits are provisional — patchRows corrects both on
+// the same tick, since either can change as soon as the next row lands.
+function rowHTML(it, i, max, isApps) {
+  const total = Number(it.rxBytes) + Number(it.txBytes);
+  const name = isApps ? (it.name || "unknown") : it.domain;
+  const sub = isApps ? "" : (it.appName && it.appName !== "unknown" ? ` <small>· ${esc(it.appName)}</small>` : "");
+  const cat = (!isApps && it.category) ? ` <span class="chip">${esc(it.category)}</span>` : "";
+  // data-k keys the row for in-place reordering (see reorderRows).
+  const rowAttr = ` data-k="${esc(name)}"` +
+    (isApps ? ` data-app="${esc(name)}" class="clickable" tabindex="0" role="button" aria-label="${esc(name)}"` : "");
+  // Apps show their real macOS icon (served by /appicon, resolved via
+  // NSWorkspace); the colored dot stays underneath as the fallback when no
+  // icon resolves (the <img> removes itself on error).
+  const ico = isApps
+    ? `<span class="cell-ico"><span class="swatch" style="background:${swatchColor(name)}"></span>` +
+      `<img class="app-ico" alt="" loading="lazy" onerror="this.remove()" ` +
+      `src="/appicon?path=${encodeURIComponent(it.path || "")}&name=${encodeURIComponent(name)}"></span>`
+    : "";
+  // The .rk-move slot always occupies its width, empty or not, so an arrow
+  // appearing can never shift the row.
+  return `<tr${rowAttr}>
+      <td class="rank"><i class="rk-move" aria-hidden="true"></i><span class="rk">${i + 1}</span></td>
       <td><div class="cell-name">
         ${ico}
         <span class="label" title="${esc(isApps ? (it.path || name) : name)}">${isApps ? "" : flagChip(it.country)}${esc(name)}${sub}</span>${cat}
@@ -121,8 +131,6 @@ function tableHTML(items, target) {
       <td class="num tx">${fmtBytes(it.txBytes).str}</td>
       <td class="num">${fmtBytes(total).str}</td>
     </tr>`;
-  });
-  return `<table class="tbl">${head}<tbody>${rows}</tbody></table>`;
 }
 
 // usebar renders a row's split usage bar: download and upload as adjacent
@@ -160,9 +168,71 @@ function reorderRows(tbody, keys) {
   return true;
 }
 
-// liveSig remembers which rows are present (order-independent) so a re-rank
-// reorders nodes instead of rebuilding the table; only a changed row *set*
-// (or sort key) rebuilds.
+// syncRows brings an existing tbody's row *set* into line with the wanted keys,
+// adding and removing only what changed.
+//
+// The table used to be rebuilt whenever the set moved, which under live traffic
+// is constantly: one new domain appearing re-created every row, and with them
+// every app-icon <img>, dropping hover and focus. Touching only the rows that
+// actually came or went leaves the rest of the table — images included — alone.
+// Returns false when the keys can't address rows one-to-one, so the caller
+// rebuilds instead of guessing. The engine aggregates by name, so duplicates
+// shouldn't occur — but a Map keyed on them would silently drop rows.
+function syncRows(tbody, sorted, keys, isApps) {
+  const want = new Set(keys);
+  if (want.size !== keys.length) return false;
+  for (const tr of [...tbody.children]) {
+    if (!want.has(tr.dataset.k)) tr.remove();
+  }
+  const have = new Set();
+  for (const tr of tbody.children) have.add(tr.dataset.k);
+  if (have.size === keys.length) return true;
+  const max = Math.max(1, ...sorted.map((x) => Number(x.rxBytes) + Number(x.txBytes)));
+  let html = "";
+  for (let i = 0; i < sorted.length; i++) {
+    if (!have.has(keys[i])) html += rowHTML(sorted[i], i, max, isApps);
+  }
+  // Appended at the end; reorderRows moves them into place on the same tick.
+  if (html) tbody.insertAdjacentHTML("beforeend", html);
+  return true;
+}
+
+// prevRank remembers each row's position last tick, so patchRows can tell a
+// genuine rank change from the value churn that happens every second.
+const prevRank = { apps: new Map(), domains: new Map() };
+
+// markRankMove flashes the direction a row just moved. Values change on every
+// tick and are already shown by the sparkline; a rank change is occasional, so
+// an indicator for it stays quiet until something actually happened.
+//
+// The triangle itself is CSS (see .rk-move) — a border triangle stays crisp at
+// 6px where the ▲/▼ glyphs render too thin to tell apart, and colour carries
+// the direction: green up against grey down, neither of which is the teal and
+// orange that mean download and upload in the columns alongside.
+function markRankMove(el, up) {
+  if (!el) return;
+  el.classList.toggle("up", up);
+  el.classList.toggle("down", !up);
+  // Re-animating from script restarts cleanly; toggling a class would need a
+  // forced reflow to replay. Fill is left at "none", so the arrow returns to
+  // the stylesheet's opacity:0 when it finishes — nothing to clean up.
+  if (el.animate) {
+    if (el.getAnimations) for (const a of el.getAnimations()) a.cancel();
+    el.animate([{ opacity: 0 }, { opacity: 1, offset: 0.08 }, { opacity: 1, offset: 0.7 }, { opacity: 0 }],
+      { duration: 2800 });
+    return;
+  }
+  // Without Web Animations the arrow would stay at the stylesheet's opacity:0
+  // and the indicator would be silently dead. Show it and clear it on a timer
+  // instead, so the worst case is "no fade" rather than "nothing at all".
+  el.style.opacity = "1";
+  clearTimeout(el._rkTimer);
+  el._rkTimer = setTimeout(() => { el.style.opacity = ""; }, 2400);
+}
+
+// liveSig records what the current table was built for. It changes only when
+// the sort does; a moved row set is handled by syncRows, not a rebuild.
+// Clearing it (elsewhere) forces the next render to rebuild.
 const liveSig = { apps: "", domains: "" };
 function renderPanel(target) {
   if (rangeState[target] !== "session") return; // history handled by loadHistory
@@ -172,6 +242,7 @@ function renderPanel(target) {
     $(target).innerHTML = tableHTML(items, target);
     wireSort(target);
     liveSig[target] = "";
+    prevRank[target].clear();
     return;
   }
   const s = sortState[target];
@@ -180,22 +251,29 @@ function renderPanel(target) {
     return (av < bv ? -1 : av > bv ? 1 : 0) * s.dir;
   }).slice(0, 50);
   const keys = sorted.map((x) => (isApps ? (x.name || "unknown") : x.domain));
-  const sig = [...keys].sort().join("|") + "#" + s.key + s.dir; // set, not order
+  const sig = s.key + s.dir;
   const el = $(target);
-  const tbody = el.querySelector("tbody");
-  if (tbody && liveSig[target] === sig && tbody.children.length === sorted.length &&
-      reorderRows(tbody, keys)) {
-    patchRows(tbody, sorted, target); // same rows: reordered, then values patched
+  let tbody = el.querySelector("tbody");
+  if (!tbody || liveSig[target] !== sig) { // first paint, or the sort changed
+    el.innerHTML = tableHTML(items, target);
+    wireSort(target);
+    liveSig[target] = sig;
+    prevRank[target].clear(); // a re-sort is not a rank move
     return;
   }
-  el.innerHTML = tableHTML(items, target); // row set changed: rebuild
-  wireSort(target);
-  liveSig[target] = sig;
+  if (!syncRows(tbody, sorted, keys, isApps) || !reorderRows(tbody, keys)) { // rebuild rather than guess
+    el.innerHTML = tableHTML(items, target);
+    wireSort(target);
+    prevRank[target].clear();
+    return;
+  }
+  patchRows(tbody, sorted, target);
 }
 
 // patchRows updates the numeric cells and bar widths of existing rows in place.
 function patchRows(tbody, sorted, target) {
   const max = Math.max(1, ...sorted.map((x) => Number(x.rxBytes) + Number(x.txBytes)));
+  const was = prevRank[target], now = new Map();
   for (let i = 0; i < sorted.length; i++) {
     const it = sorted[i], tr = tbody.children[i];
     if (!tr) continue;
@@ -204,7 +282,12 @@ function patchRows(tbody, sorted, target) {
     // total), and querySelectorAll per row per tick was ~200 selector runs/s.
     // Only write when the formatted value actually changed: assigning identical
     // text still triggers a repaint of the tabular-nums cell every tick.
-    setText(tr.cells[0], String(i + 1)); // rank follows the reorder
+    const k = tr.dataset.k, before = was.get(k);
+    now.set(k, i);
+    if (before !== undefined && before !== i) {
+      markRankMove(tr.cells[0].firstElementChild, before > i); // smaller index = climbed
+    }
+    setText(tr.cells[0].lastElementChild, String(i + 1)); // rank follows the reorder
     setText(tr.cells[2], fmtBytes(it.rxBytes).str);
     setText(tr.cells[3], fmtBytes(it.txBytes).str);
     setText(tr.cells[4], fmtBytes(total).str);
@@ -218,6 +301,7 @@ function patchRows(tbody, sorted, target) {
       if (seg[1].style.width !== txW) seg[1].style.width = txW;
     }
   }
+  prevRank[target] = now;
 }
 
 // skeletonTable returns shimmer placeholder rows mirroring the table layout,
