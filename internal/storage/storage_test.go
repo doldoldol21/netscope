@@ -83,6 +83,21 @@ func openTemp(t *testing.T) *Store {
 	return s
 }
 
+// freezeClock pins the store's clock (nowFn) to a fixed local noon and returns
+// it, restoring the real clock when the test ends. Noon sits far from midnight
+// and from any DST switch, and — the point — it is the *same* instant the store
+// reads through nowFn, so rollup tests that end a range at "now" no longer depend
+// on when the CI runner happens to execute them. Not safe under t.Parallel (nowFn
+// is process-global); storage tests run serially.
+func freezeClock(t *testing.T) time.Time {
+	t.Helper()
+	fixed := time.Date(2025, 6, 16, 12, 0, 0, 0, time.Local)
+	prev := nowFn
+	nowFn = func() time.Time { return fixed }
+	t.Cleanup(func() { nowFn = prev })
+	return fixed
+}
+
 func TestEnforceSizeCap(t *testing.T) {
 	s := openTemp(t)
 	day := int64(86400)
@@ -354,28 +369,14 @@ func TestPurgeDropsRollupDays(t *testing.T) {
 	}
 }
 
-// todayBucket returns a sample timestamp offset into today's local day, pulled
-// back to local midnight when that offset would land ahead of now.
-//
-// Tests that end a range at time.Now() have to write their samples behind it: a
-// bucket in the future is outside `bucket >= from AND bucket < to`, so the row
-// simply isn't there and the assertion reads as a rollup bug. Hard-coding
-// mid+2h made that happen for the first two hours of every local day — which CI
-// hits whenever a run lands there, its runners being UTC.
-func todayBucket(now, mid time.Time, offset time.Duration) time.Time {
-	if ts := mid.Add(offset); !ts.After(now) {
-		return ts
-	}
-	return mid
-}
-
 // An open-ended range (…until now) must take today from the rollup instead of
-// rescanning today's raw buckets — and must not double-count it.
+// rescanning today's raw buckets — and must not double-count it. The clock is
+// frozen so "today" and the sample bucket below never straddle local midnight.
 func TestOpenEndedRangeUsesTodayRollup(t *testing.T) {
 	s := openTemp(t)
-	now := time.Now()
+	now := freezeClock(t)
 	mid := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
-	ts := todayBucket(now, mid, 2*time.Hour)
+	ts := mid.Add(2 * time.Hour)
 	if err := s.FlushApps(ts.Unix(), []types.AppTraffic{{Name: "claude", RxBytes: 100, TxBytes: 10}}); err != nil {
 		t.Fatal(err)
 	}
@@ -459,7 +460,7 @@ func TestRepairsMisalignedRollupKeys(t *testing.T) {
 // checked exhaustively rather than by example.
 func TestRollupAgreesWithSamplesAcrossRanges(t *testing.T) {
 	s := openTemp(t)
-	now := time.Now()
+	now := freezeClock(t)
 	mid := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 
 	// Five days of traffic, several buckets a day at varying hours.
@@ -558,9 +559,9 @@ func TestRollupAgreesWithSamplesAcrossRanges(t *testing.T) {
 // the periodic verification must notice and rebuild that day.
 func TestVerifyRollupsRepairsDrift(t *testing.T) {
 	s := openTemp(t)
-	now := time.Now()
+	now := freezeClock(t)
 	mid := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
-	if err := s.FlushApps(todayBucket(now, mid, time.Hour).Unix(), []types.AppTraffic{
+	if err := s.FlushApps(mid.Add(time.Hour).Unix(), []types.AppTraffic{
 		{Name: "claude", RxBytes: 1000, TxBytes: 100},
 	}); err != nil {
 		t.Fatal(err)
