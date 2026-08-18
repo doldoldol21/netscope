@@ -67,9 +67,11 @@ it through a loopback-only proxy. Details in
 
 ## Privacy
 
-Captured data stays on your Mac. Bytes and hostnames only — payloads are never
-decrypted, nothing captured is uploaded, and the country lookup uses an embedded
-offline database, so no address is ever sent to a geolocation service.
+Captured data stays on your Mac, owner-only on disk (the database and DNS cache
+are `0600` in a `0700` directory), so other local accounts can't read it either.
+Bytes and hostnames only — payloads are never decrypted, nothing captured is
+uploaded, and the country lookup uses an embedded offline database, so no address
+is ever sent to a geolocation service.
 
 Two things do go out, both ordinary network requests rather than capture data:
 
