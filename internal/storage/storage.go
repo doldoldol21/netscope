@@ -5,11 +5,13 @@ package storage
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/doldoldol21/netscope/pkg/types"
@@ -108,6 +110,9 @@ func PrepareDir(dir, defaultDir string) error {
 		if !os.IsNotExist(err) {
 			return err
 		}
+		// MkdirAll also creates any missing parents at 0700 (they were 0755
+		// before). For the default path the parent already exists, and tighter
+		// is the safe direction, so this only matters for a fresh --db tree.
 		return os.MkdirAll(dir, 0o700)
 	}
 	if sameDir(dir, defaultDir) {
@@ -161,7 +166,11 @@ func isFileBacked(path string) bool {
 // those steps failing skips the restriction entirely. Creating the file here
 // also means SQLite never gets to make it with the process umask.
 func secureFiles(path string) error {
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+	// O_NOFOLLOW: the daemon runs as root, so a symlink planted at path must not
+	// be opened (and later chmod'd) through — that would let an unprivileged
+	// process aim the restriction at any file it names. A real database is a
+	// regular file and opens fine; a planted link fails with ELOOP.
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR|syscall.O_NOFOLLOW, 0o600)
 	if err != nil {
 		return err
 	}
@@ -179,9 +188,33 @@ func secureFiles(path string) error {
 // not an error — SQLite creates -wal/-shm lazily, on first write.
 func restrictExisting(paths ...string) error {
 	for _, p := range paths {
-		if err := os.Chmod(p, 0o600); err != nil && !os.IsNotExist(err) {
-			return fmt.Errorf("restrict %s: %w", p, err)
+		if err := chmodNoFollow(p, 0o600); err != nil {
+			return err
 		}
+	}
+	return nil
+}
+
+// chmodNoFollow sets a file's mode without following a symlink at its path.
+// os.Chmod follows links, so a link planted at -wal/-shm/.corrupt would make the
+// root daemon chmod whatever it points at. Opening with O_NOFOLLOW and chmod'ing
+// the descriptor closes that (a link fails with ELOOP), and doing it through the
+// fd — not the name — also shuts the open/chmod race on the path itself. A
+// missing file is fine (sidecars are created lazily); a planted link is refused.
+func chmodNoFollow(path string, mode os.FileMode) error {
+	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		if errors.Is(err, syscall.ELOOP) {
+			return fmt.Errorf("restrict %s: refusing to follow a symlink", path)
+		}
+		return fmt.Errorf("restrict %s: %w", path, err)
+	}
+	defer f.Close()
+	if err := f.Chmod(mode); err != nil {
+		return fmt.Errorf("restrict %s: %w", path, err)
 	}
 	return nil
 }

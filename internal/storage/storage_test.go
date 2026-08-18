@@ -734,6 +734,56 @@ func TestOpenRestrictsDatabaseFileWhoseNameContainsModeMemory(t *testing.T) {
 	}
 }
 
+func TestSecureFilesRefusesASymlinkedSidecar(t *testing.T) {
+	// os.Chmod follows symlinks. A link planted at -wal/-shm would otherwise make
+	// the root daemon chmod whatever it points at, so restricting must refuse and
+	// leave the target untouched.
+	dir := t.TempDir()
+	victim := filepath.Join(dir, "victim")
+	if err := os.WriteFile(victim, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	db := filepath.Join(dir, "test.db")
+	if err := os.Symlink(victim, db+"-wal"); err != nil {
+		t.Fatal(err)
+	}
+	if err := secureFiles(db); err == nil {
+		t.Fatal("secureFiles followed a symlinked -wal instead of refusing")
+	}
+	if mode := lstatMode(t, victim); mode != 0o644 {
+		t.Errorf("victim mode = %#o via symlink, want 0644 untouched", mode)
+	}
+}
+
+func TestSecureFilesRefusesASymlinkedDatabase(t *testing.T) {
+	// The database path itself may be a planted link; O_NOFOLLOW must stop the
+	// create/open from landing on the target.
+	dir := t.TempDir()
+	victim := filepath.Join(dir, "victim")
+	if err := os.WriteFile(victim, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	db := filepath.Join(dir, "test.db")
+	if err := os.Symlink(victim, db); err != nil {
+		t.Fatal(err)
+	}
+	if err := secureFiles(db); err == nil {
+		t.Fatal("secureFiles opened a symlinked database instead of refusing")
+	}
+	if mode := lstatMode(t, victim); mode != 0o644 {
+		t.Errorf("victim mode = %#o via symlink, want 0644 untouched", mode)
+	}
+}
+
+func lstatMode(t *testing.T, path string) os.FileMode {
+	t.Helper()
+	fi, err := os.Lstat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return fi.Mode().Perm()
+}
+
 func statMode(t *testing.T, path string) os.FileMode {
 	t.Helper()
 	fi, err := os.Stat(path)
