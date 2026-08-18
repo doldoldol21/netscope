@@ -36,7 +36,10 @@ netscope is local-only by design, which bounds the attack surface:
   its URL and then held in an origin-scoped cookie). Requests without it get
   401, and requests whose `Origin`/`Referer`/`Sec-Fetch-Site` indicate another
   site get 403 — so a page in your browser can't drive the API either.
-- All captured data stays on the machine; none of it is uploaded.
+- All captured data stays on the machine; none of it is uploaded. On disk it is
+  owner-only — the database and DNS cache are `0600` inside a `0700` directory
+  (`/var/db/netscope`), so another local account can't read the history straight
+  off disk, matching the socket's `0600` gate.
 - netscope does make two outbound requests of its own, neither carrying capture
   data: reverse-DNS (PTR) lookups for IPs that DNS and TLS SNI left unnamed, and
   update checks against `api.github.com`. The PTR lookups do disclose which
