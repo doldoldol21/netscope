@@ -117,6 +117,8 @@ button, input, select, canvas { --wails-draggable: no-drag; }
 .updbanner:hover .ub-go { color: var(--accent-hover); }
 .updbanner .ub-txt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .updbanner .ub-go { font: 400 12px/1 var(--mono); color: var(--accent); white-space: nowrap; }
+.updbanner .ub-x { font: 400 12px/1 var(--mono); color: var(--muted); white-space: nowrap; padding: 0 2px; cursor: pointer; }
+.updbanner .ub-x:hover { color: var(--fg); }
 .updbanner[hidden] { display: none; }
 
 /* ---------- today total ---------- */

@@ -198,6 +198,30 @@ func main() {
 					}
 				}()
 			})
+			// Capture-helper controls. Staleness is only detected on launch (see
+			// daemonctl.Ensure); the prompt to fix it lives here, where the user
+			// reaches for it in the popover.
+			wruntime.EventsOn(ctx, "netscope:gethelper", func(...interface{}) {
+				wruntime.EventsEmit(ctx, "netscope:helper", helperStatusJSON())
+			})
+			wruntime.EventsOn(ctx, "netscope:updatehelper", func(...interface{}) {
+				go func() {
+					if err := performHelperUpdate(client, sock); err != nil {
+						wruntime.EventsEmit(ctx, "netscope:helpererror", err.Error())
+					}
+					wruntime.EventsEmit(ctx, "netscope:helper", helperStatusJSON())
+				}()
+			})
+			wruntime.EventsOn(ctx, "netscope:dismisshelper", func(data ...interface{}) {
+				digest := ""
+				if len(data) > 0 {
+					if s, ok := data[0].(string); ok {
+						digest = s
+					}
+				}
+				dismissHelper(digest)
+				wruntime.EventsEmit(ctx, "netscope:helper", helperStatusJSON())
+			})
 		},
 		Mac: &mac.Options{
 			Appearance:           mac.NSAppearanceNameDarkAqua,

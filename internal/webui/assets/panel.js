@@ -435,6 +435,27 @@ $("set-autocheck").onchange = (e) => {
   if (r.EventsEmit) r.EventsEmit("netscope:setautocheck", e.currentTarget.checked);
 };
 
+// ---- capture helper (root-owned daemon copy) ----
+function renderHelper(st) {
+  st = st || {};
+  const banner = $("helperbanner");
+  if (!banner) return;
+  banner.dataset.digest = st.digest || "";
+  banner.hidden = !st.needsUpdate;
+}
+$("helperbanner").onclick = (e) => {
+  const r = rt();
+  if (!r.EventsEmit) return;
+  if (e.target.id === "helper-dismiss") {
+    e.stopPropagation();
+    r.EventsEmit("netscope:dismisshelper", $("helperbanner").dataset.digest || "");
+  } else {
+    const go = $("helper-go");
+    if (go) go.textContent = t("upd.downloading");
+    r.EventsEmit("netscope:updatehelper"); // Go prompts once, reinstalls, replies on "netscope:helper"
+  }
+};
+
 window.addEventListener("DOMContentLoaded", () => {
   if (window.runtime && window.runtime.EventsOn) {
     window.runtime.EventsOn("netscope:show", () => { /* already on panel */ });
@@ -448,9 +469,15 @@ window.addEventListener("DOMContentLoaded", () => {
       const now = $("upd-now");
       now.textContent = t("upd.now"); now.disabled = false;
     });
-    // Ask for cached update status + theme so the popover styles itself on launch.
+    window.runtime.EventsOn("netscope:helper", (st) => renderHelper(st));
+    window.runtime.EventsOn("netscope:helpererror", () => {
+      const go = $("helper-go");
+      if (go) go.textContent = t("pop.updateGo");
+    });
+    // Ask for cached update + helper status + theme so the popover styles itself on launch.
     if (window.runtime.EventsEmit) {
       window.runtime.EventsEmit("netscope:getupdate");
+      window.runtime.EventsEmit("netscope:gethelper");
       window.runtime.EventsEmit("netscope:gettheme");
     }
   }

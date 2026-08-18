@@ -20,12 +20,17 @@ import (
 
 	"github.com/doldoldol21/netscope/internal/alerts"
 	"github.com/doldoldol21/netscope/internal/buildinfo"
+	"github.com/doldoldol21/netscope/internal/daemonctl"
 	"github.com/doldoldol21/netscope/internal/update"
 )
 
 // updatePrefs persists the user's auto-update preference.
 type updatePrefs struct {
 	AutoCheck bool `json:"autoCheck"`
+	// DismissedHelperDigest is the stale-helper digest the user waved off, so the
+	// popover banner doesn't nag about the same one every launch. A new staleness
+	// (different digest) surfaces again; a successful refresh clears it.
+	DismissedHelperDigest string `json:"dismissedHelperDigest,omitempty"`
 }
 
 var (
@@ -104,6 +109,46 @@ func setAutoCheck(on bool) {
 	updPrefs.AutoCheck = on
 	saveUpdatePrefsLocked()
 	updMu.Unlock()
+}
+
+// helperStatusJSON is what the popover renders for the capture helper: whether
+// the root-owned daemon copy is stale (the app updated but launchd still runs the
+// old build), and whether that staleness is one the user hasn't already waved
+// off. needsUpdate drives the banner; digest lets the JS echo back which one a
+// dismissal refers to.
+func helperStatusJSON() map[string]any {
+	stale, digest := daemonctl.HelperStale()
+	updMu.Lock()
+	dismissed := updPrefs.DismissedHelperDigest
+	updMu.Unlock()
+	return map[string]any{
+		"stale":       stale,
+		"digest":      digest,
+		"needsUpdate": stale && digest != dismissed,
+	}
+}
+
+// dismissHelper records that the user waved off this stale-helper digest, so the
+// banner stays hidden until a different build makes it stale again.
+func dismissHelper(digest string) {
+	updMu.Lock()
+	updPrefs.DismissedHelperDigest = digest
+	saveUpdatePrefsLocked()
+	updMu.Unlock()
+}
+
+// performHelperUpdate re-installs the root-owned daemon copy from the bundle (one
+// admin prompt) at the user's request, then clears any dismissal so a later
+// staleness surfaces again.
+func performHelperUpdate(client *http.Client, sock string) error {
+	if err := daemonctl.RefreshHelper(client, sock); err != nil {
+		return err
+	}
+	updMu.Lock()
+	updPrefs.DismissedHelperDigest = ""
+	saveUpdatePrefsLocked()
+	updMu.Unlock()
+	return nil
 }
 
 func loadUpdatePrefs() {

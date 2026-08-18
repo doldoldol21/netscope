@@ -54,12 +54,19 @@ func IsRunning(client *http.Client) bool {
 // Ensure makes the daemon available: returns nil if it is already running (or
 // comes up shortly — e.g. just installed by the installer), otherwise installs
 // and starts the LaunchDaemon (prompting for admin once) and waits for it.
+//
+// A stale helper (the app updated but the root-owned copy is still the old
+// build) is deliberately NOT reinstalled here. Refreshing it needs an admin
+// prompt, and doing that unbidden on every launch would nag a user who declined
+// with no way to stop it — and a locally built app run next to a released one
+// would ping-pong. Detecting staleness on launch is fine; acting on it is the
+// user's to trigger, via HelperStale/RefreshHelper surfaced in the popover.
 func Ensure(client *http.Client, sock string) error {
 	// Give an already-installed daemon a few seconds to answer before deciding
 	// to (re)install — it may still be starting up after install/login/boot.
 	for i := 0; i < 10; i++ {
 		if IsRunning(client) {
-			return refreshHelper(client, sock)
+			return nil
 		}
 		time.Sleep(300 * time.Millisecond)
 	}
@@ -128,16 +135,42 @@ func findNetscoped() (string, error) {
 	return "", fmt.Errorf("netscoped binary not found (is netscope installed?)")
 }
 
-// reinstallIfStale re-runs the privileged install when the copy under
-// helperPath no longer matches the daemon shipped in the running bundle —
-// i.e. after the app has updated itself. Without this the installed helper
-// would stay on the old build forever, since restarting it only re-runs the
-// same file. It costs one admin prompt per app update, the same trade
-// SMJobBless makes when a helper's version changes.
-//
-// Anything unexpected here is logged and ignored: a stale-but-working daemon is
-// much better than an app that won't start.
-func refreshHelper(client *http.Client, sock string) error {
+// HelperStale reports whether the root-owned daemon copy differs from the one
+// shipped in the running bundle — the app updated but launchd is still running
+// the old build — with a short digest of the bundled daemon that identifies this
+// particular staleness, so a caller can remember which one it already told the
+// user about. It is quiet: any error, or a dev/CLI build with no bundled daemon,
+// reports "not stale" rather than surfacing noise.
+func HelperStale() (stale bool, digest string) {
+	exe, err := os.Executable()
+	if err != nil {
+		return false, ""
+	}
+	bundled := bundledNetscoped(exe)
+	if bundled == "" {
+		return false, ""
+	}
+	reason, err := helperInstallReason(bundled, helperPath)
+	if err != nil || reason == "" {
+		return false, ""
+	}
+	d, err := fileDigest(bundled)
+	if err != nil {
+		return false, ""
+	}
+	// 12 hex chars is plenty to tell one build's daemon from another's.
+	return true, fmt.Sprintf("%x", d[:6])
+}
+
+// RefreshHelper re-runs the privileged install when the copy under helperPath no
+// longer matches the daemon shipped in the running bundle — i.e. after the app
+// updated itself. Without it the installed helper would stay on the old build
+// forever, since restarting only re-runs the same file. It costs one admin
+// prompt, the same trade SMJobBless makes when a helper's version changes, so it
+// runs only when the user asks for it (see HelperStale). A no-op when nothing is
+// stale; anything unexpected is logged and ignored, since a stale-but-working
+// daemon beats an app that won't start.
+func RefreshHelper(client *http.Client, sock string) error {
 	exe, err := os.Executable()
 	if err != nil {
 		return nil
