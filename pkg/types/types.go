@@ -128,6 +128,12 @@ type Snapshot struct {
 	Interface  string `json:"interface"`
 	// Paused is true while live capture is suspended by the user.
 	Paused bool `json:"paused"`
+	// Capturing is true while a capture source is actually running. It is false
+	// between sessions — after a link change, a wake, or while no interface can
+	// be resolved — which is what lets the UI tell "connected and idle" apart
+	// from "no numbers because nothing is being captured". Interface alone
+	// cannot: it keeps naming the last interface across a re-open.
+	Capturing bool `json:"capturing"`
 }
 
 // Connection is one live network connection (an app talking to a remote

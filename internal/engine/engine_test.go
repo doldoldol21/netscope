@@ -178,3 +178,28 @@ func TestFlushPersistsAndResets(t *testing.T) {
 		t.Fatalf("flush did not persist app: %+v", apps)
 	}
 }
+
+// Sources without a supervisor (demo, offline replay) are capturing for as long
+// as the engine runs, so the snapshot must not claim otherwise before anyone
+// calls SetCapturing.
+func TestSnapshotReportsCapturingByDefault(t *testing.T) {
+	e := New(Config{}, nil, nil, nil)
+	e.updateSnapshot()
+	if !e.Snapshot().Capturing {
+		t.Fatal("a fresh engine reported that it isn't capturing")
+	}
+}
+
+func TestSetCapturingIsReflectedInSnapshots(t *testing.T) {
+	e := New(Config{}, nil, nil, nil)
+	e.SetCapturing(false)
+	e.updateSnapshot()
+	if e.Snapshot().Capturing {
+		t.Fatal("snapshot still reports capturing after SetCapturing(false)")
+	}
+	e.SetCapturing(true)
+	e.updateSnapshot()
+	if !e.Snapshot().Capturing {
+		t.Fatal("snapshot did not recover after SetCapturing(true)")
+	}
+}

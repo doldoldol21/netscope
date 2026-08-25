@@ -86,15 +86,19 @@ const setHTML = (el, html) => { if (el && el.innerHTML !== html) el.innerHTML = 
 let appsSig = "";
 function render(s) {
   applyPausedFromSnapshot(!!s.paused);
-  if (!capPaused) $("dot").classList.add("live");
+  // An older daemon doesn't send `capturing`; absent means "can't tell", which
+  // is not grounds for claiming capture stopped.
+  capCapturing = s.capturing !== false;
+  if (!capPaused && capCapturing) $("dot").classList.add("live");
+  else $("dot").classList.remove("live");
   if (s.interface) {
     const changed = s.interface !== ifaceCur;
     ifaceCur = s.interface;
     // Pull the friendly-name list if we don't know this interface yet (boot or a
     // just-switched interface), so the meta line shows "Wi-Fi" not "en0".
     if (changed && !ifaceOpts.some((o) => o.name === ifaceCur)) refreshIface();
-    updateMetaText();
   }
+  updateMetaText(); // capturing can change while the interface name does not
   const rxEl = $("rx"), txEl = $("tx");
   const rxHTML = numUnitHTML(s.rxPerSec, true), txHTML = numUnitHTML(s.txPerSec, true);
   if (rxEl.innerHTML !== rxHTML) rxEl.innerHTML = rxHTML;
@@ -256,6 +260,9 @@ $("set-theme").onchange = (e) => {
 
 // ---- pause/resume capture (daemon closes the pcap handle while paused) ----
 let capPaused = false;
+// Whether the daemon reports a capture source actually running. Starts true so
+// the popover doesn't flash "reconnecting" before the first snapshot arrives.
+let capCapturing = true;
 let pausePendingUntil = 0; // ignore stale snapshots right after a manual toggle
 // A snapshot generated just before our POST landed still reports the old state;
 // during the pending window keep our optimistic value until snapshots agree.
@@ -302,6 +309,10 @@ function friendlyIface(name) {
 // repainted) once a second with the same text.
 function updateMetaText() {
   if (capPaused) { setText($("meta"), t("status.paused")); return; }
+  // Between capture sources — re-opening after a link change or a wake. The
+  // rates are zero because nothing is being measured, not because the link is
+  // quiet, and the meta line is the only place that can say which.
+  if (!capCapturing) { setText($("meta"), t("status.reconnecting")); return; }
   const cur = ifaceCur ? friendlyIface(ifaceCur) : t("meta.live");
   setText($("meta"), ifaceSel ? cur : t("meta.auto", { name: cur }));
 }

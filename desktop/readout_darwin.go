@@ -5,6 +5,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -57,6 +58,20 @@ var menuBarStyles = []menuBarStyle{
 	{ID: "icononly", segs: func(rx, tx string) []seg { return nil }},
 }
 
+// modeMarker returns the glyph standing in for the rates when they would not
+// mean what they appear to. Zeros stay reserved for a link that is genuinely
+// connected and quiet.
+func modeMarker(m readoutMode) (string, bool) {
+	switch m {
+	case readoutPaused:
+		return "⏸", true
+	case readoutStopped:
+		return "—", true
+	default:
+		return "", false
+	}
+}
+
 var (
 	readoutMu    sync.Mutex
 	readoutStyle = "arrows"
@@ -66,7 +81,11 @@ var (
 	lastRx       string
 	lastTx       string
 	lastTotalBps float64 // most recent rx+tx, drives the icon animation speed
-	readoutHTTP  *http.Client
+	// lastMode is what the readout should currently be saying. It starts stopped
+	// so the seconds before the first successful poll don't show a zero rate the
+	// daemon never reported.
+	lastMode    = readoutStopped
+	readoutHTTP *http.Client
 )
 
 // currentRateBps returns the last-seen total throughput (rx+tx) in bytes/sec and
@@ -86,11 +105,18 @@ func startMenuBarReadout(client *http.Client) {
 	go func() {
 		time.Sleep(6 * time.Second) // let the daemon come up first
 		for {
-			rx, tx, ok := fetchRates(client)
+			st, ok := fetchCapture(client)
 			if ok {
 				readoutMu.Lock()
-				lastRx, lastTx = compactRate(rx), compactRate(tx)
-				lastTotalBps = rx + tx
+				lastMode = st.mode()
+				if lastMode == readoutRates {
+					lastRx, lastTx = compactRate(st.rx), compactRate(st.tx)
+					lastTotalBps = st.rx + st.tx
+				} else {
+					// Not capturing: there is no rate to animate to, and the
+					// numbers would be indistinguishable from a quiet link.
+					lastRx, lastTx, lastTotalBps = "", "", 0
+				}
 				readoutMu.Unlock()
 				renderReadout()
 			} else {
@@ -100,6 +126,7 @@ func startMenuBarReadout(client *http.Client) {
 				// like steady mid-traffic).
 				readoutMu.Lock()
 				lastRx, lastTx, lastTotalBps = "", "", 0
+				lastMode = readoutStopped
 				readoutMu.Unlock()
 				setStatusText("") // icon only
 			}
@@ -112,8 +139,19 @@ func startMenuBarReadout(client *http.Client) {
 // pushes the colored-segment string to the menu bar.
 func renderReadout() {
 	readoutMu.Lock()
-	style, color, rx, tx := readoutStyle, readoutColor, lastRx, lastTx
+	style, color, rx, tx, mode := readoutStyle, readoutColor, lastRx, lastTx, lastMode
 	readoutMu.Unlock()
+	// "icon only" means the user asked for no text at all; respect that in every
+	// state rather than sneaking a marker back in.
+	if styleByID(style).ID == "icononly" {
+		setStatusText("")
+		return
+	}
+	if marker, ok := modeMarker(mode); ok {
+		// Neutral, never colored: these are states, not throughput.
+		setStatusText(encodeSegs([]seg{{'n', marker}}, false))
+		return
+	}
 	if rx == "" && tx == "" {
 		return
 	}
@@ -274,23 +312,71 @@ func saveTheme(theme string) {
 	_ = os.WriteFile(p, []byte(theme), 0o644)
 }
 
-func fetchRates(client *http.Client) (rx, tx float64, ok bool) {
+// captureState is what the menu bar needs to know from a snapshot: the rates,
+// and whether those rates describe live capture at all.
+type captureState struct {
+	rx, tx    float64
+	paused    bool
+	capturing bool
+}
+
+// mode says what the menu bar should show. Zeros are only honest when capture is
+// actually running — otherwise they read as "nothing is happening on your
+// network" when the truth is "nothing is being measured".
+type readoutMode int
+
+const (
+	readoutRates   readoutMode = iota // capturing: the numbers mean what they say
+	readoutPaused                     // the user stopped capture
+	readoutStopped                    // between sources: re-opening, or no interface
+)
+
+func (c captureState) mode() readoutMode {
+	switch {
+	case c.paused:
+		return readoutPaused
+	case !c.capturing:
+		return readoutStopped
+	default:
+		return readoutRates
+	}
+}
+
+func fetchCapture(client *http.Client) (captureState, bool) {
 	resp, err := client.Get(alertSockHost + "/api/snapshot")
 	if err != nil {
-		return 0, 0, false
+		return captureState{}, false
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return 0, 0, false
+		return captureState{}, false
 	}
+	return decodeCapture(resp.Body)
+}
+
+// decodeCapture reads a snapshot body into the state the menu bar needs.
+func decodeCapture(r io.Reader) (captureState, bool) {
+	// Capturing is a pointer so a missing field is distinguishable from false.
+	// The app can outrun the daemon — the root-owned helper copy is refreshed on
+	// demand, so a newer app routinely talks to an older daemon — and decoding
+	// an absent field as "not capturing" would pin the menu bar to the stopped
+	// marker forever. Absent means "this daemon can't tell us", which is not
+	// grounds for claiming capture has stopped.
 	var s struct {
-		RxPerSec float64 `json:"rxPerSec"`
-		TxPerSec float64 `json:"txPerSec"`
+		RxPerSec  float64 `json:"rxPerSec"`
+		TxPerSec  float64 `json:"txPerSec"`
+		Paused    bool    `json:"paused"`
+		Capturing *bool   `json:"capturing"`
 	}
-	if json.NewDecoder(resp.Body).Decode(&s) != nil {
-		return 0, 0, false
+	if json.NewDecoder(r).Decode(&s) != nil {
+		return captureState{}, false
 	}
-	return s.RxPerSec, s.TxPerSec, true
+	return captureState{
+		rx:        s.RxPerSec,
+		tx:        s.TxPerSec,
+		paused:    s.Paused,
+		capturing: s.Capturing == nil || *s.Capturing,
+	}, true
 }
 
 // compactRate formats a bytes/sec rate tersely for the menu bar (e.g. "1.2M",

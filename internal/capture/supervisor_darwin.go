@@ -76,6 +76,7 @@ type LiveSupervisor struct {
 	active   string             // interface currently being captured
 	cancel   context.CancelFunc // cancels the running source to force a re-open
 	onActive func(string)       // notified when the active interface (re)opens
+	onLive   func(bool)         // notified as capture sources open and close
 	paused   bool               // when true the Run loop closes capture and waits
 	resumeCh chan struct{}      // wakes a paused Run loop on resume
 	stallFor time.Duration      // current stall budget; grows while capture looks idle
@@ -87,6 +88,26 @@ func (ls *LiveSupervisor) SetOnInterface(fn func(string)) {
 	ls.mu.Lock()
 	ls.onActive = fn
 	ls.mu.Unlock()
+}
+
+// SetOnLive registers a callback invoked with true when a capture source opens
+// and false when one ends. Between those, no packets are being captured at all,
+// which is what lets the UI tell an idle link from a gap in capture — the
+// interface name cannot, since it keeps naming the last one across a re-open.
+func (ls *LiveSupervisor) SetOnLive(fn func(bool)) {
+	ls.mu.Lock()
+	ls.onLive = fn
+	ls.mu.Unlock()
+}
+
+// setLive reports a capture source opening or closing.
+func (ls *LiveSupervisor) setLive(live bool) {
+	ls.mu.Lock()
+	fn := ls.onLive
+	ls.mu.Unlock()
+	if fn != nil {
+		fn(live)
+	}
 }
 
 // NewLiveSupervisor returns a supervised live source. iface pins capture to a
@@ -175,6 +196,7 @@ func (ls *LiveSupervisor) Run(ctx context.Context, out chan<- types.Flow) error 
 		paused := ls.paused
 		ls.mu.Unlock()
 		if paused {
+			ls.setLive(false)
 			log.Printf("capture: paused")
 			select {
 			case <-ctx.Done():
@@ -203,6 +225,7 @@ func (ls *LiveSupervisor) Run(ctx context.Context, out chan<- types.Flow) error 
 			continue
 		}
 		ls.setActive(iface)
+		ls.setLive(true)
 		log.Printf("capture: live on %s", iface)
 
 		runCtx, cancel := context.WithCancel(ctx)
@@ -221,6 +244,7 @@ func (ls *LiveSupervisor) Run(ctx context.Context, out chan<- types.Flow) error 
 		monOut, lastFlow, seen := monitored(runCtx, out)
 		go ls.watchStall(runCtx, iface, cancel, lastFlow, seen)
 		err = src.Run(runCtx, monOut)
+		ls.setLive(false)
 		cancel()
 		ls.mu.Lock()
 		ls.cancel = nil

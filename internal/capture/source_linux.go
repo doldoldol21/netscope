@@ -182,6 +182,7 @@ type LiveSupervisor struct {
 	activeMu sync.RWMutex
 	active   string
 	onIface  func(string)
+	onLive   func(bool)
 	resumeCh chan struct{}
 }
 
@@ -192,6 +193,18 @@ func NewLiveSupervisor(iface string, dns *dnscache.Cache, prefPath string) *Live
 }
 
 func (ls *LiveSupervisor) SetOnInterface(fn func(string)) { ls.onIface = fn }
+
+// SetOnLive registers a callback invoked with true when a capture source opens
+// and false when one ends, so the UI can tell an idle link from a gap in
+// capture. Wired here as well as on darwin: a flag that is always true would be
+// exactly the unearned reassurance it exists to remove.
+func (ls *LiveSupervisor) SetOnLive(fn func(bool)) { ls.onLive = fn }
+
+func (ls *LiveSupervisor) setLive(live bool) {
+	if ls.onLive != nil {
+		ls.onLive(live)
+	}
+}
 
 func (ls *LiveSupervisor) Name() string {
 	ls.activeMu.RLock()
@@ -229,12 +242,14 @@ func (ls *LiveSupervisor) Run(ctx context.Context, out chan<- types.Flow) error 
 		iface := ls.current()
 		src, err := OpenLive(iface, ls.dns)
 		if err != nil {
+			ls.setLive(false)
 			return fmt.Errorf("open live %q: %w", iface, err)
 		}
 
 		runCtx, cancel := context.WithCancel(ctx)
 		runErr := make(chan error, 1)
 		go func() { runErr <- src.Run(runCtx, out) }()
+		ls.setLive(true)
 
 		// Poll for interface changes every 5 seconds.
 		ticker := time.NewTicker(5 * time.Second)
@@ -246,9 +261,11 @@ func (ls *LiveSupervisor) Run(ctx context.Context, out chan<- types.Flow) error 
 			case <-ctx.Done():
 				cancel()
 				<-runErr
+				ls.setLive(false)
 				return ctx.Err()
 			case err := <-runErr:
 				cancel()
+				ls.setLive(false)
 				return err
 			case <-ls.resumeCh:
 				// User changed interface preference.
@@ -261,6 +278,7 @@ func (ls *LiveSupervisor) Run(ctx context.Context, out chan<- types.Flow) error 
 			}
 			cancel()
 			<-runErr
+			ls.setLive(false)
 			break loop
 		}
 	}
