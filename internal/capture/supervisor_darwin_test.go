@@ -6,8 +6,11 @@ import (
 	"context"
 	"errors"
 	"net"
+	"sync"
 	"testing"
 	"time"
+
+	"github.com/doldoldol21/netscope/pkg/types"
 )
 
 // A VPN that owns the default route for a single poll and hands it straight back
@@ -232,5 +235,37 @@ func TestIfaceUsableAcceptsALiveInterface(t *testing.T) {
 	}
 	if !ifaceUsable(live) {
 		t.Fatalf("live interface %s reported unusable", live)
+	}
+}
+
+// Until a source actually opens, the supervisor must say so. The engine's flag
+// starts optimistically true for sources that have no supervisor, so a
+// supervisor that fails to open on its first pass has to correct it — otherwise
+// a daemon that can't find an interface looks like it is capturing.
+func TestSupervisorReportsNotLiveWhileItCannotOpen(t *testing.T) {
+	ls := NewLiveSupervisor("definitely-not-an-interface0", nil, "")
+
+	var mu sync.Mutex
+	var seen []bool
+	ls.SetOnLive(func(live bool) {
+		mu.Lock()
+		seen = append(seen, live)
+		mu.Unlock()
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 400*time.Millisecond)
+	defer cancel()
+	out := make(chan types.Flow, 1)
+	_ = ls.Run(ctx, out)
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(seen) == 0 {
+		t.Fatal("supervisor never reported its live state while failing to open")
+	}
+	for i, live := range seen {
+		if live {
+			t.Fatalf("report %d claimed capture was live on an interface that cannot open", i)
+		}
 	}
 }

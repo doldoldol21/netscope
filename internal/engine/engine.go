@@ -165,6 +165,11 @@ type Engine struct {
 	ifaceMu sync.Mutex
 	iface   string // capture interface, updatable as the supervisor re-opens
 	paused  bool   // surfaced in snapshots so the UI can show "paused"
+	// capturing is whether a source is actually running. It starts true because
+	// sources without a supervisor (demo, offline pcap) simply are running for
+	// as long as the engine is; only the live supervisor, which knows when it is
+	// between sessions, ever sets it false.
+	capturing bool
 
 	rateRx, rateTx uint64
 	rateAt         time.Time
@@ -185,6 +190,21 @@ func (e *Engine) SetPaused(p bool) {
 	e.ifaceMu.Lock()
 	e.paused = p
 	e.ifaceMu.Unlock()
+}
+
+// SetCapturing records whether a capture source is currently running. The live
+// supervisor calls this as sources open and close so the UI can distinguish an
+// idle link from one that is not being captured at all.
+func (e *Engine) SetCapturing(c bool) {
+	e.ifaceMu.Lock()
+	e.capturing = c
+	e.ifaceMu.Unlock()
+}
+
+func (e *Engine) isCapturing() bool {
+	e.ifaceMu.Lock()
+	defer e.ifaceMu.Unlock()
+	return e.capturing
 }
 
 func (e *Engine) isPaused() bool {
@@ -217,6 +237,7 @@ func New(cfg Config, res Resolver, dns *dnscache.Cache, store *storage.Store) *E
 		resetCh:     make(chan struct{}, 1),
 		nowFn:       time.Now,
 		iface:       cfg.Interface,
+		capturing:   true,
 	}
 	e.sessStart = now
 	return e
@@ -629,6 +650,7 @@ func (e *Engine) updateSnapshot() {
 		ActiveApps:   active,
 		Interface:    e.currentIface(),
 		Paused:       e.isPaused(),
+		Capturing:    e.isCapturing(),
 	}
 	e.snapMu.Lock()
 	e.snapshot = snap

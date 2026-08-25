@@ -171,6 +171,11 @@ func run(iface, pcapFile string, demoMode bool, sock, dbPath string, noStore boo
 	if n, ok := src.(interface{ SetOnInterface(func(string)) }); ok {
 		n.SetOnInterface(eng.SetInterface)
 	}
+	// Same for whether a source is actually running, so the UI can tell an idle
+	// link from a gap in capture instead of showing zeros for both.
+	if n, ok := src.(interface{ SetOnLive(func(bool)) }); ok {
+		n.SetOnLive(eng.SetCapturing)
+	}
 
 	flows := make(chan types.Flow, 4096)
 
