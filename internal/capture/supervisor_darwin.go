@@ -209,6 +209,10 @@ func (ls *LiveSupervisor) Run(ctx context.Context, out chan<- types.Flow) error 
 
 		iface, err := ls.resolve()
 		if err != nil || iface == "" {
+			// Nothing is being captured while we retry. Said explicitly rather
+			// than relying on a previous iteration having set it: on the very
+			// first pass the flag is still at the engine's optimistic default.
+			ls.setLive(false)
 			log.Printf("capture: no usable interface yet; retrying in %s", ifaceWatchInterval)
 			if !sleep(ctx, ifaceWatchInterval) {
 				return ctx.Err()
@@ -218,6 +222,7 @@ func (ls *LiveSupervisor) Run(ctx context.Context, out chan<- types.Flow) error 
 
 		src, err := OpenLive(iface, ls.dns)
 		if err != nil {
+			ls.setLive(false)
 			log.Printf("capture: open %q failed: %v; retrying in %s", iface, err, ifaceWatchInterval)
 			if !sleep(ctx, ifaceWatchInterval) {
 				return ctx.Err()
