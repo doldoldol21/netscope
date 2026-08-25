@@ -122,20 +122,36 @@ func LocalIPs() []string {
 	return ips
 }
 
-// defaultInterface picks the interface backing the host's default route.
+// routedInterface reports the interface backing the host's default route, and
+// nothing else. It asks the kernel which source address it would use for an
+// outbound connection (a UDP "dial" selects a route without sending any packet)
+// and maps that address back to its interface.
 //
-// It asks the kernel which source address it would use for an outbound
-// connection (a UDP "dial" selects a route without sending any packet) and
-// maps that address back to its interface. This follows the real default
-// route, unlike scanning net.Interfaces() in index order — which can pick an
-// inactive interface (e.g. a stale en7) over the active one (en0).
+// It deliberately has no fallback: callers that must not act on a guess — the
+// route watcher deciding whether to abandon a working interface, and resolve
+// deciding whether to keep the current one — need to be able to tell "the route
+// is X" from "I could not tell". defaultInterface is the guessing wrapper.
+func routedInterface() (string, error) {
+	conn, err := net.Dial("udp", "8.8.8.8:53")
+	if err != nil {
+		return "", err
+	}
+	local := conn.LocalAddr().(*net.UDPAddr).IP
+	conn.Close()
+	name := interfaceForIP(local)
+	if name == "" {
+		return "", fmt.Errorf("no interface owns %s", local)
+	}
+	return name, nil
+}
+
+// defaultInterface picks the interface backing the host's default route, falling
+// back to a scan when the route cannot be probed. The scan walks net.Interfaces()
+// in index order, so it is a guess and can pick a stale or virtual interface over
+// the real one; only use it where any capturable interface beats none.
 func defaultInterface() (string, error) {
-	if conn, err := net.Dial("udp", "8.8.8.8:53"); err == nil {
-		local := conn.LocalAddr().(*net.UDPAddr).IP
-		conn.Close()
-		if name := interfaceForIP(local); name != "" {
-			return name, nil
-		}
+	if name, err := routedInterface(); err == nil {
+		return name, nil
 	}
 	// Fallback: first up, non-loopback interface with a global unicast address.
 	ifaces, err := net.Interfaces()
@@ -154,6 +170,24 @@ func defaultInterface() (string, error) {
 		}
 	}
 	return "", fmt.Errorf("no suitable network interface found")
+}
+
+// ifaceUsable reports whether name still exists and is up — i.e. whether it is
+// plausibly still carrying traffic. The supervisor uses it to tell a link that
+// has genuinely gone away from one that is merely quiet, so silence alone never
+// condemns a working capture.
+//
+// It deliberately does not require a global unicast address. pcap will happily
+// capture on an interface that has only link-local addresses, or on lo0 when the
+// user pins it with -iface, and treating those as "gone" would cancel capture in
+// a tight loop. Address-based filtering belongs in the picker list (Interfaces),
+// which is choosing what to suggest, not judging what is alive.
+func ifaceUsable(name string) bool {
+	ifi, err := net.InterfaceByName(name)
+	if err != nil {
+		return false
+	}
+	return ifi.Flags&net.FlagUp != 0
 }
 
 // interfaceForIP returns the name of the interface that owns ip, or "".
