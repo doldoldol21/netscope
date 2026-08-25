@@ -272,18 +272,31 @@ func TestSupervisorReportsNotLiveWhileItCannotOpen(t *testing.T) {
 
 // The case that motivated all of this: an iPhone USB tether that keeps carrying
 // traffic while the pcap handle silently stops delivering. The kernel's counters
-// climb, capture decodes nothing, and that combination is proof — not inference.
-func TestHandleLooksDeafWhenTheKernelSeesTrafficAndCaptureDoesNot(t *testing.T) {
+// climb, the handle hands over nothing, and that combination is proof — not
+// inference.
+func TestHandleLooksDeafWhenTheKernelSeesTrafficAndTheHandleDoesNot(t *testing.T) {
 	if !handleLooksDeaf(1_000_000, 1_000_000+deafBytes, true, 42, 42) {
-		t.Fatal("a busy interface with no decoded flows was not called deaf")
+		t.Fatal("a busy interface delivering no packets was not called deaf")
 	}
 }
 
-// One decoded flow proves the handle still delivers, however much the byte
+// One delivered packet proves the handle still works, however much the byte
 // totals moved — capture is behind, not deaf.
-func TestHandleLooksDeafIgnoresASessionStillDecoding(t *testing.T) {
+func TestHandleLooksDeafIgnoresAHandleStillDelivering(t *testing.T) {
 	if handleLooksDeaf(0, 10<<20, true, 42, 43) {
-		t.Fatal("a handle that decoded a flow was called deaf")
+		t.Fatal("a handle that delivered a packet was called deaf")
+	}
+}
+
+// The counts must measure comparable populations. The kernel counts every
+// packet crossing the NIC, including ICMP, ESP and GRE, none of which the
+// decoder turns into flows — so a VPN uplink carrying only ESP delivers plenty
+// of packets while producing zero flows. Comparing bytes against *packets* is
+// what keeps that healthy handle from being torn down every tick.
+func TestHandleLooksDeafToleratesTrafficThatDecodesToNoFlows(t *testing.T) {
+	// 8 MB of ESP across the tick, no flows decoded, but packets kept arriving.
+	if handleLooksDeaf(0, 8<<20, true, 1000, 6000) {
+		t.Fatal("a link carrying only non-TCP/UDP traffic was called deaf")
 	}
 }
 

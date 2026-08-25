@@ -258,7 +258,7 @@ func (ls *LiveSupervisor) Run(ctx context.Context, out chan<- types.Flow) error 
 		// stallTimeout (a dead handle after sleep/wake on the same interface),
 		// cancel so the loop re-opens. monOut tracks last-activity per flow.
 		monOut, lastFlow, seen := monitored(runCtx, out)
-		go ls.watchStall(runCtx, iface, cancel, lastFlow, seen)
+		go ls.watchStall(runCtx, iface, cancel, lastFlow, seen, src.Packets)
 		err = src.Run(runCtx, monOut)
 		ls.setLive(false)
 		cancel()
@@ -329,7 +329,7 @@ func monitored(ctx context.Context, out chan<- types.Flow) (chan<- types.Flow, *
 //     insurance) but the budget backs off toward maxStallTimeout, whether or not
 //     this session carried traffic. The budget returns to base only when one of
 //     the unambiguous signals fires or the active interface changes.
-func (ls *LiveSupervisor) watchStall(ctx context.Context, iface string, cancel context.CancelFunc, lastFlow, seen *int64) {
+func (ls *LiveSupervisor) watchStall(ctx context.Context, iface string, cancel context.CancelFunc, lastFlow, seen *int64, packets func() int64) {
 	t := time.NewTicker(stallTick)
 	defer t.Stop()
 	prev := time.Now()
@@ -340,7 +340,7 @@ func (ls *LiveSupervisor) watchStall(ctx context.Context, iface string, cancel c
 	// Baselines for the deafness check: what the kernel had counted on this
 	// interface, and how many flows capture had produced, as of the last tick.
 	prevBytes, haveBytes := interfaceBytes(iface)
-	prevSeen := atomic.LoadInt64(seen)
+	prevPackets := packets()
 	for {
 		select {
 		case <-ctx.Done():
@@ -392,16 +392,16 @@ func (ls *LiveSupervisor) watchStall(ctx context.Context, iface string, cancel c
 			// budget that has backed off for genuine idleness must not slow down
 			// the recovery of a handle that is demonstrably broken.
 			curBytes, ok := interfaceBytes(iface)
-			curSeen := atomic.LoadInt64(seen)
-			if handleLooksDeaf(prevBytes, curBytes, haveBytes && ok, prevSeen, curSeen) {
-				log.Printf("capture: %s moved %d bytes with no flows decoded; the handle is deaf, re-opening",
+			curPackets := packets()
+			if handleLooksDeaf(prevBytes, curBytes, haveBytes && ok, prevPackets, curPackets) {
+				log.Printf("capture: %s moved %d bytes but delivered no packets; the handle is deaf, re-opening",
 					iface, curBytes-prevBytes)
 				ls.setStallBudget(ctx, stallTimeout)
 				cancel()
 				return
 			}
 			prevBytes, haveBytes = curBytes, ok
-			prevSeen = curSeen
+			prevPackets = curPackets
 
 			budget := ls.stallBudget()
 			if now.Sub(time.Unix(0, atomic.LoadInt64(lastFlow))) < budget {
@@ -424,14 +424,20 @@ func (ls *LiveSupervisor) watchStall(ctx context.Context, iface string, cancel c
 }
 
 // handleLooksDeaf reports whether the kernel counted real traffic on the
-// interface across a tick while capture decoded not a single flow.
+// interface across a tick while the pcap handle delivered not a single packet.
 //
-// Both halves matter. Without counters (readable false) there is nothing to
-// compare against, so silence stays ambiguous and this must not fire. And the
-// flow count must be exactly unchanged: one decoded flow is enough to prove the
-// handle is still delivering, whatever the byte totals say.
-func handleLooksDeaf(prevBytes, curBytes uint64, readable bool, prevSeen, curSeen int64) bool {
-	if !readable || curSeen != prevSeen {
+// The two sides have to count comparable things. The kernel counts everything
+// that crosses the NIC, so the capture side must be packets taken off the
+// handle, not flows surviving the decoder: a link carrying only ICMP, ESP or
+// GRE decodes to no flows at all, and comparing against flows would call a
+// perfectly healthy handle deaf every tick.
+//
+// Without counters (readable false) there is nothing to compare against, so
+// silence stays ambiguous and this must not fire. And the packet count must be
+// exactly unchanged: one delivered packet proves the handle still works,
+// whatever the byte totals say.
+func handleLooksDeaf(prevBytes, curBytes uint64, readable bool, prevPackets, curPackets int64) bool {
+	if !readable || curPackets != prevPackets {
 		return false
 	}
 	// Counters only climb; a smaller reading means the interface was replaced
