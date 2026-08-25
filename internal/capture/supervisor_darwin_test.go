@@ -3,6 +3,7 @@
 package capture
 
 import (
+	"context"
 	"errors"
 	"net"
 	"testing"
@@ -69,6 +70,18 @@ func TestNextStallBudgetBacksOff(t *testing.T) {
 	}
 }
 
+// maxStallTimeout doubles as the worst-case recovery delay for a handle that
+// dies with no wake and no link change, so it must stay short enough to be a
+// nuisance rather than an outage.
+func TestMaxStallTimeoutStaysBounded(t *testing.T) {
+	if maxStallTimeout > 5*time.Minute {
+		t.Fatalf("maxStallTimeout = %s; worst-case recovery is too long", maxStallTimeout)
+	}
+	if maxStallTimeout <= stallTimeout {
+		t.Fatalf("maxStallTimeout = %s must exceed the base %s", maxStallTimeout, stallTimeout)
+	}
+}
+
 // A different interface is a fresh situation and must not inherit the backoff
 // the previous one earned by sitting idle.
 func TestSetActiveResetsTheBackoff(t *testing.T) {
@@ -120,9 +133,22 @@ func TestStallBudgetNeverDropsBelowBase(t *testing.T) {
 	if got := ls.stallBudget(); got != stallTimeout {
 		t.Fatalf("zero-value budget = %s, want %s", got, stallTimeout)
 	}
-	ls.setStallBudget(time.Second)
+	ls.setStallBudget(context.Background(), time.Second)
 	if got := ls.stallBudget(); got != stallTimeout {
 		t.Fatalf("under-base budget = %s, want clamp to %s", got, stallTimeout)
+	}
+}
+
+// A tick and the session's cancellation can become ready together. The outgoing
+// watchdog's late write must not clobber the base budget the next session set
+// for a different interface.
+func TestSetStallBudgetIgnoresACancelledSession(t *testing.T) {
+	ls := &LiveSupervisor{stallFor: stallTimeout}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	ls.setStallBudget(ctx, maxStallTimeout)
+	if got := ls.stallBudget(); got != stallTimeout {
+		t.Fatalf("a cancelled session wrote the budget: %s", got)
 	}
 }
 

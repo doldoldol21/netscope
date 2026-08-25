@@ -27,15 +27,22 @@ const ifaceWatchInterval = 5 * time.Second
 // watchdog then cancels the source to force a clean re-open.
 //
 // Silence alone cannot tell a dead handle from a link that is merely idle, so
-// the watchdog backs off when the evidence points at idleness: a session that
-// never saw a single flow doubles the budget up to maxStallTimeout, while a
-// session that was carrying traffic and then went silent — the actual dead-handle
-// signature — keeps the tight base timeout. Without this, leaving the machine
-// alone re-opens capture every 90s forever, and each re-open is a window where
-// the readout truthfully reports zero because nothing is being captured.
+// every stall doubles the budget up to maxStallTimeout. That makes the timer
+// self-tuning: it climbs until it clears the machine's own quiet gaps and then
+// stops firing, which is what stops a quiet or bursty host from re-opening
+// capture every 90s forever — and each re-open is a window where nothing is
+// captured at all, which the readout truthfully reports as zero.
+//
+// Deliberately, traffic does not pull the budget back down; that would restart
+// the climb on every burst and reinstate the churn. The budget resets only on
+// evidence that the situation itself changed: a wake, a link loss, or a
+// different interface. maxStallTimeout is therefore also the worst-case delay
+// for the one leak this leaves — a handle that dies with no wake and no link
+// change, e.g. a Wi-Fi driver reset — so it is kept short enough to be a
+// nuisance rather than a outage.
 const (
 	stallTimeout    = 90 * time.Second
-	maxStallTimeout = 12 * time.Minute
+	maxStallTimeout = 5 * time.Minute
 	stallTick       = 30 * time.Second
 )
 
@@ -275,13 +282,17 @@ func monitored(ctx context.Context, out chan<- types.Flow) (chan<- types.Flow, *
 //     catching the wake directly beats inferring it from silence;
 //   - otherwise, prolonged silence on a live interface is treated as what it
 //     most likely is — an idle link — so capture still re-opens (cheap
-//     insurance) but the budget backs off toward maxStallTimeout so a quiet or
-//     bursty machine stops churning. The budget returns to base the moment
-//     either unambiguous signal fires or the active interface changes.
+//     insurance) but the budget backs off toward maxStallTimeout, whether or not
+//     this session carried traffic. The budget returns to base only when one of
+//     the unambiguous signals fires or the active interface changes.
 func (ls *LiveSupervisor) watchStall(ctx context.Context, iface string, cancel context.CancelFunc, lastFlow, seen *int64) {
 	t := time.NewTicker(stallTick)
 	defer t.Stop()
 	prev := time.Now()
+	// Whether the link was alive when this session opened. If it was not, its
+	// being down is not news, and treating it as a fresh loss every tick would
+	// spin at the tick rate — pcap can open a down interface.
+	startedUsable := ifaceUsable(iface)
 	for {
 		select {
 		case <-ctx.Done():
@@ -304,8 +315,16 @@ func (ls *LiveSupervisor) watchStall(ctx context.Context, iface string, cancel c
 			// Unambiguous: the link is gone. Checked every tick, never gated on
 			// the stall budget — a backed-off budget must not delay a real loss.
 			if !ifaceUsable(iface) {
-				log.Printf("capture: %s is gone or down; re-opening", iface)
-				ls.setStallBudget(stallTimeout)
+				if startedUsable {
+					log.Printf("capture: %s is gone or down; re-opening", iface)
+					ls.setStallBudget(ctx, stallTimeout)
+				} else {
+					// Opened on an already-down interface and it is still down.
+					// Re-open to look for a better one, but back off.
+					log.Printf("capture: %s is still down; re-opening and backing off to %s",
+						iface, nextStallBudget(ls.stallBudget()))
+					ls.setStallBudget(ctx, nextStallBudget(ls.stallBudget()))
+				}
 				cancel()
 				return
 			}
@@ -313,7 +332,7 @@ func (ls *LiveSupervisor) watchStall(ctx context.Context, iface string, cancel c
 			// even though the interface name never changed.
 			if woke {
 				log.Printf("capture: the machine woke from sleep; re-opening %s", iface)
-				ls.setStallBudget(stallTimeout)
+				ls.setStallBudget(ctx, stallTimeout)
 				cancel()
 				return
 			}
@@ -329,7 +348,7 @@ func (ls *LiveSupervisor) watchStall(ctx context.Context, iface string, cancel c
 			// A pinned interface can be legitimately silent for hours, so say so
 			// rather than implying something is wrong.
 			next := nextStallBudget(budget)
-			ls.setStallBudget(next)
+			ls.setStallBudget(ctx, next)
 			log.Printf("capture: %s silent for %s (%d flows this session, pinned=%t); re-opening and backing off to %s",
 				iface, budget, atomic.LoadInt64(seen), pinned, next)
 			cancel()
@@ -359,7 +378,8 @@ func slept(wall, mono time.Duration) bool {
 // reached when silence was ambiguous — a live interface, no wake — where the
 // likeliest explanation is an idle link, and where re-opening every 90s forever
 // is pure cost: each re-open is a window with no capture at all, which the
-// readout reports as zero.
+// readout reports as zero. Growing past the machine's own quiet gaps is the
+// point; see the maxStallTimeout comment for why traffic does not undo it.
 func nextStallBudget(cur time.Duration) time.Duration {
 	next := cur * 2
 	if next > maxStallTimeout {
@@ -380,7 +400,15 @@ func (ls *LiveSupervisor) stallBudget() time.Duration {
 	return ls.stallFor
 }
 
-func (ls *LiveSupervisor) setStallBudget(d time.Duration) {
+// setStallBudget records the budget for the next capture session. It drops the
+// write if the session it came from is already cancelled: a tick and the
+// cancellation can become ready together, and a late write from the outgoing
+// watchdog would otherwise clobber the base budget the incoming session just set
+// for a different interface.
+func (ls *LiveSupervisor) setStallBudget(ctx context.Context, d time.Duration) {
+	if ctx.Err() != nil {
+		return
+	}
 	ls.mu.Lock()
 	ls.stallFor = d
 	ls.mu.Unlock()
