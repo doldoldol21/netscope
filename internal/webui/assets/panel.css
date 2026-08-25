@@ -10,6 +10,7 @@
   --accent: #1f6f8b; --accent-hover: #2c86a4; --on-accent: #f9fbfc;
   --rx: #1f6f8b; --rx-fill: rgba(31, 111, 139, .13);
   --tx: #cf5b42; --tx-fill: rgba(207, 91, 66, .14);
+  --warn: #a2621c;
   --btn-bg: #e6ebef;
   --shadow-pop: 0 18px 34px -20px rgba(8, 18, 26, .5);
   --mono: "Space Mono", ui-monospace, "SF Mono", Menlo, monospace;
@@ -26,6 +27,7 @@
     --accent: #4fa3c0; --accent-hover: #63b3ce; --on-accent: #10161a;
     --rx: #4fa3c0; --rx-fill: rgba(79, 163, 192, .16);
     --tx: #ef7f68; --tx-fill: rgba(239, 127, 104, .18);
+    --warn: #d9a25e;
     --btn-bg: #1b242a;
   }
 }
@@ -37,6 +39,7 @@
   --accent: #4fa3c0; --accent-hover: #63b3ce; --on-accent: #10161a;
   --rx: #4fa3c0; --rx-fill: rgba(79, 163, 192, .16);
   --tx: #ef7f68; --tx-fill: rgba(239, 127, 104, .18);
+  --warn: #d9a25e;
   --btn-bg: #1b242a;
 }
 
@@ -259,6 +262,9 @@ footer {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .upd-status.avail { color: var(--accent); }
+/* A check that never completed reads as a warning, not as reassurance — it must
+   not look the same as a confirmed "up to date". */
+.upd-status.stale { color: var(--warn); }
 .mini {
   flex: none; cursor: pointer;
   font: 500 12px/1 var(--sans); color: var(--fg);

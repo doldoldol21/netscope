@@ -38,29 +38,89 @@ var (
 	updStatus   update.Status // most recent check result
 	updPrefs    = updatePrefs{AutoCheck: true}
 	updPrefPath string
+
+	// Outcome of the most recent check attempt. Kept separate from updStatus,
+	// which holds the last *successful* result: the UI has to be able to say
+	// "could not check" while still showing what it knew before.
+	updLastErr   string
+	updCheckedOK bool // a check has succeeded at least once this run
 )
 
-const updateCheckInterval = 6 * time.Hour
+const (
+	updateCheckInterval = 6 * time.Hour
+	// Retry cadence after a failed check. A laptop is routinely offline at
+	// launch, so failing back to the six-hour interval would mean knowing
+	// nothing about updates for most of a day.
+	updateRetryMin = 1 * time.Minute
+	updateRetryMax = 30 * time.Minute
+	// How often the loop wakes to ask whether a check is due. Deciding against
+	// the wall clock on a short tick keeps the schedule honest across suspend,
+	// instead of a long Sleep expiring at an arbitrary point after wake.
+	updateLoopTick = 30 * time.Second
+)
+
+// nextRetryDelay backs a failing check off exponentially between updateRetryMin
+// and updateRetryMax. failures counts consecutive failures, starting at 1.
+func nextRetryDelay(failures int) time.Duration {
+	if failures < 1 {
+		failures = 1
+	}
+	d := updateRetryMin
+	for i := 1; i < failures && d < updateRetryMax; i++ {
+		d *= 2
+	}
+	if d > updateRetryMax {
+		return updateRetryMax
+	}
+	return d
+}
+
+// checkDue reports whether a check should run now: never checked yet, or enough
+// wall-clock time has passed since the last attempt. Comparing against the wall
+// clock (rather than sleeping for the interval) means a machine that was
+// suspended past its due time checks promptly on wake.
+func checkDue(now, last time.Time, wait time.Duration) bool {
+	if last.IsZero() {
+		return true
+	}
+	return !now.Before(last.Add(wait))
+}
 
 // startUpdateLoop loads the saved preference and, when auto-check is on, polls
-// GitHub for a newer release on launch and every few hours, posting a macOS
-// notification the first time each new version appears.
+// GitHub for a newer release on launch and every few hours.
+//
+// The loop wakes often and decides whether a check is due by looking at the wall
+// clock, rather than sleeping for the whole interval. That keeps the schedule
+// meaningful on a laptop that is suspended most of the day, and lets a failed
+// check retry on a short backoff instead of disappearing for six hours.
 func startUpdateLoop() {
 	updPrefPath = filepath.Join(filepath.Dir(alerts.ConfigPath()), "updates.json")
 	loadUpdatePrefs()
 	go func() {
 		time.Sleep(10 * time.Second) // let the app settle before any network call
+		var last time.Time
+		var failures int
 		for {
 			updMu.Lock()
 			auto := updPrefs.AutoCheck
 			updMu.Unlock()
-			if auto {
+
+			wait := updateCheckInterval
+			if failures > 0 {
+				wait = nextRetryDelay(failures)
+			}
+			if auto && checkDue(time.Now(), last, wait) {
 				// Refresh the cached status for the in-app banner only. We
 				// deliberately do NOT post a macOS notification — the popover/
 				// dashboard banner is enough and an OS alert is intrusive.
-				runUpdateCheck()
+				last = time.Now()
+				if _, ok := runUpdateCheck(); ok {
+					failures = 0
+				} else {
+					failures++
+				}
 			}
-			time.Sleep(updateCheckInterval)
+			time.Sleep(updateLoopTick)
 		}
 	}()
 }
@@ -72,10 +132,18 @@ func runUpdateCheck() (update.Status, bool) {
 	defer cancel()
 	st, err := update.Check(ctx, buildinfo.Repo, buildinfo.Version)
 	if err != nil {
+		// Keep the last good status — a transient failure shouldn't erase what
+		// we already know — but record that this attempt failed, so the UI can
+		// say so instead of implying the version was confirmed current.
+		updMu.Lock()
+		updLastErr = err.Error()
+		updMu.Unlock()
 		return updStatusSnapshot(), false
 	}
 	updMu.Lock()
 	updStatus = st
+	updLastErr = ""
+	updCheckedOK = true
 	updMu.Unlock()
 	return st, true
 }
@@ -89,9 +157,13 @@ func updStatusSnapshot() update.Status {
 // updateStatusJSON is what the popover renders: the cached status plus the
 // auto-check preference. Marshalled to a map so the JS gets a flat object.
 func updateStatusJSON() map[string]any {
-	st := updStatusSnapshot()
+	// One acquisition for all of it: snapshotting the status and the flags
+	// separately lets a check landing in between pair a stale status with
+	// checked=true for a render.
 	updMu.Lock()
+	st := updStatus
 	auto := updPrefs.AutoCheck
+	lastErr, checkedOK := updLastErr, updCheckedOK
 	updMu.Unlock()
 	return map[string]any{
 		"current":         st.Current,
@@ -100,6 +172,12 @@ func updateStatusJSON() map[string]any {
 		"url":             st.URL,
 		"checkedAt":       st.CheckedAt,
 		"autoCheck":       auto,
+		// checkFailed/checked let the UI distinguish "confirmed current" from
+		// "never managed to ask". Without them a machine that has never reached
+		// GitHub is told it is up to date.
+		"checkFailed": lastErr != "",
+		"checkError":  lastErr,
+		"checked":     checkedOK,
 	}
 }
 
@@ -218,9 +296,9 @@ func performUpdate() error {
 	// app. On any failure, restore the backup and relaunch it.
 	script := fmt.Sprintf(`#!/bin/bash
 pid=%[1]d
-app=%[2]q
-new=%[3]q
-tmp=%[4]q
+app=%[2]s
+new=%[3]s
+tmp=%[4]s
 bak="$app.bak.$$"
 while kill -0 "$pid" 2>/dev/null; do sleep 0.3; done
 if ! mv "$app" "$bak" 2>/dev/null; then bak=""; fi   # may already be gone
@@ -239,7 +317,7 @@ else
 fi
 open "$app"
 rm -rf "$tmp"
-`, os.Getpid(), appPath, newApp, tmp)
+`, os.Getpid(), shQuote(appPath), shQuote(newApp), shQuote(tmp))
 	scriptPath := filepath.Join(tmp, "swap.sh")
 	if err := os.WriteFile(scriptPath, []byte(script), 0o755); err != nil {
 		return err
@@ -255,6 +333,15 @@ rm -rf "$tmp"
 		os.Exit(0)
 	}()
 	return nil
+}
+
+// shQuote renders s as a single-quoted shell word. Single quotes are the only
+// shell quoting with no escapes inside, so nothing in the path can be expanded;
+// an embedded quote is closed, escaped, and reopened. fmt's %q is NOT a
+// substitute here — it produces Go syntax, which leaves $ and backticks intact,
+// and both are live inside the double quotes this script used to use.
+func shQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 // installedAppPath derives the .app bundle path from the running executable
