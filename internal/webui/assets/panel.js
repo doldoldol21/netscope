@@ -312,7 +312,11 @@ function updateMetaText() {
   // Between capture sources — re-opening after a link change or a wake. The
   // rates are zero because nothing is being measured, not because the link is
   // quiet, and the meta line is the only place that can say which.
-  if (!capCapturing) { setText($("meta"), t("status.reconnecting")); return; }
+  // Its own string, not the stream's "reconnecting": that one means the popover
+  // lost the daemon, this one means the daemon is up and telling us capture is
+  // between sources. Rendering two different failures identically is the thing
+  // this change exists to stop doing.
+  if (!capCapturing) { setText($("meta"), t("status.notCapturing")); return; }
   const cur = ifaceCur ? friendlyIface(ifaceCur) : t("meta.live");
   setText($("meta"), ifaceSel ? cur : t("meta.auto", { name: cur }));
 }

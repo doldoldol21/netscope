@@ -233,6 +233,7 @@ func (ls *LiveSupervisor) Run(ctx context.Context, out chan<- types.Flow) error 
 	// Resolve initial interface.
 	start, err := ls.resolve()
 	if err != nil {
+		ls.setLive(false)
 		return err
 	}
 	ls.setActive(start)

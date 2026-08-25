@@ -50,6 +50,7 @@ const NS_I18N = (() => {
       // capture status line
       "status.connecting": "connecting…",
       "status.reconnecting": "reconnecting…",
+      "status.notCapturing": "not capturing — reopening…",
       "status.paused": "paused",
       "status.capturing": "capturing",
       "status.session": "session",
@@ -230,6 +231,7 @@ const NS_I18N = (() => {
 
       "status.connecting": "연결 중…",
       "status.reconnecting": "재연결 중…",
+      "status.notCapturing": "캡처 중단 — 다시 여는 중…",
       "status.paused": "일시정지",
       "status.capturing": "캡처 중",
       "status.session": "세션",
@@ -401,6 +403,7 @@ const NS_I18N = (() => {
 
       "status.connecting": "接続中…",
       "status.reconnecting": "再接続中…",
+      "status.notCapturing": "キャプチャ停止中 — 再オープン中…",
       "status.paused": "一時停止",
       "status.capturing": "キャプチャ中",
       "status.session": "セッション",
