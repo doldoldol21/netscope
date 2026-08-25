@@ -157,8 +157,11 @@ func updStatusSnapshot() update.Status {
 // updateStatusJSON is what the popover renders: the cached status plus the
 // auto-check preference. Marshalled to a map so the JS gets a flat object.
 func updateStatusJSON() map[string]any {
-	st := updStatusSnapshot()
+	// One acquisition for all of it: snapshotting the status and the flags
+	// separately lets a check landing in between pair a stale status with
+	// checked=true for a render.
 	updMu.Lock()
+	st := updStatus
 	auto := updPrefs.AutoCheck
 	lastErr, checkedOK := updLastErr, updCheckedOK
 	updMu.Unlock()

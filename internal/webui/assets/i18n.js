@@ -190,6 +190,8 @@ const NS_I18N = (() => {
       "upd.failed": "Update failed — try again",
       "upd.checkFailed": "Couldn't check for updates",
       "upd.checkFailedV": "Couldn't check · showing {v}",
+      "upd.notChecked": "Not checked yet",
+      "upd.notCheckedV": "{v} · not checked yet",
     },
 
     ko: {
@@ -359,6 +361,8 @@ const NS_I18N = (() => {
       "upd.failed": "업데이트 실패 — 다시 시도하세요",
       "upd.checkFailed": "업데이트를 확인하지 못했습니다",
       "upd.checkFailedV": "확인 실패 · 표시 중인 버전 {v}",
+      "upd.notChecked": "아직 확인하지 않음",
+      "upd.notCheckedV": "{v} · 아직 확인하지 않음",
     },
 
     ja: {
@@ -528,6 +532,8 @@ const NS_I18N = (() => {
       "upd.failed": "アップデート失敗 — もう一度お試しください",
       "upd.checkFailed": "アップデートを確認できませんでした",
       "upd.checkFailedV": "確認できず · 表示中 {v}",
+      "upd.notChecked": "未確認",
+      "upd.notCheckedV": "{v} · 未確認",
     },
   };
 

@@ -409,17 +409,28 @@ function renderUpdate(st) {
     status.textContent = t("upd.availableV", { v: st.latest });
     status.classList.add("avail");
     status.classList.remove("stale");
+    status.title = ""; // don't carry a previous failure's tooltip into this row
     banner.querySelector(".ub-txt").textContent = t("pop.updateV", { v: st.latest });
     banner.hidden = false; now.hidden = false;
-  } else if (st.checkFailed || st.checked === false) {
-    // Never say "up to date" on the strength of a check that didn't happen —
-    // offline, rate-limited, or blocked all land here. Show what we last knew.
+  } else if (st.checkFailed) {
+    // Never say "up to date" on the strength of a check that failed — offline,
+    // rate-limited, or blocked all land here. Show what we last knew.
     status.textContent = st.current
       ? t("upd.checkFailedV", { v: st.current })
       : t("upd.checkFailed");
     status.classList.remove("avail");
     status.classList.add("stale");
     status.title = st.checkError || "";
+    banner.hidden = true; now.hidden = true;
+  } else if (st.checked === false) {
+    // Nothing has failed, but nothing has been checked either — the first
+    // seconds after launch, or auto-check switched off. That is not a problem
+    // to warn about; it just isn't the confirmation "up to date" implies.
+    status.textContent = st.current
+      ? t("upd.notCheckedV", { v: st.current })
+      : t("upd.notChecked");
+    status.classList.remove("avail", "stale");
+    status.title = "";
     banner.hidden = true; now.hidden = true;
   } else {
     status.textContent = st.current ? t("upd.uptodateV", { v: st.current }) : t("upd.uptodate");
@@ -437,7 +448,7 @@ function startUpdate(btn) {
 $("upd-check").onclick = () => {
   const r = rt();
   $("upd-status").textContent = t("upd.checking");
-  $("upd-status").classList.remove("avail");
+  $("upd-status").classList.remove("avail", "stale");
   if (r.EventsEmit) r.EventsEmit("netscope:checkupdate"); // Go replies on "netscope:update"
 };
 $("upd-now").onclick = (e) => startUpdate(e.currentTarget);
