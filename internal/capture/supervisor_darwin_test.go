@@ -54,26 +54,64 @@ func TestRouteSwitchTreatsDetectionFailureAsNoChange(t *testing.T) {
 	}
 }
 
-func TestNextStallBudgetBacksOffWhileIdle(t *testing.T) {
-	got := nextStallBudget(stallTimeout, false)
+func TestNextStallBudgetBacksOff(t *testing.T) {
+	got := nextStallBudget(stallTimeout)
 	if want := 2 * stallTimeout; got != want {
-		t.Fatalf("idle session budget = %s, want %s", got, want)
+		t.Fatalf("backed-off budget = %s, want %s", got, want)
 	}
-	// Repeated idleness converges on the cap and stops there.
+	// Repeated ambiguous silence converges on the cap and stops there.
 	d := stallTimeout
 	for i := 0; i < 20; i++ {
-		d = nextStallBudget(d, false)
+		d = nextStallBudget(d)
 	}
 	if d != maxStallTimeout {
-		t.Fatalf("budget after prolonged idleness = %s, want %s", d, maxStallTimeout)
+		t.Fatalf("budget after prolonged silence = %s, want %s", d, maxStallTimeout)
 	}
 }
 
-// Silence *after* real traffic is the dead-handle signature, so recovery must
-// stay fast no matter how far the budget had backed off.
-func TestNextStallBudgetResetsAfterTraffic(t *testing.T) {
-	if got := nextStallBudget(maxStallTimeout, true); got != stallTimeout {
-		t.Fatalf("budget after a busy session = %s, want %s", got, stallTimeout)
+// A different interface is a fresh situation and must not inherit the backoff
+// the previous one earned by sitting idle.
+func TestSetActiveResetsTheBackoff(t *testing.T) {
+	ls := &LiveSupervisor{stallFor: maxStallTimeout, active: "en7"}
+	ls.setActive("en7")
+	if got := ls.stallBudget(); got != maxStallTimeout {
+		t.Fatalf("re-opening the same interface reset the budget to %s", got)
+	}
+	ls.setActive("en0")
+	if got := ls.stallBudget(); got != stallTimeout {
+		t.Fatalf("budget after an interface change = %s, want %s", got, stallTimeout)
+	}
+}
+
+// Darwin's monotonic clock stops while the system is suspended, so a wake shows
+// up as wall time running ahead of monotonic time between two ticks.
+func TestSleptDetectsAWake(t *testing.T) {
+	if slept(stallTick, stallTick) {
+		t.Fatal("an ordinary tick was reported as a wake")
+	}
+	// Slept an hour: the wall clock advanced, the monotonic clock barely did.
+	if !slept(time.Hour, stallTick) {
+		t.Fatal("an hour of suspension was not reported as a wake")
+	}
+	// Just under the slack — jitter, not a suspend.
+	if slept(stallTick+wakeSlack-time.Second, stallTick) {
+		t.Fatal("sub-slack drift was reported as a wake")
+	}
+}
+
+// A clock stepped backwards (NTP correction, timezone change) is not a wake.
+func TestSleptIgnoresABackwardClockStep(t *testing.T) {
+	if slept(-time.Hour, stallTick) {
+		t.Fatal("a backward clock step was reported as a wake")
+	}
+}
+
+// clockGap must read wall and monotonic from the same pair without drifting.
+func TestClockGapReadsBothClocks(t *testing.T) {
+	prev := time.Now()
+	wall, mono := clockGap(prev, prev.Add(stallTick))
+	if wall != stallTick || mono != stallTick {
+		t.Fatalf("clockGap = (%s, %s), want (%s, %s)", wall, mono, stallTick, stallTick)
 	}
 }
 
@@ -89,18 +127,22 @@ func TestStallBudgetNeverDropsBelowBase(t *testing.T) {
 }
 
 func TestResolveIfacePrefersTheUserChoice(t *testing.T) {
-	detect := func() (string, error) { return "en0", nil }
-	got, err := resolveIface("en7", "en0", detect, func(string) bool { return true })
+	routed := func() (string, error) { return "en0", nil }
+	guess := func() (string, error) { return "en0", nil }
+	got, err := resolveIface("en7", "en0", routed, guess, func(string) bool { return true })
 	if err != nil || got != "en7" {
 		t.Fatalf("resolveIface = %q, %v; want en7", got, err)
 	}
 }
 
 // The transition case that used to blank capture for a full watch interval: the
-// route probe fails, but the interface we are already on is still up.
-func TestResolveIfaceFallsBackToTheLiveInterface(t *testing.T) {
-	detect := func() (string, error) { return "", errors.New("no route to host") }
-	got, err := resolveIface("", "en7", detect, func(name string) bool { return name == "en7" })
+// route probe fails, but the interface we are already on is still up. The
+// index-order scan must not win here — it can return a stale or virtual
+// interface, which is how capture ended up on the wrong one.
+func TestResolveIfaceFallsBackToTheLiveInterfaceNotTheScan(t *testing.T) {
+	routed := func() (string, error) { return "", errors.New("no route to host") }
+	guess := func() (string, error) { return "bridge100", nil }
+	got, err := resolveIface("", "en7", routed, guess, func(name string) bool { return name == "en7" })
 	if err != nil {
 		t.Fatalf("resolveIface returned %v, want the en7 fallback", err)
 	}
@@ -109,23 +151,36 @@ func TestResolveIfaceFallsBackToTheLiveInterface(t *testing.T) {
 	}
 }
 
-// When the last interface really is gone, the detection error must surface so
-// Run backs off instead of retrying a dead name.
+// When the last interface really is gone, fall through to the scan rather than
+// capturing nothing.
+func TestResolveIfaceFallsThroughToTheScan(t *testing.T) {
+	routed := func() (string, error) { return "", errors.New("no route to host") }
+	guess := func() (string, error) { return "en0", nil }
+	got, err := resolveIface("", "en7", routed, guess, func(string) bool { return false })
+	if err != nil || got != "en0" {
+		t.Fatalf("resolveIface = %q, %v; want en0", got, err)
+	}
+}
+
 func TestResolveIfaceReportsFailureWhenNothingIsUsable(t *testing.T) {
-	detect := func() (string, error) { return "", errors.New("no suitable network interface found") }
-	if _, err := resolveIface("", "en7", detect, func(string) bool { return false }); err == nil {
+	routed := func() (string, error) { return "", errors.New("no route to host") }
+	guess := func() (string, error) { return "", errors.New("no suitable network interface found") }
+	if _, err := resolveIface("", "en7", routed, guess, func(string) bool { return false }); err == nil {
 		t.Fatal("resolveIface succeeded, want the detection error")
 	}
 }
 
-func TestIfaceUsableRejectsUnknownAndLoopback(t *testing.T) {
+func TestIfaceUsableRejectsAnUnknownInterface(t *testing.T) {
 	if ifaceUsable("definitely-not-an-interface0") {
 		t.Fatal("a nonexistent interface reported usable")
 	}
-	// Loopback is up and addressed but carries no global unicast address, so it
-	// must not qualify as somewhere to fall back to.
-	if ifaceUsable("lo0") {
-		t.Fatal("loopback reported usable")
+}
+
+// lo0 has no global unicast address but pcap captures on it fine, and -iface lo0
+// is a legitimate pin. Judging it "gone" would cancel capture in a tight loop.
+func TestIfaceUsableAcceptsLoopback(t *testing.T) {
+	if !ifaceUsable("lo0") {
+		t.Fatal("loopback reported unusable")
 	}
 }
 
