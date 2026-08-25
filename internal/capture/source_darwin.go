@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"sync/atomic"
 	"time"
 
 	"github.com/doldoldol21/netscope/internal/dnscache"
@@ -25,7 +26,16 @@ type Source struct {
 	src    *gopacket.PacketSource
 	dec    *Decoder
 	name   string
+	// packets counts everything the handle delivered, before any decoding. The
+	// supervisor's deaf-handle check compares this against the kernel's byte
+	// counters, and only a pre-decode count is comparable: flows counted after
+	// the decoder would exclude ICMP, ESP, GRE and local-only traffic that the
+	// kernel does count, so a link carrying just those would look deaf.
+	packets int64
 }
+
+// Packets returns how many packets this source has taken off the handle.
+func (s *Source) Packets() int64 { return atomic.LoadInt64(&s.packets) }
 
 // OpenLive starts live capture on iface (empty selects a sensible default) and
 // builds a decoder seeded with all local interface addresses.
@@ -91,6 +101,7 @@ func (s *Source) Run(ctx context.Context, out chan<- types.Flow) error {
 			if !ok {
 				return nil // offline source exhausted
 			}
+			atomic.AddInt64(&s.packets, 1)
 			flow, ok := s.dec.Decode(pkt)
 			if !ok {
 				continue

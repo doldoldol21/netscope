@@ -35,16 +35,27 @@ const ifaceWatchInterval = 5 * time.Second
 //
 // Deliberately, traffic does not pull the budget back down; that would restart
 // the climb on every burst and reinstate the churn. The budget resets only on
-// evidence that the situation itself changed: a wake, a link loss, or a
-// different interface. maxStallTimeout is therefore also the worst-case delay
-// for the one leak this leaves — a handle that dies with no wake and no link
-// change, e.g. a Wi-Fi driver reset — so it is kept short enough to be a
-// nuisance rather than a outage.
+// evidence that the situation itself changed: a wake, a link loss, a deaf
+// handle, or a different interface.
+//
+// This timer is now the last resort rather than the main defence. A handle that
+// dies while the link keeps carrying traffic — the common case on USB tethering,
+// with no wake and no link change to notice — is caught by comparing capture
+// against the kernel's own byte counters, which settles in one tick regardless
+// of how far this budget has backed off. What is left here is the residual case
+// where the handle is dead *and* the link is genuinely silent, where there is
+// nothing to compare against and nothing being missed either.
 const (
 	stallTimeout    = 90 * time.Second
 	maxStallTimeout = 5 * time.Minute
-	stallTick       = 30 * time.Second
+	stallTick       = 10 * time.Second
 )
+
+// deafBytes is how much traffic the kernel must report on an interface, while
+// capture reports none, before we call the pcap handle deaf. A handful of
+// packets could race a tick boundary; tens of kilobytes across a whole interval
+// with not one flow decoded cannot.
+const deafBytes = 32 << 10
 
 // wakeSlack is how far the wall clock may run ahead of the monotonic clock
 // between two watchdog ticks before we conclude the machine was suspended.
@@ -247,7 +258,7 @@ func (ls *LiveSupervisor) Run(ctx context.Context, out chan<- types.Flow) error 
 		// stallTimeout (a dead handle after sleep/wake on the same interface),
 		// cancel so the loop re-opens. monOut tracks last-activity per flow.
 		monOut, lastFlow, seen := monitored(runCtx, out)
-		go ls.watchStall(runCtx, iface, cancel, lastFlow, seen)
+		go ls.watchStall(runCtx, iface, cancel, lastFlow, seen, src.Packets)
 		err = src.Run(runCtx, monOut)
 		ls.setLive(false)
 		cancel()
@@ -309,12 +320,16 @@ func monitored(ctx context.Context, out chan<- types.Flow) (chan<- types.Flow, *
 //   - the machine was suspended and woke: re-open now, at the base budget. This
 //     is the sleep/wake-on-the-same-interface case the watchdog exists for, and
 //     catching the wake directly beats inferring it from silence;
+//   - the kernel counted traffic on this interface while capture decoded none:
+//     the link is demonstrably busy, so the handle is deaf. Re-open now, at the
+//     base budget. This is the signal silence could never provide, and it is
+//     what makes the case below genuinely rare;
 //   - otherwise, prolonged silence on a live interface is treated as what it
 //     most likely is — an idle link — so capture still re-opens (cheap
 //     insurance) but the budget backs off toward maxStallTimeout, whether or not
 //     this session carried traffic. The budget returns to base only when one of
 //     the unambiguous signals fires or the active interface changes.
-func (ls *LiveSupervisor) watchStall(ctx context.Context, iface string, cancel context.CancelFunc, lastFlow, seen *int64) {
+func (ls *LiveSupervisor) watchStall(ctx context.Context, iface string, cancel context.CancelFunc, lastFlow, seen *int64, packets func() int64) {
 	t := time.NewTicker(stallTick)
 	defer t.Stop()
 	prev := time.Now()
@@ -322,6 +337,10 @@ func (ls *LiveSupervisor) watchStall(ctx context.Context, iface string, cancel c
 	// being down is not news, and treating it as a fresh loss every tick would
 	// spin at the tick rate — pcap can open a down interface.
 	startedUsable := ifaceUsable(iface)
+	// Baselines for the deafness check: what the kernel had counted on this
+	// interface, and how many flows capture had produced, as of the last tick.
+	prevBytes, haveBytes := interfaceBytes(iface)
+	prevPackets := packets()
 	for {
 		select {
 		case <-ctx.Done():
@@ -366,6 +385,24 @@ func (ls *LiveSupervisor) watchStall(ctx context.Context, iface string, cancel c
 				return
 			}
 
+			// Unambiguous, and the one that silence alone could never settle:
+			// the kernel counted real traffic on this interface while capture
+			// decoded not one flow. The link is not quiet — the handle is deaf.
+			// Checked every tick and never gated on the stall budget, because a
+			// budget that has backed off for genuine idleness must not slow down
+			// the recovery of a handle that is demonstrably broken.
+			curBytes, ok := interfaceBytes(iface)
+			curPackets := packets()
+			if handleLooksDeaf(prevBytes, curBytes, haveBytes && ok, prevPackets, curPackets) {
+				log.Printf("capture: %s moved %d bytes but delivered no packets; the handle is deaf, re-opening",
+					iface, curBytes-prevBytes)
+				ls.setStallBudget(ctx, stallTimeout)
+				cancel()
+				return
+			}
+			prevBytes, haveBytes = curBytes, ok
+			prevPackets = curPackets
+
 			budget := ls.stallBudget()
 			if now.Sub(time.Unix(0, atomic.LoadInt64(lastFlow))) < budget {
 				continue
@@ -384,6 +421,31 @@ func (ls *LiveSupervisor) watchStall(ctx context.Context, iface string, cancel c
 			return
 		}
 	}
+}
+
+// handleLooksDeaf reports whether the kernel counted real traffic on the
+// interface across a tick while the pcap handle delivered not a single packet.
+//
+// The two sides have to count comparable things. The kernel counts everything
+// that crosses the NIC, so the capture side must be packets taken off the
+// handle, not flows surviving the decoder: a link carrying only ICMP, ESP or
+// GRE decodes to no flows at all, and comparing against flows would call a
+// perfectly healthy handle deaf every tick.
+//
+// Without counters (readable false) there is nothing to compare against, so
+// silence stays ambiguous and this must not fire. And the packet count must be
+// exactly unchanged: one delivered packet proves the handle still works,
+// whatever the byte totals say.
+func handleLooksDeaf(prevBytes, curBytes uint64, readable bool, prevPackets, curPackets int64) bool {
+	if !readable || curPackets != prevPackets {
+		return false
+	}
+	// Counters only climb; a smaller reading means the interface was replaced
+	// underneath us, which is a re-open for other reasons, not evidence here.
+	if curBytes < prevBytes {
+		return false
+	}
+	return curBytes-prevBytes >= deafBytes
 }
 
 // clockGap returns how far apart two ticks were by the wall clock and by the

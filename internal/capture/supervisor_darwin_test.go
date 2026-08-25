@@ -269,3 +269,60 @@ func TestSupervisorReportsNotLiveWhileItCannotOpen(t *testing.T) {
 		}
 	}
 }
+
+// The case that motivated all of this: an iPhone USB tether that keeps carrying
+// traffic while the pcap handle silently stops delivering. The kernel's counters
+// climb, the handle hands over nothing, and that combination is proof — not
+// inference.
+func TestHandleLooksDeafWhenTheKernelSeesTrafficAndTheHandleDoesNot(t *testing.T) {
+	if !handleLooksDeaf(1_000_000, 1_000_000+deafBytes, true, 42, 42) {
+		t.Fatal("a busy interface delivering no packets was not called deaf")
+	}
+}
+
+// One delivered packet proves the handle still works, however much the byte
+// totals moved — capture is behind, not deaf.
+func TestHandleLooksDeafIgnoresAHandleStillDelivering(t *testing.T) {
+	if handleLooksDeaf(0, 10<<20, true, 42, 43) {
+		t.Fatal("a handle that delivered a packet was called deaf")
+	}
+}
+
+// The counts must measure comparable populations. The kernel counts every
+// packet crossing the NIC, including ICMP, ESP and GRE, none of which the
+// decoder turns into flows — so a VPN uplink carrying only ESP delivers plenty
+// of packets while producing zero flows. Comparing bytes against *packets* is
+// what keeps that healthy handle from being torn down every tick.
+func TestHandleLooksDeafToleratesTrafficThatDecodesToNoFlows(t *testing.T) {
+	// 8 MB of ESP across the tick, no flows decoded, but packets kept arriving.
+	if handleLooksDeaf(0, 8<<20, true, 1000, 6000) {
+		t.Fatal("a link carrying only non-TCP/UDP traffic was called deaf")
+	}
+}
+
+// A genuinely idle link moves no bytes either, which is the whole point: this
+// check must stay silent so the idle backoff can do its job.
+func TestHandleLooksDeafStaysQuietOnAnIdleLink(t *testing.T) {
+	if handleLooksDeaf(1_000_000, 1_000_000, true, 7, 7) {
+		t.Fatal("an idle link was called deaf")
+	}
+	// A trickle below the threshold could be a packet racing the tick boundary.
+	if handleLooksDeaf(1_000_000, 1_000_000+1024, true, 7, 7) {
+		t.Fatal("a trickle below the threshold was called deaf")
+	}
+}
+
+// Interfaces whose counters can't be read (or a failed sysctl) leave silence
+// ambiguous. Guessing "deaf" there would re-open capture forever.
+func TestHandleLooksDeafRequiresReadableCounters(t *testing.T) {
+	if handleLooksDeaf(0, 100<<20, false, 7, 7) {
+		t.Fatal("called deaf without any counters to compare against")
+	}
+}
+
+// A counter that goes backwards means the interface was replaced underneath us.
+func TestHandleLooksDeafIgnoresACounterReset(t *testing.T) {
+	if handleLooksDeaf(10<<20, 4096, true, 7, 7) {
+		t.Fatal("a counter reset was read as traffic")
+	}
+}
