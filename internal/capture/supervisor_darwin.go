@@ -24,9 +24,25 @@ const ifaceWatchInterval = 5 * time.Second
 // assumes the pcap handle has gone dead (the classic case: a laptop sleeps and
 // wakes on the *same* Wi-Fi, so the interface name never changes and the route
 // watcher never fires, yet the old BPF handle silently returns no packets). The
-// watchdog then cancels the source to force a clean re-open. A false positive on
-// a genuinely idle interface just causes a cheap, seamless reconnect.
-const stallTimeout = 90 * time.Second
+// watchdog then cancels the source to force a clean re-open.
+//
+// Silence alone cannot tell a dead handle from a link that is merely idle, so
+// the watchdog backs off when the evidence points at idleness: a session that
+// never saw a single flow doubles the budget up to maxStallTimeout, while a
+// session that was carrying traffic and then went silent — the actual dead-handle
+// signature — keeps the tight base timeout. Without this, leaving the machine
+// alone re-opens capture every 90s forever, and each re-open is a window where
+// the readout truthfully reports zero because nothing is being captured.
+const (
+	stallTimeout    = 90 * time.Second
+	maxStallTimeout = 12 * time.Minute
+)
+
+// routeChangeConfirmations is how many consecutive polls must agree before the
+// supervisor abandons a working interface for a new default route. A VPN coming
+// up can own the default route for a second and hand it straight back; acting on
+// the first observation tears down healthy capture for nothing.
+const routeChangeConfirmations = 2
 
 // LiveSupervisor keeps live capture pinned to the active interface. A long-lived
 // daemon outlives network changes — Wi-Fi↔Ethernet switches, VPNs coming up,
@@ -45,6 +61,7 @@ type LiveSupervisor struct {
 	onActive func(string)       // notified when the active interface (re)opens
 	paused   bool               // when true the Run loop closes capture and waits
 	resumeCh chan struct{}      // wakes a paused Run loop on resume
+	stallFor time.Duration      // current stall budget; grows while capture looks idle
 }
 
 // SetOnInterface registers a callback invoked with the active interface name
@@ -60,7 +77,7 @@ func (ls *LiveSupervisor) SetOnInterface(fn func(string)) {
 // it across network changes. prefPath (optional) persists a runtime interface
 // choice so it survives daemon restarts; a saved choice overrides an empty iface.
 func NewLiveSupervisor(iface string, dns *dnscache.Cache, prefPath string) *LiveSupervisor {
-	ls := &LiveSupervisor{dns: dns, prefPath: prefPath, pref: iface, resumeCh: make(chan struct{}, 1)}
+	ls := &LiveSupervisor{dns: dns, prefPath: prefPath, pref: iface, resumeCh: make(chan struct{}, 1), stallFor: stallTimeout}
 	if iface == "" {
 		if saved := ls.loadPref(); saved != "" {
 			ls.pref = saved
@@ -70,14 +87,34 @@ func NewLiveSupervisor(iface string, dns *dnscache.Cache, prefPath string) *Live
 	return ls
 }
 
+// resolve reports which interface capture should run on. A user preference wins
+// outright; otherwise it follows the default route. When re-detection fails — the
+// UDP probe behind defaultInterface briefly has no route to dial during a
+// transition — it falls back to the interface already being captured as long as
+// that one is still up, rather than blanking capture for a full watch interval
+// while a perfectly good link carries traffic.
 func (ls *LiveSupervisor) resolve() (string, error) {
 	ls.mu.Lock()
-	p := ls.pref
+	p, last := ls.pref, ls.active
 	ls.mu.Unlock()
-	if p != "" {
-		return p, nil
+	return resolveIface(p, last, defaultInterface, ifaceUsable)
+}
+
+// resolveIface is the interface-choosing rule, split out from the supervisor's
+// locking so it can be exercised without a live network. detect follows the
+// default route; usable reports whether an interface is still up and addressed.
+func resolveIface(pref, last string, detect func() (string, error), usable func(string) bool) (string, error) {
+	if pref != "" {
+		return pref, nil
 	}
-	return defaultInterface()
+	name, err := detect()
+	if err == nil && name != "" {
+		return name, nil
+	}
+	if last != "" && usable(last) {
+		return last, nil
+	}
+	return name, err
 }
 
 func (ls *LiveSupervisor) setActive(name string) {
@@ -156,8 +193,8 @@ func (ls *LiveSupervisor) Run(ctx context.Context, out chan<- types.Flow) error 
 		// Forward flows through a stall watchdog: if capture goes silent for
 		// stallTimeout (a dead handle after sleep/wake on the same interface),
 		// cancel so the loop re-opens. monOut tracks last-activity per flow.
-		monOut, lastFlow := monitored(runCtx, out)
-		go ls.watchStall(runCtx, iface, cancel, lastFlow)
+		monOut, lastFlow, seen := monitored(runCtx, out)
+		go ls.watchStall(runCtx, iface, cancel, lastFlow, seen)
 		err = src.Run(runCtx, monOut)
 		cancel()
 		ls.mu.Lock()
@@ -180,13 +217,15 @@ func (ls *LiveSupervisor) Run(ctx context.Context, out chan<- types.Flow) error 
 	}
 }
 
-// monitored returns a channel to hand to the capture source plus a pointer that
-// holds the unix-nano timestamp of the most recent flow. A forwarder goroutine
-// (tied to ctx) copies flows to out and stamps lastFlow, so the supervisor can
-// tell whether capture is still producing without touching the hot decode path.
-func monitored(ctx context.Context, out chan<- types.Flow) (chan<- types.Flow, *int64) {
+// monitored returns a channel to hand to the capture source plus two pointers: the
+// unix-nano timestamp of the most recent flow, and how many flows this session has
+// produced. A forwarder goroutine (tied to ctx) copies flows to out and updates
+// both, so the supervisor can tell whether capture is still producing — and
+// whether it ever produced at all — without touching the hot decode path.
+func monitored(ctx context.Context, out chan<- types.Flow) (chan<- types.Flow, *int64, *int64) {
 	in := make(chan types.Flow, 64)
 	lastFlow := new(int64)
+	seen := new(int64)
 	atomic.StoreInt64(lastFlow, time.Now().UnixNano())
 	go func() {
 		for {
@@ -195,6 +234,7 @@ func monitored(ctx context.Context, out chan<- types.Flow) (chan<- types.Flow, *
 				return
 			case f := <-in:
 				atomic.StoreInt64(lastFlow, time.Now().UnixNano())
+				atomic.AddInt64(seen, 1)
 				select {
 				case <-ctx.Done():
 					return
@@ -203,16 +243,19 @@ func monitored(ctx context.Context, out chan<- types.Flow) (chan<- types.Flow, *
 			}
 		}
 	}()
-	return in, lastFlow
+	return in, lastFlow, seen
 }
 
-// watchStall re-opens capture if no flow has arrived for stallTimeout. This
-// recovers the sleep/wake-on-same-interface case where the route watcher never
-// fires but the pcap handle is dead. The lastFlow timestamp is reset when the
-// source first opens, so a quiet-but-healthy interface only triggers an
-// occasional (cheap) reconnect, never a tight loop.
-func (ls *LiveSupervisor) watchStall(ctx context.Context, iface string, cancel context.CancelFunc, lastFlow *int64) {
-	t := time.NewTicker(stallTimeout / 3)
+// watchStall re-opens capture if no flow has arrived for the current stall
+// budget. This recovers the sleep/wake-on-same-interface case where the route
+// watcher never fires but the pcap handle is dead. Silence is ambiguous, so the
+// watchdog reads the surrounding evidence: an interface that is gone or down
+// re-opens immediately at the base budget, silence after real traffic keeps the
+// base budget, and silence from a session that never saw a flow backs the budget
+// off so an idle machine stops churning. See nextStallBudget.
+func (ls *LiveSupervisor) watchStall(ctx context.Context, iface string, cancel context.CancelFunc, lastFlow, seen *int64) {
+	budget := ls.stallBudget()
+	t := time.NewTicker(budget / 3)
 	defer t.Stop()
 	for {
 		select {
@@ -227,31 +270,126 @@ func (ls *LiveSupervisor) watchStall(ctx context.Context, iface string, cancel c
 				continue
 			}
 			last := time.Unix(0, atomic.LoadInt64(lastFlow))
-			if time.Since(last) >= stallTimeout {
-				log.Printf("capture: no flows on %s for %s; re-opening (suspected dead handle after sleep/wake)", iface, stallTimeout)
+			if time.Since(last) < budget {
+				continue
+			}
+			// The interface vanishing or going down is unambiguous: re-open now
+			// and go back to the tight budget, since this was no false alarm.
+			if !ifaceUsable(iface) {
+				log.Printf("capture: %s is gone or down; re-opening", iface)
+				ls.setStallBudget(stallTimeout)
 				cancel()
 				return
 			}
+			busy := atomic.LoadInt64(seen) > 0
+			ls.setStallBudget(nextStallBudget(budget, busy))
+			if busy {
+				log.Printf("capture: no flows on %s for %s after earlier traffic; re-opening (suspected dead handle after sleep/wake)", iface, budget)
+			} else {
+				log.Printf("capture: %s has been silent for %s and looks idle rather than dead; re-opening and backing off to %s", iface, budget, ls.stallBudget())
+			}
+			cancel()
+			return
 		}
 	}
 }
 
-// watch cancels the running source when the default-route interface changes.
+// nextStallBudget returns the stall budget for the next capture session. A
+// session that carried traffic and then fell silent is the dead-handle
+// signature, so it stays at the tight base. A session that never saw one flow
+// is far more likely an idle link — a laptop left alone — so the budget doubles
+// up to maxStallTimeout, turning a re-open every 90s into one every 12 minutes.
+func nextStallBudget(cur time.Duration, sawFlows bool) time.Duration {
+	if sawFlows {
+		return stallTimeout
+	}
+	next := cur * 2
+	if next > maxStallTimeout {
+		return maxStallTimeout
+	}
+	if next < stallTimeout {
+		return stallTimeout
+	}
+	return next
+}
+
+func (ls *LiveSupervisor) stallBudget() time.Duration {
+	ls.mu.Lock()
+	defer ls.mu.Unlock()
+	if ls.stallFor < stallTimeout {
+		return stallTimeout
+	}
+	return ls.stallFor
+}
+
+func (ls *LiveSupervisor) setStallBudget(d time.Duration) {
+	ls.mu.Lock()
+	ls.stallFor = d
+	ls.mu.Unlock()
+}
+
+// watch cancels the running source when the default-route interface changes and
+// stays changed. A single differing observation is not enough: a VPN interface
+// can hold the default route for a moment and give it right back, and acting on
+// that flap drops a healthy capture only to re-open on the same interface a
+// second later. The candidate must be seen routeChangeConfirmations polls in a
+// row, and any poll that returns to current resets the count.
 func (ls *LiveSupervisor) watch(ctx context.Context, current string, cancel context.CancelFunc) {
 	t := time.NewTicker(ifaceWatchInterval)
 	defer t.Stop()
+	var sw routeSwitch
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			if now, err := defaultInterface(); err == nil && now != "" && now != current {
+			now, err := defaultInterface()
+			if err != nil {
+				now = ""
+			}
+			switch sw.observe(current, now) {
+			case switchNow:
 				log.Printf("capture: default interface changed %s -> %s", current, now)
 				cancel()
 				return
+			case switchPending:
+				log.Printf("capture: default route moved %s -> %s; confirming before switching", current, now)
 			}
 		}
 	}
+}
+
+// routeSwitch debounces default-route observations. It is a plain state machine
+// so the confirm-before-switch rule can be tested without a real network.
+type routeSwitch struct {
+	candidate string
+	seen      int
+}
+
+type switchDecision int
+
+const (
+	switchStay switchDecision = iota
+	switchPending
+	switchNow
+)
+
+// observe folds one poll into the state machine. An empty or unchanged
+// observation clears any pending candidate, so a route that flaps away and back
+// leaves the running capture alone.
+func (s *routeSwitch) observe(current, now string) switchDecision {
+	if now == "" || now == current {
+		s.candidate, s.seen = "", 0
+		return switchStay
+	}
+	if now != s.candidate {
+		s.candidate, s.seen = now, 0
+	}
+	s.seen++
+	if s.seen < routeChangeConfirmations {
+		return switchPending
+	}
+	return switchNow
 }
 
 // PreferredInterface returns the user's chosen interface ("" = auto-detect).

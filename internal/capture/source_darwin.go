@@ -156,6 +156,27 @@ func defaultInterface() (string, error) {
 	return "", fmt.Errorf("no suitable network interface found")
 }
 
+// ifaceUsable reports whether name still exists, is up, and holds a global
+// unicast address — i.e. whether it is plausibly still carrying traffic. The
+// supervisor uses it to tell a link that has genuinely gone away from one that
+// is merely quiet, so silence alone never condemns a working capture.
+func ifaceUsable(name string) bool {
+	ifi, err := net.InterfaceByName(name)
+	if err != nil || ifi.Flags&net.FlagUp == 0 {
+		return false
+	}
+	addrs, err := ifi.Addrs()
+	if err != nil {
+		return false
+	}
+	for _, a := range addrs {
+		if n, ok := a.(*net.IPNet); ok && n.IP.IsGlobalUnicast() {
+			return true
+		}
+	}
+	return false
+}
+
 // interfaceForIP returns the name of the interface that owns ip, or "".
 func interfaceForIP(ip net.IP) string {
 	ifaces, err := net.Interfaces()
