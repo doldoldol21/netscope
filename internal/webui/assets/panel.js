@@ -89,7 +89,10 @@ function render(s) {
   // An older daemon doesn't send `capturing`; absent means "can't tell", which
   // is not grounds for claiming capture stopped.
   capCapturing = s.capturing !== false;
-  capBehind = capCapturing && !s.paused && captureBehind(s);
+  // capPaused, not s.paused: applyPausedFromSnapshot above has already resolved
+  // the optimistic-pause window, and a stale snapshot still reporting paused:false
+  // would otherwise put the warning back up under a "paused" meta line.
+  capBehind = capCapturing && !capPaused && captureBehind(s);
   $("dot").classList.toggle("live", !capPaused && capCapturing && !capBehind);
   $("dot").classList.toggle("behind", capBehind);
   if (s.interface) {
@@ -264,26 +267,18 @@ let capPaused = false;
 // Whether the daemon reports a capture source actually running. Starts true so
 // the popover doesn't flash "reconnecting" before the first snapshot arrives.
 let capCapturing = true;
-// Kernel-reported throughput on the capture interface, and whether capture is
-// visibly failing to account for it.
+// Whether the daemon says the link is carrying traffic capture isn't seeing.
 let capBehind = false;
 
-// behindBytes is how much the link must be moving, while capture reports
-// nothing, before we say capture is missing it. Keepalives and ARP chatter run
-// well under this; a real transfer runs far above it.
-const behindBytes = 4096;
-
-// captureBehind reports whether the link is demonstrably busy while capture
-// measures nothing. Both halves are required: a zero link rate means "quiet or
-// unknown", neither of which justifies a warning, and any captured traffic at
-// all means capture is working — it does not have to match the kernel byte for
-// byte, and never will, since the kernel also counts framing and traffic the
-// decoder drops.
+// captureBehind takes the daemon's verdict rather than re-deriving one. The
+// daemon samples the link and the handle over the same window; this page only
+// has a one-second capture rate, and comparing that against a multi-second link
+// average would call every ordinary burst a fault — the burst ends, the rate
+// drops to zero, and the stale average keeps insisting the link is busy.
 function captureBehind(s) {
-  const captured = (Number(s.rxPerSec) || 0) + (Number(s.txPerSec) || 0);
-  const link = Number(s.linkBytesPerSec) || 0;
-  return captured === 0 && link >= behindBytes;
+  return s.linkUnseen === true;
 }
+
 let pausePendingUntil = 0; // ignore stale snapshots right after a manual toggle
 // A snapshot generated just before our POST landed still reports the old state;
 // during the pending window keep our optimistic value until snapshots agree.
@@ -302,7 +297,13 @@ function reflectPaused(p) {
     setAttr(b, "aria-label", p ? t("tip.resume") : t("tip.pause"));
   }
   $("dot").classList.toggle("paused", p);
-  if (p) $("dot").classList.remove("live");
+  if (p) {
+    // Drop the busy-link warning too. Pausing explains the zeros on its own,
+    // and the optimistic pause runs ahead of the daemon — leaving the pulsing
+    // dot up would contradict a meta line that already reads "paused".
+    $("dot").classList.remove("live", "behind");
+    capBehind = false;
+  }
   updateMetaText();
 }
 async function togglePause() {

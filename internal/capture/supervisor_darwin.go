@@ -82,16 +82,16 @@ type LiveSupervisor struct {
 	dns      *dnscache.Cache
 	prefPath string // file persisting the user's interface choice ("" = none)
 
-	mu        sync.Mutex
-	pref      string             // user-requested interface; "" means auto-detect
-	active    string             // interface currently being captured
-	cancel    context.CancelFunc // cancels the running source to force a re-open
-	onActive  func(string)       // notified when the active interface (re)opens
-	onLive    func(bool)         // notified as capture sources open and close
-	onLinkBps func(uint64)       // notified with the kernel's link throughput
-	paused    bool               // when true the Run loop closes capture and waits
-	resumeCh  chan struct{}      // wakes a paused Run loop on resume
-	stallFor  time.Duration      // current stall budget; grows while capture looks idle
+	mu       sync.Mutex
+	pref     string             // user-requested interface; "" means auto-detect
+	active   string             // interface currently being captured
+	cancel   context.CancelFunc // cancels the running source to force a re-open
+	onActive func(string)       // notified when the active interface (re)opens
+	onLive   func(bool)         // notified as capture sources open and close
+	onUnseen func(bool)         // notified when the link carries traffic capture misses
+	paused   bool               // when true the Run loop closes capture and waits
+	resumeCh chan struct{}      // wakes a paused Run loop on resume
+	stallFor time.Duration      // current stall budget; grows while capture looks idle
 }
 
 // SetOnInterface registers a callback invoked with the active interface name
@@ -112,33 +112,36 @@ func (ls *LiveSupervisor) SetOnLive(fn func(bool)) {
 	ls.mu.Unlock()
 }
 
-// SetOnLinkBytesPerSec registers a callback invoked with the kernel's throughput
-// for the capture interface, sampled once per watchdog tick. It is reported
-// whether or not capture is keeping up — that is the point: the UI compares it
-// against what capture measured to tell a quiet link from a link capture is
-// missing.
-func (ls *LiveSupervisor) SetOnLinkBytesPerSec(fn func(uint64)) {
+// SetOnLinkUnseen registers a callback invoked with whether the capture
+// interface is carrying traffic the handle is not delivering.
+//
+// The verdict is formed here rather than shipped as two numbers for the UI to
+// compare, because only here are both sides sampled over the same window. A
+// consumer comparing a multi-second link average against a one-second capture
+// rate would call every ordinary burst a fault: the burst ends, capture's rate
+// drops to zero immediately, and the stale link average keeps claiming the link
+// is busy for the rest of the window.
+func (ls *LiveSupervisor) SetOnLinkUnseen(fn func(bool)) {
 	ls.mu.Lock()
-	ls.onLinkBps = fn
+	ls.onUnseen = fn
 	ls.mu.Unlock()
 }
 
-func (ls *LiveSupervisor) setLinkBps(bps uint64) {
+func (ls *LiveSupervisor) setLinkUnseen(unseen bool) {
 	ls.mu.Lock()
-	fn := ls.onLinkBps
+	fn := ls.onUnseen
 	ls.mu.Unlock()
 	if fn != nil {
-		fn(bps)
+		fn(unseen)
 	}
 }
 
-// stopped reports that no source is running. The link rate goes with it: a rate
-// left over from a source that has ended describes a measurement nobody is
-// making any more, and stale numbers are what this whole area is trying to
-// stop presenting as current.
+// stopped reports that no source is running. The unseen verdict deliberately
+// survives: it describes the link, not the source, and clearing it here would
+// hide the fault for the whole gap between a re-open and its first tick — which
+// is exactly when a user who just saw zeros goes looking for an explanation.
 func (ls *LiveSupervisor) stopped() {
 	ls.setLive(false)
-	ls.setLinkBps(0)
 }
 
 // setLive reports a capture source opening or closing.
@@ -426,14 +429,17 @@ func (ls *LiveSupervisor) watchStall(ctx context.Context, iface string, cancel c
 			if handleLooksDeaf(prevBytes, curBytes, haveBytes && ok, prevPackets, curPackets) {
 				log.Printf("capture: %s moved %d bytes but delivered no packets; the handle is deaf, re-opening",
 					iface, curBytes-prevBytes)
+				ls.setLinkUnseen(true)
 				ls.setStallBudget(ctx, stallTimeout)
 				cancel()
 				return
 			}
-			// Report the link's own throughput whether or not it looked deaf:
-			// a healthy tick is exactly when the UI needs it, to show that a
-			// zero reading is a quiet link rather than a missed one.
-			ls.setLinkBps(linkBytesPerSec(prevBytes, curBytes, haveBytes && ok, stallTick))
+			// A tick that delivered packets is proof the handle is working, so
+			// it clears any standing verdict. Ticks that prove nothing either
+			// way — a quiet link, unreadable counters — leave it as it was.
+			if curPackets != prevPackets {
+				ls.setLinkUnseen(false)
+			}
 			prevBytes, haveBytes = curBytes, ok
 			prevPackets = curPackets
 
@@ -480,16 +486,6 @@ func handleLooksDeaf(prevBytes, curBytes uint64, readable bool, prevPackets, cur
 		return false
 	}
 	return curBytes-prevBytes >= deafBytes
-}
-
-// linkBytesPerSec converts a byte-counter delta into a rate. Unreadable counters
-// and counter resets both report 0 — "not known", which the UI must not present
-// as evidence of anything.
-func linkBytesPerSec(prevBytes, curBytes uint64, readable bool, over time.Duration) uint64 {
-	if !readable || curBytes < prevBytes || over <= 0 {
-		return 0
-	}
-	return uint64(float64(curBytes-prevBytes) / over.Seconds())
 }
 
 // clockGap returns how far apart two ticks were by the wall clock and by the

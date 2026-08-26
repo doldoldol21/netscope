@@ -204,15 +204,20 @@ func TestSetCapturingIsReflectedInSnapshots(t *testing.T) {
 	}
 }
 
-func TestSnapshotCarriesTheLinkRate(t *testing.T) {
+func TestSnapshotCarriesTheUnseenVerdict(t *testing.T) {
 	e := New(Config{}, nil, nil, nil)
 	e.updateSnapshot()
-	if got := e.Snapshot().LinkBytesPerSec; got != 0 {
-		t.Fatalf("a fresh engine reported a link rate of %d, want 0 (unknown)", got)
+	if e.Snapshot().LinkUnseen {
+		t.Fatal("a fresh engine reported the link as unseen")
 	}
-	e.SetLinkBytesPerSec(850_000)
+	e.SetLinkUnseen(true)
 	e.updateSnapshot()
-	if got := e.Snapshot().LinkBytesPerSec; got != 850_000 {
-		t.Fatalf("link rate = %d, want 850000", got)
+	if !e.Snapshot().LinkUnseen {
+		t.Fatal("snapshot did not carry the unseen verdict")
+	}
+	e.SetLinkUnseen(false)
+	e.updateSnapshot()
+	if e.Snapshot().LinkUnseen {
+		t.Fatal("snapshot kept the verdict after it cleared")
 	}
 }

@@ -326,24 +326,3 @@ func TestHandleLooksDeafIgnoresACounterReset(t *testing.T) {
 		t.Fatal("a counter reset was read as traffic")
 	}
 }
-
-func TestLinkBytesPerSecConvertsADelta(t *testing.T) {
-	// 100 KB across a 10s tick is 10 KB/s.
-	if got := linkBytesPerSec(1000, 1000+100*1024, true, 10*time.Second); got != 10*1024 {
-		t.Fatalf("rate = %d, want %d", got, 10*1024)
-	}
-}
-
-// Unknown must never be reported as a number: the UI treats a nonzero link rate
-// as evidence the link is busy, and a fabricated one would raise false alarms.
-func TestLinkBytesPerSecReportsZeroWhenItCannotKnow(t *testing.T) {
-	if got := linkBytesPerSec(0, 1<<20, false, stallTick); got != 0 {
-		t.Fatalf("unreadable counters produced %d, want 0", got)
-	}
-	if got := linkBytesPerSec(1<<20, 4096, true, stallTick); got != 0 {
-		t.Fatalf("a counter reset produced %d, want 0", got)
-	}
-	if got := linkBytesPerSec(0, 1<<20, true, 0); got != 0 {
-		t.Fatalf("a zero interval produced %d, want 0", got)
-	}
-}

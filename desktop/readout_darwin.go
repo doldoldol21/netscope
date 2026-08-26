@@ -323,16 +323,12 @@ type captureState struct {
 	rx, tx    float64
 	paused    bool
 	capturing bool
-	// linkBps is what the kernel says is crossing the capture interface. It is
-	// the only way to tell a quiet link from one capture is missing, which
-	// otherwise both read as zero.
-	linkBps float64
+	// linkUnseen is the daemon's verdict that the interface is carrying traffic
+	// the handle isn't delivering. Taken as given rather than re-derived here:
+	// the daemon samples both sides over one window, and this process only sees
+	// a one-second capture rate, which cannot be compared against anything.
+	linkUnseen bool
 }
-
-// behindBytes is how much the link must be moving, while capture measures
-// nothing, before the readout says capture is missing it. Keepalives and ARP
-// chatter run well under this; a real transfer runs far above it.
-const behindBytes = 4096
 
 // mode says what the menu bar should show. Zeros are only honest when capture is
 // actually running — otherwise they read as "nothing is happening on your
@@ -359,14 +355,11 @@ func (c captureState) mode() readoutMode {
 	}
 }
 
-// behind reports whether the link is demonstrably busy while capture measures
-// nothing. Both halves are required: a zero link rate means "quiet or unknown",
-// neither of which justifies a warning, and any captured traffic at all means
-// capture is working — it need not match the kernel byte for byte, and never
-// will, since the kernel also counts framing and traffic the decoder drops.
-func (c captureState) behind() bool {
-	return c.rx+c.tx == 0 && c.linkBps >= behindBytes
-}
+// behind reports whether the daemon says the link is carrying traffic capture
+// isn't seeing. Capture measuring something at the same time doesn't clear it:
+// the verdict already accounts for that, and a partial trickle getting through
+// is still a link we are not seeing.
+func (c captureState) behind() bool { return c.linkUnseen }
 
 func fetchCapture(client *http.Client) (captureState, bool) {
 	resp, err := client.Get(alertSockHost + "/api/snapshot")
@@ -393,17 +386,17 @@ func decodeCapture(r io.Reader) (captureState, bool) {
 		TxPerSec  float64 `json:"txPerSec"`
 		Paused    bool    `json:"paused"`
 		Capturing *bool   `json:"capturing"`
-		LinkBps   float64 `json:"linkBytesPerSec"`
+		Unseen    bool    `json:"linkUnseen"`
 	}
 	if json.NewDecoder(r).Decode(&s) != nil {
 		return captureState{}, false
 	}
 	return captureState{
-		rx:        s.RxPerSec,
-		tx:        s.TxPerSec,
-		paused:    s.Paused,
-		capturing: s.Capturing == nil || *s.Capturing,
-		linkBps:   s.LinkBps,
+		rx:         s.RxPerSec,
+		tx:         s.TxPerSec,
+		paused:     s.Paused,
+		capturing:  s.Capturing == nil || *s.Capturing,
+		linkUnseen: s.Unseen,
 	}, true
 }
 

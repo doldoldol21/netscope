@@ -165,8 +165,8 @@ type Engine struct {
 	ifaceMu sync.Mutex
 	iface   string // capture interface, updatable as the supervisor re-opens
 	paused  bool   // surfaced in snapshots so the UI can show "paused"
-	// linkBps is the kernel's throughput for the capture interface, 0 if unknown.
-	linkBps uint64
+	// linkUnseen is whether the link is moving traffic capture isn't delivering.
+	linkUnseen bool
 	// capturing is whether a source is actually running. It starts true because
 	// sources without a supervisor (demo, offline pcap) simply are running for
 	// as long as the engine is; only the live supervisor, which knows when it is
@@ -194,19 +194,19 @@ func (e *Engine) SetPaused(p bool) {
 	e.ifaceMu.Unlock()
 }
 
-// SetLinkBytesPerSec records the kernel's view of throughput on the capture
-// interface. The supervisor samples it; the engine only carries it into
-// snapshots so the UI can compare it against what capture actually measured.
-func (e *Engine) SetLinkBytesPerSec(bps uint64) {
+// SetLinkUnseen records whether the capture interface is carrying traffic the
+// handle is not delivering. The supervisor decides this — it samples both sides
+// over one window — and the engine only carries the verdict into snapshots.
+func (e *Engine) SetLinkUnseen(unseen bool) {
 	e.ifaceMu.Lock()
-	e.linkBps = bps
+	e.linkUnseen = unseen
 	e.ifaceMu.Unlock()
 }
 
-func (e *Engine) linkBytesPerSec() uint64 {
+func (e *Engine) isLinkUnseen() bool {
 	e.ifaceMu.Lock()
 	defer e.ifaceMu.Unlock()
-	return e.linkBps
+	return e.linkUnseen
 }
 
 // SetCapturing records whether a capture source is currently running. The live
@@ -656,19 +656,19 @@ func (e *Engine) updateSnapshot() {
 	}
 
 	snap := types.Snapshot{
-		Time:            now,
-		SessionStart:    sessStart,
-		Apps:            apps,
-		Domains:         domains,
-		TotalRx:         totalRx,
-		TotalTx:         totalTx,
-		RxPerSec:        rxps,
-		TxPerSec:        txps,
-		ActiveApps:      active,
-		Interface:       e.currentIface(),
-		Paused:          e.isPaused(),
-		Capturing:       e.isCapturing(),
-		LinkBytesPerSec: e.linkBytesPerSec(),
+		Time:         now,
+		SessionStart: sessStart,
+		Apps:         apps,
+		Domains:      domains,
+		TotalRx:      totalRx,
+		TotalTx:      totalTx,
+		RxPerSec:     rxps,
+		TxPerSec:     txps,
+		ActiveApps:   active,
+		Interface:    e.currentIface(),
+		Paused:       e.isPaused(),
+		Capturing:    e.isCapturing(),
+		LinkUnseen:   e.isLinkUnseen(),
 	}
 	e.snapMu.Lock()
 	e.snapshot = snap

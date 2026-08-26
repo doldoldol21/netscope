@@ -233,7 +233,7 @@ const NS_I18N = (() => {
 
       "status.connecting": "연결 중…",
       "status.reconnecting": "재연결 중…",
-      "status.notCapturing": "캡처 중단 — 다시 여는 중…",
+      "status.notCapturing": "캡처 다시 여는 중…",
       "status.behind": "링크 사용 중 · 캡처 누락",
       "status.behindTip": "인터페이스는 트래픽을 나르고 있는데 캡처가 그걸 못 보고 있습니다. 다시 열면 회복되며, 이 상태가 계속되면 아래 숫자는 실제보다 적게 잡힌 값입니다.",
       "status.paused": "일시정지",

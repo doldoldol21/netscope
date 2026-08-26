@@ -128,14 +128,14 @@ type Snapshot struct {
 	Interface  string `json:"interface"`
 	// Paused is true while live capture is suspended by the user.
 	Paused bool `json:"paused"`
-	// LinkBytesPerSec is what the kernel says is crossing the capture interface,
-	// independent of whether capture manages to see any of it. Comparing it to
-	// RxPerSec+TxPerSec is what lets the UI tell a quiet link from a link that is
-	// busy while capture reports nothing — the two look identical otherwise, and
-	// the second is the one worth warning about. Zero means "not known" as well
-	// as "idle"; the UI treats both the same way, since neither is grounds for a
-	// warning.
-	LinkBytesPerSec uint64 `json:"linkBytesPerSec"`
+	// LinkUnseen is true while the kernel reports traffic crossing the capture
+	// interface that the pcap handle is not delivering. It is the supervisor's
+	// own verdict, not a number for the UI to re-derive: the two sides have to be
+	// measured over the same window, and the supervisor is where both are
+	// sampled together. Shipping the raw rates instead invites a comparison
+	// between a multi-second link average and a one-second capture rate, which
+	// flags every ordinary burst as a fault.
+	LinkUnseen bool `json:"linkUnseen"`
 	// Capturing is true while a capture source is actually running. It is false
 	// between sessions — after a link change, a wake, or while no interface can
 	// be resolved — which is what lets the UI tell "connected and idle" apart

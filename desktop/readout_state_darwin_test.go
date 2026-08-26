@@ -92,49 +92,39 @@ func TestDecodeCaptureRejectsGarbage(t *testing.T) {
 }
 
 // The state this whole line of work is about: capture is running on the right
-// interface, reports nothing, and the link is busy the entire time. Showing a
-// zero here is the lie; the readout has to say it cannot see.
+// interface and the daemon reports the link is carrying traffic none of which
+// is reaching the handle. Showing a zero here is the lie.
 func TestCaptureStateFlagsALinkItCannotSee(t *testing.T) {
-	st := captureState{capturing: true, linkBps: 500 << 10}
+	st := captureState{capturing: true, linkUnseen: true}
 	if st.mode() != readoutBehind {
 		t.Fatalf("mode = %v, want readoutBehind", st.mode())
 	}
 }
 
-// Capture measuring anything at all means the handle works. It never matches
-// the kernel byte for byte — the kernel also counts framing and traffic the
-// decoder drops — so any captured traffic must clear the warning.
-func TestCaptureStateTrustsAnyCapturedTraffic(t *testing.T) {
-	st := captureState{rx: 1, capturing: true, linkBps: 500 << 10}
-	if st.mode() != readoutRates {
-		t.Fatalf("mode = %v, want readoutRates", st.mode())
+// The verdict is the daemon's, formed over one window where both sides are
+// sampled together. This process only has a one-second capture rate, so it must
+// not second-guess: a burst that ended a moment ago reads as zero here while
+// being perfectly captured, which is exactly the false alarm re-deriving would
+// produce.
+func TestCaptureStateDoesNotSecondGuessTheVerdict(t *testing.T) {
+	// Zero captured rate, no verdict: an ordinary quiet moment, not a fault.
+	if got := (captureState{capturing: true, linkUnseen: false}).mode(); got != readoutRates {
+		t.Fatalf("a quiet moment = %v, want readoutRates", got)
 	}
-}
-
-// A quiet link and an unreadable counter both report zero, and neither is
-// grounds for a warning — that is the false alarm this must never raise.
-func TestCaptureStateDoesNotWarnWithoutEvidence(t *testing.T) {
-	for _, c := range []struct {
-		name string
-		st   captureState
-	}{
-		{"quiet link", captureState{capturing: true, linkBps: 0}},
-		{"trickle below the threshold", captureState{capturing: true, linkBps: behindBytes - 1}},
-	} {
-		if c.st.mode() != readoutRates {
-			t.Errorf("%s: mode = %v, want readoutRates", c.name, c.st.mode())
-		}
+	// Traffic captured *and* a standing verdict: still a link we aren't seeing.
+	if got := (captureState{rx: 5000, capturing: true, linkUnseen: true}).mode(); got != readoutBehind {
+		t.Fatalf("partial capture with a standing verdict = %v, want readoutBehind", got)
 	}
 }
 
 // Paused and stopped both outrank it: those explain the zero already, and
 // "capture is missing traffic" would be misleading when capture is off.
 func TestCaptureStateRanksExplanationsAboveTheWarning(t *testing.T) {
-	if got := (captureState{paused: true, capturing: true, linkBps: 1 << 20}).mode(); got != readoutPaused {
-		t.Fatalf("paused with a busy link = %v, want readoutPaused", got)
+	if got := (captureState{paused: true, capturing: true, linkUnseen: true}).mode(); got != readoutPaused {
+		t.Fatalf("paused with a standing verdict = %v, want readoutPaused", got)
 	}
-	if got := (captureState{capturing: false, linkBps: 1 << 20}).mode(); got != readoutStopped {
-		t.Fatalf("stopped with a busy link = %v, want readoutStopped", got)
+	if got := (captureState{capturing: false, linkUnseen: true}).mode(); got != readoutStopped {
+		t.Fatalf("stopped with a standing verdict = %v, want readoutStopped", got)
 	}
 }
 
@@ -150,23 +140,20 @@ func TestModeMarkerForBehindIsDistinct(t *testing.T) {
 	}
 }
 
-func TestDecodeCaptureReadsTheLinkRate(t *testing.T) {
+func TestDecodeCaptureReadsTheVerdict(t *testing.T) {
 	got, ok := decodeCapture(strings.NewReader(
-		`{"rxPerSec":0,"txPerSec":0,"capturing":true,"linkBytesPerSec":123456}`))
+		`{"rxPerSec":0,"txPerSec":0,"capturing":true,"linkUnseen":true}`))
 	if !ok {
 		t.Fatal("decode failed")
 	}
-	if got.linkBps != 123456 {
-		t.Fatalf("linkBps = %v, want 123456", got.linkBps)
-	}
-	if got.mode() != readoutBehind {
-		t.Fatalf("mode = %v, want readoutBehind", got.mode())
+	if !got.linkUnseen || got.mode() != readoutBehind {
+		t.Fatalf("decoded %+v, mode %v", got, got.mode())
 	}
 }
 
-// An older daemon sends no link rate at all, which must read as "unknown" and
-// never as a warning.
-func TestDecodeCaptureTreatsAMissingLinkRateAsUnknown(t *testing.T) {
+// An older daemon sends no verdict at all, which must read as "no fault known"
+// and never as a warning.
+func TestDecodeCaptureTreatsAMissingVerdictAsFine(t *testing.T) {
 	got, ok := decodeCapture(strings.NewReader(`{"rxPerSec":0,"txPerSec":0,"capturing":true}`))
 	if !ok {
 		t.Fatal("decode failed")
