@@ -89,8 +89,12 @@ function render(s) {
   // An older daemon doesn't send `capturing`; absent means "can't tell", which
   // is not grounds for claiming capture stopped.
   capCapturing = s.capturing !== false;
-  if (!capPaused && capCapturing) $("dot").classList.add("live");
-  else $("dot").classList.remove("live");
+  // capPaused, not s.paused: applyPausedFromSnapshot above has already resolved
+  // the optimistic-pause window, and a stale snapshot still reporting paused:false
+  // would otherwise put the warning back up under a "paused" meta line.
+  capBehind = capCapturing && !capPaused && captureBehind(s);
+  $("dot").classList.toggle("live", !capPaused && capCapturing && !capBehind);
+  $("dot").classList.toggle("behind", capBehind);
   if (s.interface) {
     const changed = s.interface !== ifaceCur;
     ifaceCur = s.interface;
@@ -153,7 +157,16 @@ function render(s) {
   appsSig = sig;
 }
 
-function setDisconnected() { $("dot").classList.remove("live"); setText($("meta"), t("status.reconnecting")); }
+// The stream dropped, so nothing we were showing is current any more. The
+// busy-link warning has to go with it: keeping the pulsing dot and its tooltip
+// would assert something about a daemon we are no longer talking to, and hold
+// that claim for as long as it stays down.
+function setDisconnected() {
+  capBehind = false;
+  $("dot").classList.remove("live", "behind");
+  setText($("meta"), t("status.reconnecting"));
+  $("meta").title = "";
+}
 
 // ---- today's total (polled; the live snapshot only carries per-second rates) ----
 async function loadToday() {
@@ -263,6 +276,18 @@ let capPaused = false;
 // Whether the daemon reports a capture source actually running. Starts true so
 // the popover doesn't flash "reconnecting" before the first snapshot arrives.
 let capCapturing = true;
+// Whether the daemon says the link is carrying traffic capture isn't seeing.
+let capBehind = false;
+
+// captureBehind takes the daemon's verdict rather than re-deriving one. The
+// daemon samples the link and the handle over the same window; this page only
+// has a one-second capture rate, and comparing that against a multi-second link
+// average would call every ordinary burst a fault — the burst ends, the rate
+// drops to zero, and the stale average keeps insisting the link is busy.
+function captureBehind(s) {
+  return s.linkUnseen === true;
+}
+
 let pausePendingUntil = 0; // ignore stale snapshots right after a manual toggle
 // A snapshot generated just before our POST landed still reports the old state;
 // during the pending window keep our optimistic value until snapshots agree.
@@ -281,7 +306,13 @@ function reflectPaused(p) {
     setAttr(b, "aria-label", p ? t("tip.resume") : t("tip.pause"));
   }
   $("dot").classList.toggle("paused", p);
-  if (p) $("dot").classList.remove("live");
+  if (p) {
+    // Drop the busy-link warning too. Pausing explains the zeros on its own,
+    // and the optimistic pause runs ahead of the daemon — leaving the pulsing
+    // dot up would contradict a meta line that already reads "paused".
+    $("dot").classList.remove("live", "behind");
+    capBehind = false;
+  }
   updateMetaText();
 }
 async function togglePause() {
@@ -308,6 +339,7 @@ function friendlyIface(name) {
 // Runs on every snapshot — guarded so the interface chip isn't rewritten (and
 // repainted) once a second with the same text.
 function updateMetaText() {
+  $("meta").title = ""; // only the behind state explains itself in a tooltip
   if (capPaused) { setText($("meta"), t("status.paused")); return; }
   // Between capture sources — re-opening after a link change or a wake. The
   // rates are zero because nothing is being measured, not because the link is
@@ -317,6 +349,15 @@ function updateMetaText() {
   // between sources. Rendering two different failures identically is the thing
   // this change exists to stop doing.
   if (!capCapturing) { setText($("meta"), t("status.notCapturing")); return; }
+  // Capture is running and the interface is right, but the link is moving
+  // traffic none of which is reaching us. Saying "capturing" here would be the
+  // reassurance this whole area exists to stop giving.
+  if (capBehind) {
+    setText($("meta"), t("status.behind"));
+    // The label has to fit a narrow header, so the explanation lives here.
+    $("meta").title = t("status.behindTip");
+    return;
+  }
   const cur = ifaceCur ? friendlyIface(ifaceCur) : t("meta.live");
   setText($("meta"), ifaceSel ? cur : t("meta.auto", { name: cur }));
 }

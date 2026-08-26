@@ -165,6 +165,8 @@ type Engine struct {
 	ifaceMu sync.Mutex
 	iface   string // capture interface, updatable as the supervisor re-opens
 	paused  bool   // surfaced in snapshots so the UI can show "paused"
+	// linkUnseen is whether the link is moving traffic capture isn't delivering.
+	linkUnseen bool
 	// capturing is whether a source is actually running. It starts true because
 	// sources without a supervisor (demo, offline pcap) simply are running for
 	// as long as the engine is; only the live supervisor, which knows when it is
@@ -190,6 +192,21 @@ func (e *Engine) SetPaused(p bool) {
 	e.ifaceMu.Lock()
 	e.paused = p
 	e.ifaceMu.Unlock()
+}
+
+// SetLinkUnseen records whether the capture interface is carrying traffic the
+// handle is not delivering. The supervisor decides this — it samples both sides
+// over one window — and the engine only carries the verdict into snapshots.
+func (e *Engine) SetLinkUnseen(unseen bool) {
+	e.ifaceMu.Lock()
+	e.linkUnseen = unseen
+	e.ifaceMu.Unlock()
+}
+
+func (e *Engine) isLinkUnseen() bool {
+	e.ifaceMu.Lock()
+	defer e.ifaceMu.Unlock()
+	return e.linkUnseen
 }
 
 // SetCapturing records whether a capture source is currently running. The live
@@ -651,6 +668,7 @@ func (e *Engine) updateSnapshot() {
 		Interface:    e.currentIface(),
 		Paused:       e.isPaused(),
 		Capturing:    e.isCapturing(),
+		LinkUnseen:   e.isLinkUnseen(),
 	}
 	e.snapMu.Lock()
 	e.snapshot = snap

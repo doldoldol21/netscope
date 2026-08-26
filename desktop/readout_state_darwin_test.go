@@ -90,3 +90,75 @@ func TestDecodeCaptureRejectsGarbage(t *testing.T) {
 		t.Fatal("garbage was accepted as a snapshot")
 	}
 }
+
+// The state this whole line of work is about: capture is running on the right
+// interface and the daemon reports the link is carrying traffic none of which
+// is reaching the handle. Showing a zero here is the lie.
+func TestCaptureStateFlagsALinkItCannotSee(t *testing.T) {
+	st := captureState{capturing: true, linkUnseen: true}
+	if st.mode() != readoutBehind {
+		t.Fatalf("mode = %v, want readoutBehind", st.mode())
+	}
+}
+
+// The verdict is the daemon's, formed over one window where both sides are
+// sampled together. This process only has a one-second capture rate, so it must
+// not second-guess: a burst that ended a moment ago reads as zero here while
+// being perfectly captured, which is exactly the false alarm re-deriving would
+// produce.
+func TestCaptureStateDoesNotSecondGuessTheVerdict(t *testing.T) {
+	// Zero captured rate, no verdict: an ordinary quiet moment, not a fault.
+	if got := (captureState{capturing: true, linkUnseen: false}).mode(); got != readoutRates {
+		t.Fatalf("a quiet moment = %v, want readoutRates", got)
+	}
+	// Traffic captured *and* a standing verdict: still a link we aren't seeing.
+	if got := (captureState{rx: 5000, capturing: true, linkUnseen: true}).mode(); got != readoutBehind {
+		t.Fatalf("partial capture with a standing verdict = %v, want readoutBehind", got)
+	}
+}
+
+// Paused and stopped both outrank it: those explain the zero already, and
+// "capture is missing traffic" would be misleading when capture is off.
+func TestCaptureStateRanksExplanationsAboveTheWarning(t *testing.T) {
+	if got := (captureState{paused: true, capturing: true, linkUnseen: true}).mode(); got != readoutPaused {
+		t.Fatalf("paused with a standing verdict = %v, want readoutPaused", got)
+	}
+	if got := (captureState{capturing: false, linkUnseen: true}).mode(); got != readoutStopped {
+		t.Fatalf("stopped with a standing verdict = %v, want readoutStopped", got)
+	}
+}
+
+func TestModeMarkerForBehindIsDistinct(t *testing.T) {
+	b, ok := modeMarker(readoutBehind)
+	if !ok || b == "" {
+		t.Fatal("behind produced no marker")
+	}
+	st, _ := modeMarker(readoutStopped)
+	p, _ := modeMarker(readoutPaused)
+	if b == st || b == p {
+		t.Fatal("behind renders like another state, so they can't be told apart")
+	}
+}
+
+func TestDecodeCaptureReadsTheVerdict(t *testing.T) {
+	got, ok := decodeCapture(strings.NewReader(
+		`{"rxPerSec":0,"txPerSec":0,"capturing":true,"linkUnseen":true}`))
+	if !ok {
+		t.Fatal("decode failed")
+	}
+	if !got.linkUnseen || got.mode() != readoutBehind {
+		t.Fatalf("decoded %+v, mode %v", got, got.mode())
+	}
+}
+
+// An older daemon sends no verdict at all, which must read as "no fault known"
+// and never as a warning.
+func TestDecodeCaptureTreatsAMissingVerdictAsFine(t *testing.T) {
+	got, ok := decodeCapture(strings.NewReader(`{"rxPerSec":0,"txPerSec":0,"capturing":true}`))
+	if !ok {
+		t.Fatal("decode failed")
+	}
+	if got.mode() != readoutRates {
+		t.Fatalf("mode = %v, want readoutRates", got.mode())
+	}
+}

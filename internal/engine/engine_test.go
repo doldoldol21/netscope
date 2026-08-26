@@ -203,3 +203,21 @@ func TestSetCapturingIsReflectedInSnapshots(t *testing.T) {
 		t.Fatal("snapshot did not recover after SetCapturing(true)")
 	}
 }
+
+func TestSnapshotCarriesTheUnseenVerdict(t *testing.T) {
+	e := New(Config{}, nil, nil, nil)
+	e.updateSnapshot()
+	if e.Snapshot().LinkUnseen {
+		t.Fatal("a fresh engine reported the link as unseen")
+	}
+	e.SetLinkUnseen(true)
+	e.updateSnapshot()
+	if !e.Snapshot().LinkUnseen {
+		t.Fatal("snapshot did not carry the unseen verdict")
+	}
+	e.SetLinkUnseen(false)
+	e.updateSnapshot()
+	if e.Snapshot().LinkUnseen {
+		t.Fatal("snapshot kept the verdict after it cleared")
+	}
+}

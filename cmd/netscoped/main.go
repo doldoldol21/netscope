@@ -176,6 +176,11 @@ func run(iface, pcapFile string, demoMode bool, sock, dbPath string, noStore boo
 	if n, ok := src.(interface{ SetOnLive(func(bool)) }); ok {
 		n.SetOnLive(eng.SetCapturing)
 	}
+	// And whether the link is carrying traffic capture isn't delivering, so the
+	// UI can say whether a zero reading is a quiet link or a missed one.
+	if n, ok := src.(interface{ SetOnLinkUnseen(func(bool)) }); ok {
+		n.SetOnLinkUnseen(eng.SetLinkUnseen)
+	}
 
 	flows := make(chan types.Flow, 4096)
 

@@ -50,7 +50,9 @@ const NS_I18N = (() => {
       // capture status line
       "status.connecting": "connecting…",
       "status.reconnecting": "reconnecting…",
-      "status.notCapturing": "not capturing — reopening…",
+      "status.notCapturing": "reopening capture…",
+      "status.behind": "link busy · not seen",
+      "status.behindTip": "The interface is carrying traffic that capture isn't seeing. Reopening it should recover; if this stays up, the numbers below are understated.",
       "status.paused": "paused",
       "status.capturing": "capturing",
       "status.session": "session",
@@ -231,7 +233,9 @@ const NS_I18N = (() => {
 
       "status.connecting": "연결 중…",
       "status.reconnecting": "재연결 중…",
-      "status.notCapturing": "캡처 중단 — 다시 여는 중…",
+      "status.notCapturing": "캡처 다시 여는 중…",
+      "status.behind": "링크 사용 중 · 캡처 누락",
+      "status.behindTip": "인터페이스는 트래픽을 나르고 있는데 캡처가 그걸 못 보고 있습니다. 다시 열면 회복되며, 이 상태가 계속되면 아래 숫자는 실제보다 적게 잡힌 값입니다.",
       "status.paused": "일시정지",
       "status.capturing": "캡처 중",
       "status.session": "세션",
@@ -403,7 +407,9 @@ const NS_I18N = (() => {
 
       "status.connecting": "接続中…",
       "status.reconnecting": "再接続中…",
-      "status.notCapturing": "キャプチャ停止中 — 再オープン中…",
+      "status.notCapturing": "キャプチャ再オープン中…",
+      "status.behind": "リンク通信中 · 未取得",
+      "status.behindTip": "インターフェースは通信していますが、キャプチャがそれを見ていません。再オープンで回復します。続く場合、下の数値は実際より少なく出ています。",
       "status.paused": "一時停止",
       "status.capturing": "キャプチャ中",
       "status.session": "セッション",

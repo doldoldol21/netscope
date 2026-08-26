@@ -88,6 +88,7 @@ type LiveSupervisor struct {
 	cancel   context.CancelFunc // cancels the running source to force a re-open
 	onActive func(string)       // notified when the active interface (re)opens
 	onLive   func(bool)         // notified as capture sources open and close
+	onUnseen func(bool)         // notified when the link carries traffic capture misses
 	paused   bool               // when true the Run loop closes capture and waits
 	resumeCh chan struct{}      // wakes a paused Run loop on resume
 	stallFor time.Duration      // current stall budget; grows while capture looks idle
@@ -109,6 +110,39 @@ func (ls *LiveSupervisor) SetOnLive(fn func(bool)) {
 	ls.mu.Lock()
 	ls.onLive = fn
 	ls.mu.Unlock()
+}
+
+// SetOnLinkUnseen registers a callback invoked with whether the capture
+// interface is carrying traffic the handle is not delivering.
+//
+// The verdict is formed here rather than shipped as two numbers for the UI to
+// compare, because only here are both sides sampled over the same window. A
+// consumer comparing a multi-second link average against a one-second capture
+// rate would call every ordinary burst a fault: the burst ends, capture's rate
+// drops to zero immediately, and the stale link average keeps claiming the link
+// is busy for the rest of the window.
+func (ls *LiveSupervisor) SetOnLinkUnseen(fn func(bool)) {
+	ls.mu.Lock()
+	ls.onUnseen = fn
+	ls.mu.Unlock()
+}
+
+func (ls *LiveSupervisor) setLinkUnseen(unseen bool) {
+	ls.mu.Lock()
+	fn := ls.onUnseen
+	ls.mu.Unlock()
+	if fn != nil {
+		fn(unseen)
+	}
+}
+
+// stopped reports that no source is running. The unseen verdict survives it, so
+// the fault stays visible across the gap between a re-open and the new session's
+// first tick — which is exactly when someone who just saw zeros goes looking for
+// why. It is not left to stand indefinitely: that first tick re-judges and
+// publishes afresh, whichever way it goes.
+func (ls *LiveSupervisor) stopped() {
+	ls.setLive(false)
 }
 
 // setLive reports a capture source opening or closing.
@@ -171,7 +205,8 @@ func resolveIface(pref, last string, routed func() (string, error), guess func()
 
 func (ls *LiveSupervisor) setActive(name string) {
 	ls.mu.Lock()
-	if ls.active != name {
+	changed := ls.active != name
+	if changed {
 		// A different interface is a fresh situation; don't inherit the backoff
 		// the previous one earned by being idle.
 		ls.stallFor = stallTimeout
@@ -179,6 +214,11 @@ func (ls *LiveSupervisor) setActive(name string) {
 	ls.active = name
 	fn := ls.onActive
 	ls.mu.Unlock()
+	if changed {
+		// Nor carry a verdict about the old link over to a new one it says
+		// nothing about. Done outside the lock, like every other callback here.
+		ls.setLinkUnseen(false)
+	}
 	if fn != nil {
 		fn(name)
 	}
@@ -207,7 +247,7 @@ func (ls *LiveSupervisor) Run(ctx context.Context, out chan<- types.Flow) error 
 		paused := ls.paused
 		ls.mu.Unlock()
 		if paused {
-			ls.setLive(false)
+			ls.stopped()
 			log.Printf("capture: paused")
 			select {
 			case <-ctx.Done():
@@ -223,7 +263,7 @@ func (ls *LiveSupervisor) Run(ctx context.Context, out chan<- types.Flow) error 
 			// Nothing is being captured while we retry. Said explicitly rather
 			// than relying on a previous iteration having set it: on the very
 			// first pass the flag is still at the engine's optimistic default.
-			ls.setLive(false)
+			ls.stopped()
 			log.Printf("capture: no usable interface yet; retrying in %s", ifaceWatchInterval)
 			if !sleep(ctx, ifaceWatchInterval) {
 				return ctx.Err()
@@ -233,7 +273,7 @@ func (ls *LiveSupervisor) Run(ctx context.Context, out chan<- types.Flow) error 
 
 		src, err := OpenLive(iface, ls.dns)
 		if err != nil {
-			ls.setLive(false)
+			ls.stopped()
 			log.Printf("capture: open %q failed: %v; retrying in %s", iface, err, ifaceWatchInterval)
 			if !sleep(ctx, ifaceWatchInterval) {
 				return ctx.Err()
@@ -260,7 +300,7 @@ func (ls *LiveSupervisor) Run(ctx context.Context, out chan<- types.Flow) error 
 		monOut, lastFlow, seen := monitored(runCtx, out)
 		go ls.watchStall(runCtx, iface, cancel, lastFlow, seen, src.Packets)
 		err = src.Run(runCtx, monOut)
-		ls.setLive(false)
+		ls.stopped()
 		cancel()
 		ls.mu.Lock()
 		ls.cancel = nil
@@ -393,7 +433,15 @@ func (ls *LiveSupervisor) watchStall(ctx context.Context, iface string, cancel c
 			// the recovery of a handle that is demonstrably broken.
 			curBytes, ok := interfaceBytes(iface)
 			curPackets := packets()
-			if handleLooksDeaf(prevBytes, curBytes, haveBytes && ok, prevPackets, curPackets) {
+			// Re-judge from scratch every tick and publish the result. The
+			// verdict is evidence about the tick just measured, not a standing
+			// description of the link — so it has to be re-earned. A verdict
+			// that could only be cleared by proof of health would stand forever
+			// on a link that simply went quiet afterwards, which is the same
+			// false alarm in slower motion.
+			deaf := handleLooksDeaf(prevBytes, curBytes, haveBytes && ok, prevPackets, curPackets)
+			ls.setLinkUnseen(deaf)
+			if deaf {
 				log.Printf("capture: %s moved %d bytes but delivered no packets; the handle is deaf, re-opening",
 					iface, curBytes-prevBytes)
 				ls.setStallBudget(ctx, stallTimeout)

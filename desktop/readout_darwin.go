@@ -67,6 +67,10 @@ func modeMarker(m readoutMode) (string, bool) {
 		return "⏸", true
 	case readoutStopped:
 		return "—", true
+	case readoutBehind:
+		// Not a zero: a zero here would claim the network is quiet when the
+		// link is busy and we simply cannot see it.
+		return "⚠︎", true
 	default:
 		return "", false
 	}
@@ -113,8 +117,9 @@ func startMenuBarReadout(client *http.Client) {
 					lastRx, lastTx = compactRate(st.rx), compactRate(st.tx)
 					lastTotalBps = st.rx + st.tx
 				} else {
-					// Not capturing: there is no rate to animate to, and the
-					// numbers would be indistinguishable from a quiet link.
+					// Paused, stopped, or not seeing the link: no rate worth
+					// animating, and the numbers would be indistinguishable
+					// from a quiet link. A marker goes out instead.
 					lastRx, lastTx, lastTotalBps = "", "", 0
 				}
 				readoutMu.Unlock()
@@ -318,6 +323,11 @@ type captureState struct {
 	rx, tx    float64
 	paused    bool
 	capturing bool
+	// linkUnseen is the daemon's verdict that the interface is carrying traffic
+	// the handle isn't delivering. Taken as given rather than re-derived here:
+	// the daemon samples both sides over one window, and this process only sees
+	// a one-second capture rate, which cannot be compared against anything.
+	linkUnseen bool
 }
 
 // mode says what the menu bar should show. Zeros are only honest when capture is
@@ -329,6 +339,7 @@ const (
 	readoutRates   readoutMode = iota // capturing: the numbers mean what they say
 	readoutPaused                     // the user stopped capture
 	readoutStopped                    // between sources: re-opening, or no interface
+	readoutBehind                     // a source is running but not seeing the link
 )
 
 func (c captureState) mode() readoutMode {
@@ -337,10 +348,18 @@ func (c captureState) mode() readoutMode {
 		return readoutPaused
 	case !c.capturing:
 		return readoutStopped
+	case c.behind():
+		return readoutBehind
 	default:
 		return readoutRates
 	}
 }
+
+// behind reports whether the daemon says the link is carrying traffic capture
+// isn't seeing. Capture measuring something at the same time doesn't clear it:
+// the verdict already accounts for that, and a partial trickle getting through
+// is still a link we are not seeing.
+func (c captureState) behind() bool { return c.linkUnseen }
 
 func fetchCapture(client *http.Client) (captureState, bool) {
 	resp, err := client.Get(alertSockHost + "/api/snapshot")
@@ -367,15 +386,17 @@ func decodeCapture(r io.Reader) (captureState, bool) {
 		TxPerSec  float64 `json:"txPerSec"`
 		Paused    bool    `json:"paused"`
 		Capturing *bool   `json:"capturing"`
+		Unseen    bool    `json:"linkUnseen"`
 	}
 	if json.NewDecoder(r).Decode(&s) != nil {
 		return captureState{}, false
 	}
 	return captureState{
-		rx:        s.RxPerSec,
-		tx:        s.TxPerSec,
-		paused:    s.Paused,
-		capturing: s.Capturing == nil || *s.Capturing,
+		rx:         s.RxPerSec,
+		tx:         s.TxPerSec,
+		paused:     s.Paused,
+		capturing:  s.Capturing == nil || *s.Capturing,
+		linkUnseen: s.Unseen,
 	}, true
 }
 
