@@ -67,6 +67,10 @@ func modeMarker(m readoutMode) (string, bool) {
 		return "⏸", true
 	case readoutStopped:
 		return "—", true
+	case readoutBehind:
+		// Not a zero: a zero here would claim the network is quiet when the
+		// link is busy and we simply cannot see it.
+		return "⚠︎", true
 	default:
 		return "", false
 	}
@@ -113,8 +117,9 @@ func startMenuBarReadout(client *http.Client) {
 					lastRx, lastTx = compactRate(st.rx), compactRate(st.tx)
 					lastTotalBps = st.rx + st.tx
 				} else {
-					// Not capturing: there is no rate to animate to, and the
-					// numbers would be indistinguishable from a quiet link.
+					// Paused, stopped, or not seeing the link: no rate worth
+					// animating, and the numbers would be indistinguishable
+					// from a quiet link. A marker goes out instead.
 					lastRx, lastTx, lastTotalBps = "", "", 0
 				}
 				readoutMu.Unlock()
@@ -318,7 +323,16 @@ type captureState struct {
 	rx, tx    float64
 	paused    bool
 	capturing bool
+	// linkBps is what the kernel says is crossing the capture interface. It is
+	// the only way to tell a quiet link from one capture is missing, which
+	// otherwise both read as zero.
+	linkBps float64
 }
+
+// behindBytes is how much the link must be moving, while capture measures
+// nothing, before the readout says capture is missing it. Keepalives and ARP
+// chatter run well under this; a real transfer runs far above it.
+const behindBytes = 4096
 
 // mode says what the menu bar should show. Zeros are only honest when capture is
 // actually running — otherwise they read as "nothing is happening on your
@@ -329,6 +343,7 @@ const (
 	readoutRates   readoutMode = iota // capturing: the numbers mean what they say
 	readoutPaused                     // the user stopped capture
 	readoutStopped                    // between sources: re-opening, or no interface
+	readoutBehind                     // a source is running but not seeing the link
 )
 
 func (c captureState) mode() readoutMode {
@@ -337,9 +352,20 @@ func (c captureState) mode() readoutMode {
 		return readoutPaused
 	case !c.capturing:
 		return readoutStopped
+	case c.behind():
+		return readoutBehind
 	default:
 		return readoutRates
 	}
+}
+
+// behind reports whether the link is demonstrably busy while capture measures
+// nothing. Both halves are required: a zero link rate means "quiet or unknown",
+// neither of which justifies a warning, and any captured traffic at all means
+// capture is working — it need not match the kernel byte for byte, and never
+// will, since the kernel also counts framing and traffic the decoder drops.
+func (c captureState) behind() bool {
+	return c.rx+c.tx == 0 && c.linkBps >= behindBytes
 }
 
 func fetchCapture(client *http.Client) (captureState, bool) {
@@ -367,6 +393,7 @@ func decodeCapture(r io.Reader) (captureState, bool) {
 		TxPerSec  float64 `json:"txPerSec"`
 		Paused    bool    `json:"paused"`
 		Capturing *bool   `json:"capturing"`
+		LinkBps   float64 `json:"linkBytesPerSec"`
 	}
 	if json.NewDecoder(r).Decode(&s) != nil {
 		return captureState{}, false
@@ -376,6 +403,7 @@ func decodeCapture(r io.Reader) (captureState, bool) {
 		tx:        s.TxPerSec,
 		paused:    s.Paused,
 		capturing: s.Capturing == nil || *s.Capturing,
+		linkBps:   s.LinkBps,
 	}, true
 }
 

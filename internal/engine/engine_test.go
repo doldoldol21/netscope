@@ -203,3 +203,16 @@ func TestSetCapturingIsReflectedInSnapshots(t *testing.T) {
 		t.Fatal("snapshot did not recover after SetCapturing(true)")
 	}
 }
+
+func TestSnapshotCarriesTheLinkRate(t *testing.T) {
+	e := New(Config{}, nil, nil, nil)
+	e.updateSnapshot()
+	if got := e.Snapshot().LinkBytesPerSec; got != 0 {
+		t.Fatalf("a fresh engine reported a link rate of %d, want 0 (unknown)", got)
+	}
+	e.SetLinkBytesPerSec(850_000)
+	e.updateSnapshot()
+	if got := e.Snapshot().LinkBytesPerSec; got != 850_000 {
+		t.Fatalf("link rate = %d, want 850000", got)
+	}
+}

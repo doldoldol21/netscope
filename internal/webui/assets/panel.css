@@ -76,6 +76,23 @@ button, input, select, canvas { --wails-draggable: no-drag; }
 .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--muted); transition: background .3s; }
 .dot.live { background: var(--tx); }
 .dot.paused { background: var(--muted); }
+/* Capture is running but the link is moving traffic it isn't seeing.
+   Colour alone cannot carry this: the live dot is already warm (--tx), and at
+   5px an amber dot next to a salmon one reads as the same dot. So it pulses —
+   motion is what makes it unmistakable at a glance. */
+.dot.behind { background: var(--warn); animation: dot-pulse 1.2s ease-in-out infinite; }
+@keyframes dot-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .2; }
+}
+/* Without motion, fall back to a ring — still plainly not the solid live dot. */
+@media (prefers-reduced-motion: reduce) {
+  .dot.behind {
+    animation: none;
+    background: transparent;
+    box-shadow: 0 0 0 1.5px var(--warn);
+  }
+}
 .spacer { flex: 1; }
 .meta {
   background: none; border: 0; padding: 0; cursor: pointer;

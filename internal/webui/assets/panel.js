@@ -89,8 +89,9 @@ function render(s) {
   // An older daemon doesn't send `capturing`; absent means "can't tell", which
   // is not grounds for claiming capture stopped.
   capCapturing = s.capturing !== false;
-  if (!capPaused && capCapturing) $("dot").classList.add("live");
-  else $("dot").classList.remove("live");
+  capBehind = capCapturing && !s.paused && captureBehind(s);
+  $("dot").classList.toggle("live", !capPaused && capCapturing && !capBehind);
+  $("dot").classList.toggle("behind", capBehind);
   if (s.interface) {
     const changed = s.interface !== ifaceCur;
     ifaceCur = s.interface;
@@ -263,6 +264,26 @@ let capPaused = false;
 // Whether the daemon reports a capture source actually running. Starts true so
 // the popover doesn't flash "reconnecting" before the first snapshot arrives.
 let capCapturing = true;
+// Kernel-reported throughput on the capture interface, and whether capture is
+// visibly failing to account for it.
+let capBehind = false;
+
+// behindBytes is how much the link must be moving, while capture reports
+// nothing, before we say capture is missing it. Keepalives and ARP chatter run
+// well under this; a real transfer runs far above it.
+const behindBytes = 4096;
+
+// captureBehind reports whether the link is demonstrably busy while capture
+// measures nothing. Both halves are required: a zero link rate means "quiet or
+// unknown", neither of which justifies a warning, and any captured traffic at
+// all means capture is working — it does not have to match the kernel byte for
+// byte, and never will, since the kernel also counts framing and traffic the
+// decoder drops.
+function captureBehind(s) {
+  const captured = (Number(s.rxPerSec) || 0) + (Number(s.txPerSec) || 0);
+  const link = Number(s.linkBytesPerSec) || 0;
+  return captured === 0 && link >= behindBytes;
+}
 let pausePendingUntil = 0; // ignore stale snapshots right after a manual toggle
 // A snapshot generated just before our POST landed still reports the old state;
 // during the pending window keep our optimistic value until snapshots agree.
@@ -308,6 +329,7 @@ function friendlyIface(name) {
 // Runs on every snapshot — guarded so the interface chip isn't rewritten (and
 // repainted) once a second with the same text.
 function updateMetaText() {
+  $("meta").title = ""; // only the behind state explains itself in a tooltip
   if (capPaused) { setText($("meta"), t("status.paused")); return; }
   // Between capture sources — re-opening after a link change or a wake. The
   // rates are zero because nothing is being measured, not because the link is
@@ -317,6 +339,15 @@ function updateMetaText() {
   // between sources. Rendering two different failures identically is the thing
   // this change exists to stop doing.
   if (!capCapturing) { setText($("meta"), t("status.notCapturing")); return; }
+  // Capture is running and the interface is right, but the link is moving
+  // traffic none of which is reaching us. Saying "capturing" here would be the
+  // reassurance this whole area exists to stop giving.
+  if (capBehind) {
+    setText($("meta"), t("status.behind"));
+    // The label has to fit a narrow header, so the explanation lives here.
+    $("meta").title = t("status.behindTip");
+    return;
+  }
   const cur = ifaceCur ? friendlyIface(ifaceCur) : t("meta.live");
   setText($("meta"), ifaceSel ? cur : t("meta.auto", { name: cur }));
 }
