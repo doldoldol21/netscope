@@ -326,3 +326,22 @@ func TestHandleLooksDeafIgnoresACounterReset(t *testing.T) {
 		t.Fatal("a counter reset was read as traffic")
 	}
 }
+
+// A verdict is evidence about one interface. Moving to another one — a route
+// change, or the user picking a different link — must not carry it over, or the
+// UI warns about a link it is no longer watching.
+func TestSetActiveClearsTheUnseenVerdict(t *testing.T) {
+	ls := &LiveSupervisor{stallFor: stallTimeout, active: "en7"}
+	var got []bool
+	ls.SetOnLinkUnseen(func(u bool) { got = append(got, u) })
+
+	ls.setActive("en7") // same interface: nothing to reconsider
+	if len(got) != 0 {
+		t.Fatalf("re-opening the same interface republished the verdict: %v", got)
+	}
+
+	ls.setActive("en0")
+	if len(got) != 1 || got[0] {
+		t.Fatalf("interface change published %v, want a single clear", got)
+	}
+}

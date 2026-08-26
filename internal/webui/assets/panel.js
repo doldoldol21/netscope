@@ -157,7 +157,16 @@ function render(s) {
   appsSig = sig;
 }
 
-function setDisconnected() { $("dot").classList.remove("live"); setText($("meta"), t("status.reconnecting")); }
+// The stream dropped, so nothing we were showing is current any more. The
+// busy-link warning has to go with it: keeping the pulsing dot and its tooltip
+// would assert something about a daemon we are no longer talking to, and hold
+// that claim for as long as it stays down.
+function setDisconnected() {
+  capBehind = false;
+  $("dot").classList.remove("live", "behind");
+  setText($("meta"), t("status.reconnecting"));
+  $("meta").title = "";
+}
 
 // ---- today's total (polled; the live snapshot only carries per-second rates) ----
 async function loadToday() {

@@ -136,10 +136,11 @@ func (ls *LiveSupervisor) setLinkUnseen(unseen bool) {
 	}
 }
 
-// stopped reports that no source is running. The unseen verdict deliberately
-// survives: it describes the link, not the source, and clearing it here would
-// hide the fault for the whole gap between a re-open and its first tick — which
-// is exactly when a user who just saw zeros goes looking for an explanation.
+// stopped reports that no source is running. The unseen verdict survives it, so
+// the fault stays visible across the gap between a re-open and the new session's
+// first tick — which is exactly when someone who just saw zeros goes looking for
+// why. It is not left to stand indefinitely: that first tick re-judges and
+// publishes afresh, whichever way it goes.
 func (ls *LiveSupervisor) stopped() {
 	ls.setLive(false)
 }
@@ -204,7 +205,8 @@ func resolveIface(pref, last string, routed func() (string, error), guess func()
 
 func (ls *LiveSupervisor) setActive(name string) {
 	ls.mu.Lock()
-	if ls.active != name {
+	changed := ls.active != name
+	if changed {
 		// A different interface is a fresh situation; don't inherit the backoff
 		// the previous one earned by being idle.
 		ls.stallFor = stallTimeout
@@ -212,6 +214,11 @@ func (ls *LiveSupervisor) setActive(name string) {
 	ls.active = name
 	fn := ls.onActive
 	ls.mu.Unlock()
+	if changed {
+		// Nor carry a verdict about the old link over to a new one it says
+		// nothing about. Done outside the lock, like every other callback here.
+		ls.setLinkUnseen(false)
+	}
 	if fn != nil {
 		fn(name)
 	}
@@ -426,19 +433,20 @@ func (ls *LiveSupervisor) watchStall(ctx context.Context, iface string, cancel c
 			// the recovery of a handle that is demonstrably broken.
 			curBytes, ok := interfaceBytes(iface)
 			curPackets := packets()
-			if handleLooksDeaf(prevBytes, curBytes, haveBytes && ok, prevPackets, curPackets) {
+			// Re-judge from scratch every tick and publish the result. The
+			// verdict is evidence about the tick just measured, not a standing
+			// description of the link — so it has to be re-earned. A verdict
+			// that could only be cleared by proof of health would stand forever
+			// on a link that simply went quiet afterwards, which is the same
+			// false alarm in slower motion.
+			deaf := handleLooksDeaf(prevBytes, curBytes, haveBytes && ok, prevPackets, curPackets)
+			ls.setLinkUnseen(deaf)
+			if deaf {
 				log.Printf("capture: %s moved %d bytes but delivered no packets; the handle is deaf, re-opening",
 					iface, curBytes-prevBytes)
-				ls.setLinkUnseen(true)
 				ls.setStallBudget(ctx, stallTimeout)
 				cancel()
 				return
-			}
-			// A tick that delivered packets is proof the handle is working, so
-			// it clears any standing verdict. Ticks that prove nothing either
-			// way — a quiet link, unreadable counters — leave it as it was.
-			if curPackets != prevPackets {
-				ls.setLinkUnseen(false)
 			}
 			prevBytes, haveBytes = curBytes, ok
 			prevPackets = curPackets
