@@ -124,5 +124,5 @@ sudo rm -rf /var/db/netscope /var/run/netscope
 ## Credits & license
 
 IP-to-country data: [DB-IP Lite](https://db-ip.com)
-([CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)). Fonts: Work Sans
-and Space Mono (SIL OFL 1.1). Code: MIT — see [LICENSE](LICENSE).
+([CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)). The UI ships no
+fonts; it uses the system face. Code: MIT — see [LICENSE](LICENSE).
