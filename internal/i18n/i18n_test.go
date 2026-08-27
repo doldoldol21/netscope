@@ -54,3 +54,33 @@ func TestReorderedArgs(t *testing.T) {
 		}
 	}
 }
+
+// The update notification is the one message a user may see before ever opening
+// the app, so a missing translation would surface as raw English or a blank.
+func TestUpdateNotificationIsTranslatedEverywhere(t *testing.T) {
+	for lang := range messages {
+		for _, key := range []string{"update.available.title", "update.available.body"} {
+			if messages[lang][key] == "" {
+				t.Errorf("%s is missing %s", lang, key)
+			}
+		}
+	}
+}
+
+// Both strings take exactly one version argument; a table that dropped or added
+// a verb would print "%!s(MISSING)" into a notification banner.
+func TestUpdateNotificationFormatsOneVersion(t *testing.T) {
+	for lang := range messages {
+		SetLocale(lang)
+		for _, key := range []string{"update.available.title", "update.available.body"} {
+			got := T(key, "v9.9.9")
+			if strings.Contains(got, "%!") || strings.Contains(got, "MISSING") {
+				t.Errorf("%s %s formatted badly: %q", lang, key, got)
+			}
+			if !strings.Contains(got, "v9.9.9") {
+				t.Errorf("%s %s dropped the version: %q", lang, key, got)
+			}
+		}
+	}
+	SetLocale("en")
+}

@@ -147,20 +147,49 @@ func renderReadout() {
 	style, color, rx, tx, mode := readoutStyle, readoutColor, lastRx, lastTx, lastMode
 	readoutMu.Unlock()
 	// "icon only" means the user asked for no text at all; respect that in every
-	// state rather than sneaking a marker back in.
+	// state rather than sneaking a marker back in. Someone on this style still
+	// hears about a new version — the notification does not depend on the
+	// readout — so nothing is lost by honouring the setting.
 	if styleByID(style).ID == "icononly" {
 		setStatusText("")
 		return
 	}
-	if marker, ok := modeMarker(mode); ok {
-		// Neutral, never colored: these are states, not throughput.
-		setStatusText(encodeSegs([]seg{{'n', marker}}, false))
+	segs, ok := readoutSegs(styleByID(style), mode, rx, tx, updateIsAvailable())
+	if !ok {
 		return
 	}
-	if rx == "" && tx == "" {
-		return
+	setStatusText(encodeSegs(segs, color))
+}
+
+// updateMarker trails the readout while a newer release is waiting. Deliberately
+// one neutral character: it shares the menu bar with numbers the user actually
+// asked for, and it only has to be noticeable enough to prompt opening the
+// popover, where the banner explains itself.
+const updateMarker = " •"
+
+// readoutSegs assembles what the menu bar should show. ok is false when there is
+// nothing to say at all, in which case the previous text stands.
+//
+// The update marker is appended in every mode rather than being one more mode of
+// its own: it is orthogonal to capture state, and a pending update is no less
+// true while capture happens to be paused.
+func readoutSegs(style menuBarStyle, mode readoutMode, rx, tx string, updateReady bool) ([]seg, bool) {
+	var segs []seg
+	switch marker, isMarker := modeMarker(mode); {
+	case isMarker:
+		// Neutral: these are states, not throughput.
+		segs = []seg{{'n', marker}}
+	case rx == "" && tx == "":
+		if !updateReady {
+			return nil, false // nothing measured yet and nothing to announce
+		}
+	default:
+		segs = style.segs(rx, tx)
 	}
-	setStatusText(encodeSegs(styleByID(style).segs(rx, tx), color))
+	if updateReady {
+		segs = append(segs, seg{'n', updateMarker})
+	}
+	return segs, true
 }
 
 // encodeSegs serializes colored runs into the cgo protocol: "<tag>:<text>"

@@ -21,6 +21,7 @@ import (
 	"github.com/doldoldol21/netscope/internal/alerts"
 	"github.com/doldoldol21/netscope/internal/buildinfo"
 	"github.com/doldoldol21/netscope/internal/daemonctl"
+	"github.com/doldoldol21/netscope/internal/i18n"
 	"github.com/doldoldol21/netscope/internal/update"
 )
 
@@ -31,6 +32,11 @@ type updatePrefs struct {
 	// popover banner doesn't nag about the same one every launch. A new staleness
 	// (different digest) surfaces again; a successful refresh clears it.
 	DismissedHelperDigest string `json:"dismissedHelperDigest,omitempty"`
+	// NotifiedVersion is the release we've already announced. Persisted so a
+	// restart doesn't re-announce the same one: the notification exists to tell
+	// you something you don't know yet, and repeating it is the nagging this
+	// deliberately avoids.
+	NotifiedVersion string `json:"notifiedVersion,omitempty"`
 }
 
 var (
@@ -110,12 +116,10 @@ func startUpdateLoop() {
 				wait = nextRetryDelay(failures)
 			}
 			if auto && checkDue(time.Now(), last, wait) {
-				// Refresh the cached status for the in-app banner only. We
-				// deliberately do NOT post a macOS notification — the popover/
-				// dashboard banner is enough and an OS alert is intrusive.
 				last = time.Now()
-				if _, ok := runUpdateCheck(); ok {
+				if st, ok := runUpdateCheck(); ok {
 					failures = 0
+					announceUpdate(st)
 				} else {
 					failures++
 				}
@@ -123,6 +127,46 @@ func startUpdateLoop() {
 			time.Sleep(updateLoopTick)
 		}
 	}()
+}
+
+// announceUpdate posts a notification the first time a given release is seen,
+// and never again for that one.
+//
+// A menu-bar app is mostly not open, so the popover banner — which is where
+// this used to end — only reaches someone who already happened to look. That
+// left the app knowing about a new version and saying so nowhere the user would
+// see it. Announcing once per version is the middle ground the previous
+// all-or-nothing reasoning missed: an alert every check would be intolerable,
+// but staying silent means never being told at all.
+func announceUpdate(st update.Status) {
+	if !st.UpdateAvailable || st.Latest == "" {
+		return
+	}
+	updMu.Lock()
+	already := updPrefs.NotifiedVersion == st.Latest
+	if !already {
+		updPrefs.NotifiedVersion = st.Latest
+		saveUpdatePrefsLocked()
+	}
+	updMu.Unlock()
+	if already {
+		return
+	}
+	postNotification(i18n.T("update.available.title", st.Latest),
+		i18n.T("update.available.body", st.Current))
+}
+
+// postNotification is the seam tests replace, so exercising the announce-once
+// rule doesn't fire real banners at whoever is running the suite.
+var postNotification = notify
+
+// updateIsAvailable reports whether a newer release is waiting. Read by the
+// menu-bar readout, which shows a marker for as long as that is true — the
+// notification can be missed or dismissed, this is what is still there tomorrow.
+func updateIsAvailable() bool {
+	updMu.Lock()
+	defer updMu.Unlock()
+	return updStatus.UpdateAvailable
 }
 
 // runUpdateCheck queries GitHub and caches the result. ok is false on error

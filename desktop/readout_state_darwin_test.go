@@ -162,3 +162,76 @@ func TestDecodeCaptureTreatsAMissingVerdictAsFine(t *testing.T) {
 		t.Fatalf("mode = %v, want readoutRates", got.mode())
 	}
 }
+
+// The marker rides along with the numbers rather than replacing them: a pending
+// update is not a capture state, and hiding the rates to announce it would trade
+// one blind spot for another.
+func TestReadoutSegsAppendsTheUpdateMarkerToRates(t *testing.T) {
+	style := styleByID("arrows")
+	segs, ok := readoutSegs(style, readoutRates, "1.2M", "30K", true)
+	if !ok {
+		t.Fatal("nothing rendered")
+	}
+	text := segsText(segs)
+	if !strings.Contains(text, "1.2M") || !strings.Contains(text, "30K") {
+		t.Fatalf("rates were dropped: %q", text)
+	}
+	if !strings.Contains(text, updateMarker) {
+		t.Fatalf("no update marker: %q", text)
+	}
+}
+
+// It is orthogonal to capture state, so it survives every mode — a pending
+// update is no less true while capture is paused.
+func TestReadoutSegsKeepsTheMarkerInEveryMode(t *testing.T) {
+	style := styleByID("arrows")
+	for _, mode := range []readoutMode{readoutPaused, readoutStopped, readoutBehind} {
+		segs, ok := readoutSegs(style, mode, "", "", true)
+		if !ok {
+			t.Fatalf("mode %v rendered nothing", mode)
+		}
+		text := segsText(segs)
+		if !strings.Contains(text, updateMarker) {
+			t.Errorf("mode %v lost the update marker: %q", mode, text)
+		}
+		marker, _ := modeMarker(mode)
+		if !strings.Contains(text, marker) {
+			t.Errorf("mode %v lost its own marker: %q", mode, text)
+		}
+	}
+}
+
+// Up to date: nothing extra, and no rates yet means nothing to draw at all.
+func TestReadoutSegsStaysQuietWithNothingToSay(t *testing.T) {
+	style := styleByID("arrows")
+	if _, ok := readoutSegs(style, readoutRates, "", "", false); ok {
+		t.Fatal("rendered something with no rates and no update")
+	}
+	segs, ok := readoutSegs(style, readoutRates, "1.2M", "30K", false)
+	if !ok {
+		t.Fatal("nothing rendered")
+	}
+	if strings.Contains(segsText(segs), updateMarker) {
+		t.Fatalf("marker shown while up to date: %q", segsText(segs))
+	}
+}
+
+// Before the first successful poll there are no rates, but a pending update is
+// still worth showing on its own.
+func TestReadoutSegsShowsTheMarkerBeforeAnyRates(t *testing.T) {
+	segs, ok := readoutSegs(styleByID("arrows"), readoutRates, "", "", true)
+	if !ok {
+		t.Fatal("nothing rendered")
+	}
+	if !strings.Contains(segsText(segs), updateMarker) {
+		t.Fatalf("no update marker: %q", segsText(segs))
+	}
+}
+
+func segsText(segs []seg) string {
+	var b strings.Builder
+	for _, s := range segs {
+		b.WriteString(s.text)
+	}
+	return b.String()
+}
