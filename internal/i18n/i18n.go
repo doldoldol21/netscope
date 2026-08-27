@@ -110,6 +110,9 @@ var messages = map[string]map[string]string{
 		"alert.plan_warn":    "Tethering data at %.0f%% of your %s plan (%s used, %s left).",
 		"alert.plan_over":    "Tethering data plan used up — %s of %s this cycle.",
 
+		"update.available.title": "netscope %s is available",
+		"update.available.body":  "You're on %s. Open netscope in the menu bar to update.",
+
 		"menubar.style.arrows":    "Arrows",
 		"menubar.style.triangles": "Triangles",
 		"menubar.style.caret":     "Carets",
@@ -125,6 +128,9 @@ var messages = map[string]map[string]string{
 		"alert.plan_warn":    "테더링 데이터가 %[2]s 요금제의 %.0[1]f%%에 도달했습니다 (%[3]s 사용, %[4]s 남음).",
 		"alert.plan_over":    "테더링 요금제를 다 썼습니다 — 이번 주기에 %[2]s 중 %[1]s 사용.",
 
+		"update.available.title": "netscope %s 업데이트가 있습니다",
+		"update.available.body":  "현재 %s 사용 중입니다. 메뉴바에서 netscope를 열어 업데이트하세요.",
+
 		"menubar.style.arrows":    "화살표",
 		"menubar.style.triangles": "삼각형",
 		"menubar.style.caret":     "캐럿",
@@ -139,6 +145,9 @@ var messages = map[string]map[string]string{
 		"alert.app_upload":   "⬆ %s が本日 %s アップロードしました（上限 %s）。",
 		"alert.plan_warn":    "テザリング通信量が %[2]s プランの %.0[1]f%% に達しました（%[3]s 使用・残り %[4]s）。",
 		"alert.plan_over":    "テザリングプランを使い切りました — 今サイクル %[2]s 中 %[1]s。",
+
+		"update.available.title": "netscope %s が利用できます",
+		"update.available.body":  "現在 %s を使用中です。メニューバーから netscope を開いて更新してください。",
 
 		"menubar.style.arrows":    "矢印",
 		"menubar.style.triangles": "三角形",
