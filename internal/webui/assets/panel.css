@@ -1,7 +1,7 @@
 /* netscope menu-bar popover panel — "Field Notebook" design language.
    The window is frameless + transparent, so the rounded card below IS the
    visible popover. Light (paper) default, dark scheme via the OS or an
-   explicit choice from settings. Fonts are bundled (see fonts/). */
+   explicit choice from settings. Type comes from the system stack, not bundled. */
 :root {
   color-scheme: light;
   --bg: #eef1f4; --surface: #f9fbfc; --side: #e6ebef;
@@ -13,8 +13,8 @@
   --warn: #a2621c;
   --btn-bg: #e6ebef;
   --shadow-pop: 0 18px 34px -20px rgba(8, 18, 26, .5);
-  --mono: "Space Mono", ui-monospace, "SF Mono", Menlo, monospace;
-  --sans: "Work Sans", -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
   --label-font: 500 10.5px/1 var(--sans);
   --label-track: 1.4px;
 }
@@ -72,6 +72,11 @@ header {
   --wails-draggable: drag;
 }
 button, input, select, canvas { --wails-draggable: no-drag; }
+/* Native controls default to the UA's own font and size, which is why selects
+   and inputs used to sit visibly apart from the text beside them. Inheriting is
+   the base rule; anything that wants different type still says so below. */
+button, input, select, textarea { font: inherit; }
+
 .brand { font: 600 14.5px/1 var(--sans); letter-spacing: -.2px; }
 .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--muted); transition: background .3s; }
 .dot.live { background: var(--tx); }

@@ -1,7 +1,10 @@
 /* netscope dashboard — "Field Notebook" design language.
    Shared by the daemon web view and the Wails desktop app. No build step:
    plain CSS custom properties with a light (paper) default and a dark scheme.
-   Type: Work Sans for words, Space Mono for figures (bundled, see fonts/). */
+   Type: the system stack — SF Pro for words, SF Mono for figures. Nothing is
+   bundled: this runs in a WKWebView on macOS, so the most ordinary thing it can
+   look like is macOS, and matching the OS is also what keeps native form
+   controls from standing out against everything around them. */
 
 :root {
   color-scheme: light;
@@ -30,8 +33,8 @@
   --overlay: rgba(20, 24, 29, .34);
   --shadow-pop: 0 18px 34px -20px rgba(8, 18, 26, .5);
   --shadow-modal: 0 40px 80px -40px rgba(8, 18, 26, .6);
-  --mono: "Space Mono", ui-monospace, "SF Mono", Menlo, monospace;
-  --sans: "Work Sans", -apple-system, BlinkMacSystemFont, "SF Pro Text", Segoe UI, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
   /* label = the recurring uppercase section marker */
   --label-font: 500 10.5px/1 var(--sans);
   --label-track: 1.4px;
@@ -104,6 +107,11 @@ header {
 }
 /* Keep interactive controls clickable even inside a drag region. */
 button, a, input, select, canvas, th, .tabs { --wails-draggable: no-drag; }
+/* Native controls default to the UA's own font and size, which is why selects
+   and inputs used to sit visibly apart from the text beside them. Inheriting is
+   the base rule; anything that wants different type still says so below. */
+button, input, select, textarea { font: inherit; }
+
 header .brand { display: flex; align-items: center; gap: 10px; }
 header h1 { font: 600 17px/1 var(--sans); letter-spacing: -.3px; margin: 0; }
 .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--muted); transition: background .3s; }
@@ -171,7 +179,11 @@ aside {
 .mini-bar { display: block; height: 3px; background: var(--line-side); min-width: 40px; }
 .mini-bar i { display: block; height: 100%; background: var(--rx); opacity: .65; }
 .side-label {
-  flex: 1; min-width: 0; white-space: normal; overflow-wrap: anywhere;
+  /* One line, clipped. A two-word interface name ("iPhone USB") used to wrap in
+     this narrow row, and overflow-wrap:anywhere would break it mid-word. The row
+     carries a title with the interface and both byte totals, so nothing is lost. */
+  flex: 1; min-width: 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   font: 400 13px/1.4 var(--sans);
 }
 .side-num { font: 400 12px/1 var(--mono); color: var(--fg-dim); white-space: nowrap; text-align: right; min-width: 52px; }
@@ -431,7 +443,7 @@ aside .state { padding: 10px 0; }
   background: var(--bg); border: 1px solid var(--line); border-radius: 4px;
   padding: 5px 7px; width: 74px; text-align: right;
 }
-.plan-fields select { width: auto; max-width: 150px; text-align: left; font-family: var(--sans); }
+.plan-fields select { width: auto; max-width: 150px; text-align: left; }
 .plan-fields input:focus, .plan-fields select:focus { outline: none; border-color: var(--accent); }
 .plan-actions { display: flex; gap: 14px; margin-top: 11px; }
 .plan-actions .hdr-btn.on { color: var(--accent); font-weight: 600; }
