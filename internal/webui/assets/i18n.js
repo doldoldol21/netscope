@@ -107,7 +107,7 @@ const NS_I18N = (() => {
       "countries.domainN": "{n} domains",
       "sec.netusage": "Networks",
       "netusage.hint": "per network · tethering flagged · estimate (±few %)",
-      "chip.tethering": "📱 tethering",
+      "chip.tethering": "Tethering",
       "chip.live": "live",
 
       // data-plan meter
@@ -154,6 +154,7 @@ const NS_I18N = (() => {
       "pop.updateAvailable": "Update available",
       "pop.updateGo": "Update ↻",
       "pop.updateV": "Update {v} available",
+      "pop.updateShort": "⬆ {v}",
       "pop.helperUpdate": "Capture helper needs updating",
       "pop.helperDismiss": "Dismiss",
       "pop.today": "Today",
@@ -286,7 +287,7 @@ const NS_I18N = (() => {
       "countries.domainN": "도메인 {n}개",
       "sec.netusage": "네트워크",
       "netusage.hint": "네트워크별 · 테더링 표시 · 추정치 (±수 %)",
-      "chip.tethering": "📱 테더링",
+      "chip.tethering": "테더링",
       "chip.live": "사용 중",
 
       "plan.title": "월간 요금제",
@@ -329,6 +330,7 @@ const NS_I18N = (() => {
       "pop.updateAvailable": "업데이트 있음",
       "pop.updateGo": "업데이트 ↻",
       "pop.updateV": "{v} 업데이트 가능",
+      "pop.updateShort": "⬆ {v}",
       "pop.helperUpdate": "캡처 헬퍼 업데이트 필요",
       "pop.helperDismiss": "닫기",
       "pop.today": "오늘",
@@ -460,7 +462,7 @@ const NS_I18N = (() => {
       "countries.domainN": "{n} ドメイン",
       "sec.netusage": "ネットワーク",
       "netusage.hint": "ネットワーク別 · テザリング表示 · 推定値 (±数 %)",
-      "chip.tethering": "📱 テザリング",
+      "chip.tethering": "テザリング",
       "chip.live": "使用中",
 
       "plan.title": "月間プラン",
@@ -503,6 +505,7 @@ const NS_I18N = (() => {
       "pop.updateAvailable": "アップデートあり",
       "pop.updateGo": "アップデート ↻",
       "pop.updateV": "{v} が利用可能",
+      "pop.updateShort": "⬆ {v}",
       "pop.helperUpdate": "キャプチャヘルパーの更新が必要",
       "pop.helperDismiss": "閉じる",
       "pop.today": "今日",

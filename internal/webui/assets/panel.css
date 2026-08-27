@@ -221,6 +221,12 @@ footer {
   background: var(--accent); border: 0; border-radius: 5px;
 }
 .primary:hover { background: var(--accent-hover); }
+/* The update button shares the footer with Open Dashboard only while there is an
+   update. It is the warning colour, not the accent, so the two never read as the
+   same action — and it is narrower, because the dashboard is what gets opened
+   every day and this is what gets clicked once. */
+.primary.upd { flex: 0 1 auto; background: var(--warn); color: var(--bg); white-space: nowrap; }
+.primary.upd:hover { filter: brightness(1.08); }
 .ghost {
   width: 31px; height: 31px; cursor: pointer;
   font: 400 13.5px/1 var(--sans); color: var(--dim);

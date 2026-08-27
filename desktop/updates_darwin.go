@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -38,6 +39,9 @@ type updatePrefs struct {
 	// deliberately avoids.
 	NotifiedVersion string `json:"notifiedVersion,omitempty"`
 }
+
+// updateRunning is set for the lifetime of an in-flight update.
+var updateRunning atomic.Bool
 
 var (
 	updMu       sync.Mutex
@@ -311,7 +315,22 @@ func saveUpdatePrefsLocked() {
 // shell script that waits for this process to exit, replaces the bundle, and
 // relaunches — then we quit. Returns an error only if the handoff can't start;
 // once the script is launched, the swap happens after we exit.
-func performUpdate() error {
+func performUpdate() (err error) {
+	// One at a time, whatever the UI does. Two runs would download to separate
+	// temp dirs and then both ditto-swap the installed bundle and relaunch —
+	// the app replaced while it is being replaced. A UI that disables its
+	// buttons is not enough on its own: this is the only place that can be sure.
+	if !updateRunning.CompareAndSwap(false, true) {
+		return errors.New("an update is already in progress")
+	}
+	// Released on every failure path. Success never gets here — it hands off to
+	// the swapper and exits.
+	defer func() {
+		if err != nil {
+			updateRunning.Store(false)
+		}
+	}()
+
 	st := updStatusSnapshot()
 	if !st.UpdateAvailable || st.AssetURL == "" {
 		return errors.New("no update available")
