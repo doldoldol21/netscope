@@ -139,21 +139,30 @@ func startUpdateLoop() {
 // all-or-nothing reasoning missed: an alert every check would be intolerable,
 // but staying silent means never being told at all.
 func announceUpdate(st update.Status) {
-	if !st.UpdateAvailable || st.Latest == "" {
-		return
-	}
-	updMu.Lock()
-	already := updPrefs.NotifiedVersion == st.Latest
-	if !already {
-		updPrefs.NotifiedVersion = st.Latest
-		saveUpdatePrefsLocked()
-	}
-	updMu.Unlock()
-	if already {
+	if !noteUpdateSeen(st) {
 		return
 	}
 	postNotification(i18n.T("update.available.title", st.Latest),
 		i18n.T("update.available.body", st.Current))
+}
+
+// noteUpdateSeen records a release as one the user has been made aware of, and
+// reports whether that was news. A manual "check now" calls this without
+// announcing: the user is looking straight at the result, so telling them again
+// hours later would be the nagging this is built to avoid. Being shown counts
+// as being told, however they came to see it.
+func noteUpdateSeen(st update.Status) bool {
+	if !st.UpdateAvailable || st.Latest == "" {
+		return false
+	}
+	updMu.Lock()
+	defer updMu.Unlock()
+	if updPrefs.NotifiedVersion == st.Latest {
+		return false
+	}
+	updPrefs.NotifiedVersion = st.Latest
+	saveUpdatePrefsLocked()
+	return true
 }
 
 // postNotification is the seam tests replace, so exercising the announce-once

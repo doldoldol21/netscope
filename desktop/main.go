@@ -178,7 +178,12 @@ func main() {
 			})
 			wruntime.EventsOn(ctx, "netscope:checkupdate", func(...interface{}) {
 				go func() {
-					runUpdateCheck()
+					// Record what they're about to be shown, without notifying:
+					// the answer is on screen, so an OS banner hours later would
+					// be repeating what they already read.
+					if st, ok := runUpdateCheck(); ok {
+						noteUpdateSeen(st)
+					}
 					wruntime.EventsEmit(ctx, "netscope:update", updateStatusJSON())
 				}()
 			})

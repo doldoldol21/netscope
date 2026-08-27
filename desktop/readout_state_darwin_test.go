@@ -191,7 +191,7 @@ func TestReadoutSegsKeepsTheMarkerInEveryMode(t *testing.T) {
 			t.Fatalf("mode %v rendered nothing", mode)
 		}
 		text := segsText(segs)
-		if !strings.Contains(text, updateMarker) {
+		if !strings.Contains(text, strings.TrimSpace(updateMarker)) {
 			t.Errorf("mode %v lost the update marker: %q", mode, text)
 		}
 		marker, _ := modeMarker(mode)
@@ -217,14 +217,25 @@ func TestReadoutSegsStaysQuietWithNothingToSay(t *testing.T) {
 }
 
 // Before the first successful poll there are no rates, but a pending update is
-// still worth showing on its own.
-func TestReadoutSegsShowsTheMarkerBeforeAnyRates(t *testing.T) {
+// still worth showing on its own — without the separator space, which at the
+// front of the string has nothing to separate and just gaps the icon.
+func TestReadoutSegsShowsTheMarkerAloneBeforeAnyRates(t *testing.T) {
 	segs, ok := readoutSegs(styleByID("arrows"), readoutRates, "", "", true)
 	if !ok {
 		t.Fatal("nothing rendered")
 	}
-	if !strings.Contains(segsText(segs), updateMarker) {
-		t.Fatalf("no update marker: %q", segsText(segs))
+	got := segsText(segs)
+	if got != strings.TrimSpace(updateMarker) {
+		t.Fatalf("rendered %q, want the bare marker %q", got, strings.TrimSpace(updateMarker))
+	}
+}
+
+// With something in front of it, the marker keeps its separator.
+func TestReadoutSegsSeparatesTheMarkerFromWhatPrecedesIt(t *testing.T) {
+	segs, _ := readoutSegs(styleByID("arrows"), readoutRates, "1.2M", "30K", true)
+	got := segsText(segs)
+	if !strings.HasSuffix(got, updateMarker) {
+		t.Fatalf("rendered %q, want it to end with %q", got, updateMarker)
 	}
 }
 

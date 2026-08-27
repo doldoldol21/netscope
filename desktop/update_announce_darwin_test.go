@@ -78,3 +78,32 @@ func TestAnnounceUpdateStaysQuietWhenUpToDate(t *testing.T) {
 		t.Fatalf("sent %d notifications with nothing to report", len(*sent))
 	}
 }
+
+// A manual "check now" shows the answer on screen, which counts as being told.
+// Recording it stops the background loop from firing an OS banner hours later
+// about a release the user already read about.
+func TestNoteUpdateSeenSuppressesALaterAnnouncement(t *testing.T) {
+	sent := withCleanUpdateState(t)
+	st := update.Status{Current: "v0.22.1", Latest: "v0.23.0", UpdateAvailable: true}
+
+	if !noteUpdateSeen(st) {
+		t.Fatal("the first sighting was not treated as news")
+	}
+	if len(*sent) != 0 {
+		t.Fatalf("noteUpdateSeen posted %d notifications; it must be silent", len(*sent))
+	}
+	announceUpdate(st)
+	if len(*sent) != 0 {
+		t.Fatalf("announced a release the user had already been shown (%d)", len(*sent))
+	}
+}
+
+func TestNoteUpdateSeenReportsNothingToSee(t *testing.T) {
+	withCleanUpdateState(t)
+	if noteUpdateSeen(update.Status{Current: "v0.23.0", Latest: "v0.23.0"}) {
+		t.Fatal("being up to date was treated as news")
+	}
+	if noteUpdateSeen(update.Status{Current: "v0.23.0", UpdateAvailable: true}) {
+		t.Fatal("a failed check with no version was treated as news")
+	}
+}
