@@ -549,7 +549,10 @@ function netUsageHTML(list) {
   if (!nets.length) {
     return `<div class="state">${t("state.noNetUsage")}</div>`;
   }
-  // Compact sidebar rows: friendly name, tether/live tags, total. The sidebar is
+  // Compact sidebar rows: friendly name, tether/live tags, total. role="img" on
+  // the glyph is what makes its aria-label authoritative — a bare span maps to
+  // role="generic", where ARIA forbids naming, so screen readers would announce
+  // "mobile phone" and never the word it stands for. The sidebar is
   // 212px wide at its narrowest, and the name is the one thing in the row that
   // identifies it — so the tethering flag is carried by the phone glyph alone
   // (the word lives in its tooltip) rather than spending 33px that the name
@@ -558,7 +561,7 @@ function netUsageHTML(list) {
     const total = Number(n.rxBytes) + Number(n.txBytes);
     const friendly = n.friendly && n.friendly !== n.iface ? n.friendly : n.iface;
     const tether = t("chip.tethering");
-    const tags = `${n.tether ? `<span class="tag" title="${esc(tether)}" aria-label="${esc(tether)}">📱</span>` : ""}${n.active ? `<span class="tag">${t("chip.live")}</span>` : ""}`;
+    const tags = `${n.tether ? `<span class="tag" role="img" title="${esc(tether)}" aria-label="${esc(tether)}">📱</span>` : ""}${n.active ? `<span class="tag">${t("chip.live")}</span>` : ""}`;
     // The name clips when it must, so both it and the row say what it is on hover.
     const detail = `${friendly} (${n.iface}) · ↓ ${fmtBytes(n.rxBytes).str} · ↑ ${fmtBytes(n.txBytes).str}`;
     return `<div class="side-row net" title="${esc(detail)}">

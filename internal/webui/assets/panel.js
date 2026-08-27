@@ -456,11 +456,15 @@ $("alerts-btn").onclick = openSettings;
 $("set-close").onclick = () => { $("settings").classList.remove("show"); };
 
 // ---- software updates ----
+let lastUpdateStatus = null;
+
 function renderUpdate(st) {
   st = st || {};
+  lastUpdateStatus = st;
   $("set-autocheck").checked = st.autoCheck !== false;
   const banner = $("updbanner"), now = $("upd-now"), status = $("upd-status");
-  now.textContent = t("upd.now"); now.disabled = false;
+  // A snapshot arriving mid-download must not make the controls clickable again.
+  if (!updateStarting) { now.textContent = t("upd.now"); now.disabled = false; }
   if (st.updateAvailable && st.latest) {
     status.textContent = t("upd.availableV", { v: st.latest });
     status.classList.add("avail");
@@ -507,16 +511,37 @@ function setFooterUpdate(version) {
   const b = $("dash-upd");
   if (!b) return;
   if (!version) { b.hidden = true; return; }
+  b.hidden = false;
+  if (updateStarting) return; // mid-download: leave the busy label alone
   setText(b, t("pop.updateShort", { v: version }));
   setAttr(b, "title", t("pop.updateV", { v: version }));
   setAttr(b, "aria-label", t("pop.updateV", { v: version }));
-  b.hidden = false;
 }
-function startUpdate(btn) {
+// updateStarting gates every control that can begin an update. There is no
+// progress indicator anywhere in the popover, so a control that still looks
+// clickable after a click is an invitation to start a second one — and a second
+// one means two downloads racing to swap the same .app bundle.
+let updateStarting = false;
+
+function startUpdate() {
   const r = rt();
-  if (!r.EventsEmit) return;
-  if (btn) { btn.textContent = t("upd.downloading"); btn.disabled = true; }
+  if (!r.EventsEmit || updateStarting) return;
+  updateStarting = true;
+  setUpdateControlsBusy(true);
   r.EventsEmit("netscope:doupdate"); // app downloads, swaps the bundle, relaunches
+}
+
+// setUpdateControlsBusy puts every entry point into the same state, whichever one
+// was clicked. They all trigger the same swap, so they all have to say so.
+function setUpdateControlsBusy(busy) {
+  for (const id of ["upd-now", "dash-upd"]) {
+    const b = $(id);
+    if (!b) continue;
+    setText(b, busy ? t("upd.downloading") : "");
+    b.disabled = busy;
+  }
+  const banner = $("updbanner");
+  if (banner) banner.disabled = busy;
 }
 $("upd-check").onclick = () => {
   const r = rt();
@@ -524,9 +549,9 @@ $("upd-check").onclick = () => {
   $("upd-status").classList.remove("avail", "stale");
   if (r.EventsEmit) r.EventsEmit("netscope:checkupdate"); // Go replies on "netscope:update"
 };
-$("upd-now").onclick = (e) => startUpdate(e.currentTarget);
-$("dash-upd").onclick = () => startUpdate($("upd-now"));
-$("updbanner").onclick = () => { openSettings(); startUpdate($("upd-now")); };
+$("upd-now").onclick = () => startUpdate();
+$("dash-upd").onclick = () => startUpdate();
+$("updbanner").onclick = () => { openSettings(); startUpdate(); };
 $("set-autocheck").onchange = (e) => {
   const r = rt();
   if (r.EventsEmit) r.EventsEmit("netscope:setautocheck", e.currentTarget.checked);
@@ -563,8 +588,13 @@ window.addEventListener("DOMContentLoaded", () => {
     window.runtime.EventsOn("netscope:updateerror", () => {
       $("upd-status").textContent = t("upd.failed");
       $("upd-status").classList.remove("avail");
-      const now = $("upd-now");
-      now.textContent = t("upd.now"); now.disabled = false;
+      // Hand every control back, not just the settings one — the footer button
+      // may well be the one they clicked.
+      updateStarting = false;
+      setUpdateControlsBusy(false);
+      setText($("upd-now"), t("upd.now"));
+      const st = lastUpdateStatus;
+      if (st) setFooterUpdate(st.updateAvailable ? st.latest : null);
     });
     window.runtime.EventsOn("netscope:helper", (st) => renderHelper(st));
     window.runtime.EventsOn("netscope:helpererror", () => {
