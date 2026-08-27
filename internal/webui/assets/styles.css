@@ -439,11 +439,14 @@ aside .state { padding: 10px 0; }
   font: 400 12.5px/1 var(--sans); color: var(--fg-dim);
 }
 .plan-fields input, .plan-fields select {
-  font: 400 12.5px var(--mono); color: var(--fg);
+  color: var(--fg);
   background: var(--bg); border: 1px solid var(--line); border-radius: 4px;
   padding: 5px 7px; width: 74px; text-align: right;
 }
-.plan-fields select { width: auto; max-width: 150px; text-align: left; }
+/* Figures in mono so digits line up; the select lists interface names, which are
+   words and belong in the same face as every other word around them. */
+.plan-fields input { font: 400 12.5px var(--mono); }
+.plan-fields select { font: 400 12.5px var(--sans); width: auto; max-width: 150px; text-align: left; }
 .plan-fields input:focus, .plan-fields select:focus { outline: none; border-color: var(--accent); }
 .plan-actions { display: flex; gap: 14px; margin-top: 11px; }
 .plan-actions .hdr-btn.on { color: var(--accent); font-weight: 600; }
