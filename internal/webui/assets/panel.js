@@ -468,6 +468,7 @@ function renderUpdate(st) {
     status.title = ""; // don't carry a previous failure's tooltip into this row
     banner.querySelector(".ub-txt").textContent = t("pop.updateV", { v: st.latest });
     banner.hidden = false; now.hidden = false;
+    setFooterUpdate(st.latest);
   } else if (st.checkFailed) {
     // Never say "up to date" on the strength of a check that failed — offline,
     // rate-limited, or blocked all land here. Show what we last knew.
@@ -478,6 +479,7 @@ function renderUpdate(st) {
     status.classList.add("stale");
     status.title = st.checkError || "";
     banner.hidden = true; now.hidden = true;
+    setFooterUpdate(null);
   } else if (st.checked === false) {
     // Nothing has failed, but nothing has been checked either — the first
     // seconds after launch, or auto-check switched off. That is not a problem
@@ -488,12 +490,27 @@ function renderUpdate(st) {
     status.classList.remove("avail", "stale");
     status.title = "";
     banner.hidden = true; now.hidden = true;
+    setFooterUpdate(null);
   } else {
     status.textContent = st.current ? t("upd.uptodateV", { v: st.current }) : t("upd.uptodate");
     status.classList.remove("avail", "stale");
     status.title = "";
     banner.hidden = true; now.hidden = true;
+    setFooterUpdate(null);
   }
+}
+
+// setFooterUpdate shows (or hides) the update button that shares the footer with
+// Open Dashboard. Passing a version shows it; passing null hides it, which is
+// what keeps the footer back to one button the moment there is nothing to offer.
+function setFooterUpdate(version) {
+  const b = $("dash-upd");
+  if (!b) return;
+  if (!version) { b.hidden = true; return; }
+  setText(b, t("pop.updateShort", { v: version }));
+  setAttr(b, "title", t("pop.updateV", { v: version }));
+  setAttr(b, "aria-label", t("pop.updateV", { v: version }));
+  b.hidden = false;
 }
 function startUpdate(btn) {
   const r = rt();
@@ -508,6 +525,7 @@ $("upd-check").onclick = () => {
   if (r.EventsEmit) r.EventsEmit("netscope:checkupdate"); // Go replies on "netscope:update"
 };
 $("upd-now").onclick = (e) => startUpdate(e.currentTarget);
+$("dash-upd").onclick = () => startUpdate($("upd-now"));
 $("updbanner").onclick = () => { openSettings(); startUpdate($("upd-now")); };
 $("set-autocheck").onchange = (e) => {
   const r = rt();

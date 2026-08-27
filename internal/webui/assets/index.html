@@ -58,6 +58,9 @@
 
   <footer>
     <button class="primary" id="dash" aria-label="Open Dashboard" data-i18n-aria="pop.openDash"><span data-i18n="pop.openDash">Open Dashboard</span></button>
+    <!-- Sits to the RIGHT of the dashboard button on purpose: that button keeps
+         its position, so muscle memory can't land on "update and restart". -->
+    <button class="primary upd" id="dash-upd" hidden></button>
     <button class="ghost" id="alerts-btn" aria-label="Settings"
             data-i18n-aria="tip.settings" data-i18n-tip="tip.settings" data-tip="Settings">⚙</button>
     <button class="ghost" id="quit" aria-label="Quit netscope"
