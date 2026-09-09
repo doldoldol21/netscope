@@ -9,6 +9,7 @@
 //	netscope apps  [-range]  per-app ranking (today|week|hour|day)
 //	netscope domains [-range] per-domain ranking
 //	netscope open            launch the native netscope app
+//	netscope --version       print the build version
 package main
 
 import (
@@ -26,6 +27,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/doldoldol21/netscope/internal/buildinfo"
 	"github.com/doldoldol21/netscope/internal/ipc"
 	"github.com/doldoldol21/netscope/pkg/types"
 )
@@ -46,11 +48,20 @@ func main() {
 	rng := fs.String("range", "today", "time range for rankings: hour|today|day|week")
 	format := fs.String("format", "csv", "export format: csv|json")
 	typ := fs.String("type", "apps", "export data: apps|domains")
+	showVersion := fs.Bool("version", false, "print the build version and exit")
+	fs.BoolVar(showVersion, "v", false, "print the build version and exit")
 	fs.Usage = func() {
-		fmt.Fprint(os.Stderr, "usage: netscope [top|apps|domains|export|open] [--sock path] [--range hour|today|day|week]\n"+
-			"       netscope export [--type apps|domains] [--format csv|json] [--range ...] > out.csv\n")
+		fmt.Fprint(os.Stderr, "usage: netscope [top|apps|domains|export|open|version] [--sock path] [--range hour|today|day|week]\n"+
+			"       netscope export [--type apps|domains] [--format csv|json] [--range ...] > out.csv\n"+
+			"       netscope --version\n")
 	}
 	_ = fs.Parse(args)
+
+	// The first thing a bug report is asked for; it must not need the daemon.
+	if *showVersion || cmd == "version" {
+		fmt.Println(buildinfo.Version)
+		return
+	}
 
 	client = ipc.Client(*sock)
 
@@ -274,22 +285,36 @@ func catTag(cat string) string {
 	return "  ·" + cat
 }
 
-// openApp launches the native netscope app. It prefers a freshly-built local
-// bundle (so dev never launches a stale Launch Services registration), then an
-// installed copy, then falls back to the registered bundle id.
+// openApp launches the native netscope app: the installed copy, or failing
+// that whatever Launch Services has registered under the bundle id.
+//
+// NETSCOPE_APP names a bundle to launch instead — the way to run a fresh
+// `make app` build without a stale Launch Services registration getting in the
+// way. It used to be implicit: a relative `desktop/build/bin/netscope.app` was
+// tried first, which meant `netscope open` launched whatever bundle sat under
+// the current directory. A dev convenience should not depend on where you
+// happen to be standing.
 func openApp() error {
-	for _, p := range []string{
-		"desktop/build/bin/netscope.app",
-		"/Applications/netscope.app",
-	} {
-		if _, err := os.Stat(p); err == nil {
-			return exec.Command("open", p).Run()
+	return openAppWith(os.Getenv("NETSCOPE_APP"), func(args ...string) error {
+		return exec.Command("open", args...).Run()
+	})
+}
+
+// openAppWith is openApp with the bundle override and the launcher injected.
+func openAppWith(override string, open func(args ...string) error) error {
+	if override != "" {
+		if _, err := os.Stat(override); err != nil {
+			return fmt.Errorf("NETSCOPE_APP=%s: %w", override, err)
 		}
+		return open(override)
 	}
-	if err := exec.Command("open", "-b", "io.netscope.app").Run(); err == nil {
+	if _, err := os.Stat("/Applications/netscope.app"); err == nil {
+		return open("/Applications/netscope.app")
+	}
+	if err := open("-b", "io.netscope.app"); err == nil {
 		return nil
 	}
-	return fmt.Errorf("netscope.app not found — build it with `make app`")
+	return fmt.Errorf("netscope.app not found — build it with `make app`, then NETSCOPE_APP=desktop/build/bin/netscope.app netscope open")
 }
 
 func human(n uint64) string {
@@ -305,10 +330,16 @@ func human(n uint64) string {
 	return fmt.Sprintf("%.1f %cB", float64(n)/float64(div), "KMGTPE"[exp])
 }
 
+// trunc shortens s to at most n runes, marking the cut with an ellipsis. A
+// width too small to hold even the ellipsis yields "" rather than a slice
+// past the start.
 func trunc(s string, n int) string {
 	r := []rune(s)
 	if len(r) <= n {
 		return s
+	}
+	if n <= 1 {
+		return ""
 	}
 	return string(r[:n-1]) + "…"
 }
