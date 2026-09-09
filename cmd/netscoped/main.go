@@ -92,6 +92,16 @@ type flowSource interface {
 	Name() string
 }
 
+// sessionHorizon maps the --live-window flag onto engine.Config: the flag's
+// "0 = whole session" is the engine's negative (never prune), since zero there
+// means "use the default bound".
+func sessionHorizon(liveWin time.Duration) time.Duration {
+	if liveWin == 0 {
+		return -1
+	}
+	return liveWin
+}
+
 func run(iface, pcapFile string, demoMode bool, sock, dbPath string, noStore bool, bucket, retention time.Duration, maxDB int64, liveWin time.Duration, printTop, noRevDNS, noUpdateCheck bool) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -160,7 +170,7 @@ func run(iface, pcapFile string, demoMode bool, sock, dbPath string, noStore boo
 		Bucket:         bucket,
 		Retention:      retention,
 		MaxDBBytes:     maxDB,
-		SessionHorizon: liveWin,
+		SessionHorizon: sessionHorizon(liveWin),
 		Interface:      src.Name(),
 		SelfPID:        os.Getpid(),
 		Hinter:         rev,

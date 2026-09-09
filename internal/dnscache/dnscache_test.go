@@ -179,3 +179,125 @@ func TestSaveToStopsWhenAStaleTempSurvives(t *testing.T) {
 		t.Error("a cache file was published anyway")
 	}
 }
+
+// Eviction follows when an entry was last seen, not when it was first
+// inserted: re-learning an IP moves it to the back of the line.
+func TestPutRefreshMovesAnEntryOutOfEvictionOrder(t *testing.T) {
+	now := time.Unix(0, 0)
+	c := New(time.Hour, 2)
+	c.nowFn = func() time.Time { return now }
+	c.Put("1.1.1.1", "a")
+	now = now.Add(time.Second)
+	c.Put("2.2.2.2", "b")
+	now = now.Add(time.Second)
+	c.Put("1.1.1.1", "a2") // seen again: now the newest
+	now = now.Add(time.Second)
+	c.Put("3.3.3.3", "c") // evicts 2.2.2.2, the least recently seen
+	if c.Lookup("2.2.2.2") != "" {
+		t.Fatal("2.2.2.2 should have been evicted")
+	}
+	if c.Lookup("1.1.1.1") != "a2" {
+		t.Fatalf("refreshed entry lost: %q", c.Lookup("1.1.1.1"))
+	}
+}
+
+// Loaded records carry their own seen times, out of insertion order; eviction
+// must still pick the oldest by seen.
+func TestLoadKeepsEvictionOrderBySeenTime(t *testing.T) {
+	now := time.Unix(1000, 0)
+	src := New(time.Hour, 10)
+	src.nowFn = func() time.Time { return now }
+	// Insert newest-first so the file's order is the reverse of seen order.
+	for i, ip := range []string{"9.9.9.9", "5.5.5.5", "1.1.1.1"} {
+		src.nowFn = func() time.Time { return now.Add(-time.Duration(i) * time.Minute) }
+		src.Put(ip, "h"+ip)
+	}
+	path := filepath.Join(t.TempDir(), "dns.json")
+	if err := src.SaveTo(path); err != nil {
+		t.Fatal(err)
+	}
+
+	dst := New(time.Hour, 3)
+	dst.nowFn = func() time.Time { return now }
+	if err := dst.LoadFrom(path); err != nil {
+		t.Fatal(err)
+	}
+	dst.Put("7.7.7.7", "new") // full: must evict 1.1.1.1 (seen 2m ago), not 9.9.9.9
+	if dst.Lookup("1.1.1.1") != "" {
+		t.Fatal("the oldest-seen loaded entry survived eviction")
+	}
+	if dst.Lookup("9.9.9.9") == "" || dst.Lookup("5.5.5.5") == "" {
+		t.Fatal("a newer loaded entry was evicted instead of the oldest")
+	}
+}
+
+func TestLoadDoesNotEvictNewerEntriesForOlderRecords(t *testing.T) {
+	now := time.Unix(1000, 0)
+	c := New(time.Hour, 1)
+	c.nowFn = func() time.Time { return now }
+	c.Put("9.9.9.9", "fresh")
+
+	old := New(time.Hour, 10)
+	old.nowFn = func() time.Time { return now.Add(-10 * time.Minute) }
+	old.Put("1.1.1.1", "stale")
+	path := filepath.Join(t.TempDir(), "dns.json")
+	if err := old.SaveTo(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.LoadFrom(path); err != nil {
+		t.Fatal(err)
+	}
+	if c.Lookup("9.9.9.9") != "fresh" {
+		t.Fatal("a full cache evicted a newer entry to load an older record")
+	}
+	if c.Len() != 1 {
+		t.Fatalf("Len = %d, want the cap of 1", c.Len())
+	}
+}
+
+func TestLoadPrefersTheFresherOfADuplicate(t *testing.T) {
+	now := time.Unix(1000, 0)
+	c := New(time.Hour, 10)
+	c.nowFn = func() time.Time { return now }
+	c.Put("1.1.1.1", "live")
+
+	old := New(time.Hour, 10)
+	old.nowFn = func() time.Time { return now.Add(-time.Minute) }
+	old.Put("1.1.1.1", "from-disk")
+	path := filepath.Join(t.TempDir(), "dns.json")
+	if err := old.SaveTo(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.LoadFrom(path); err != nil {
+		t.Fatal(err)
+	}
+	if got := c.Lookup("1.1.1.1"); got != "live" {
+		t.Fatalf("Lookup = %q, want the in-memory (newer) mapping kept", got)
+	}
+}
+
+// The order list and the map must agree after every operation, or a stale
+// element would make a later eviction remove the wrong entry.
+func TestOrderAndMapStayInStep(t *testing.T) {
+	now := time.Unix(0, 0)
+	c := New(time.Second, 3)
+	c.nowFn = func() time.Time { return now }
+	c.Put("1.1.1.1", "a")
+	c.Put("2.2.2.2", "b")
+	now = now.Add(2 * time.Second)
+	if c.Lookup("1.1.1.1") != "" { // expired: removed from both
+		t.Fatal("expired entry answered")
+	}
+	c.Put("3.3.3.3", "c")
+	c.Put("4.4.4.4", "d")
+	c.Put("5.5.5.5", "e") // over cap: evicts one of the survivors
+	if c.Len() != 3 || c.order.Len() != 3 {
+		t.Fatalf("map %d / order %d, want 3 / 3", c.Len(), c.order.Len())
+	}
+	for el := c.order.Front(); el != nil; el = el.Next() {
+		e := el.Value.(*entry)
+		if c.byIP[e.ip] != e {
+			t.Fatalf("order holds %s but the map does not", e.ip)
+		}
+	}
+}

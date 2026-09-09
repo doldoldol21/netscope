@@ -60,7 +60,11 @@ type Config struct {
 	// this are counted as active.
 	ActiveWindow time.Duration
 	// SessionHorizon prunes session entries idle longer than this to bound
-	// memory on long-running daemons. Zero keeps everything for the session.
+	// memory on long-running daemons. Zero selects DefaultSessionHorizon;
+	// a negative value keeps everything for the life of the process. The
+	// bound is the default because the session maps grow with every distinct
+	// app and host ever seen, and "never prune" is not something an embedder
+	// should get without asking for it.
 	SessionHorizon time.Duration
 	// SelfPID, when non-zero, is the daemon's own PID; its traffic (e.g. update
 	// checks) is excluded from accounting.
@@ -83,10 +87,14 @@ func (c *Config) withDefaults() {
 	if c.ActiveWindow <= 0 {
 		c.ActiveWindow = 8 * time.Second
 	}
-	if c.SessionHorizon < 0 {
-		c.SessionHorizon = 0
+	if c.SessionHorizon == 0 {
+		c.SessionHorizon = DefaultSessionHorizon
 	}
 }
+
+// DefaultSessionHorizon bounds the session maps when Config.SessionHorizon is
+// left zero: an app or host idle for this long drops out of the session view.
+const DefaultSessionHorizon = 24 * time.Hour
 
 type appAcc struct {
 	name       string
@@ -694,7 +702,7 @@ func (e *Engine) RateHistory() []types.RatePoint {
 }
 
 // pruneLocked drops session entries idle beyond SessionHorizon to bound memory.
-// Caller holds e.mu. No-op when the horizon is zero.
+// Caller holds e.mu. Session pruning is skipped when the horizon is negative.
 func (e *Engine) pruneLocked(now time.Time) {
 	// Connections are short-lived by nature; drop ones idle beyond connTTL so the
 	// live view reflects what's actually open, and the map can't grow unbounded.
@@ -705,7 +713,7 @@ func (e *Engine) pruneLocked(now time.Time) {
 			delete(e.conns, k)
 		}
 	}
-	if e.cfg.SessionHorizon <= 0 {
+	if e.cfg.SessionHorizon < 0 {
 		return
 	}
 	cutoff := now.Add(-e.cfg.SessionHorizon)
