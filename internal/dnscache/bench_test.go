@@ -55,3 +55,17 @@ func BenchmarkSaveLoad(b *testing.B) {
 		_ = c.LoadFrom(path)
 	}
 }
+
+// BenchmarkPutAtCapacity is the steady state of a long-running daemon: the
+// cache is full, and every new IP has to evict one.
+func BenchmarkPutAtCapacity(b *testing.B) {
+	c := New(time.Hour, 20000)
+	for i := 0; i < 20000; i++ {
+		c.Put(fmt.Sprintf("10.%d.%d.%d", i>>16&255, i>>8&255, i&255), "warm.example")
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		n := 20000 + i
+		c.Put(fmt.Sprintf("10.%d.%d.%d", n>>16&255, n>>8&255, n&255), "new.example")
+	}
+}

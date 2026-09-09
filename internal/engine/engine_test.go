@@ -222,3 +222,37 @@ func TestSnapshotCarriesTheUnseenVerdict(t *testing.T) {
 		t.Fatal("snapshot kept the verdict after it cleared")
 	}
 }
+
+// A zero SessionHorizon is a bound, not "never": an embedder that says nothing
+// gets session maps that stop growing once an app has been idle for a day.
+func TestDefaultSessionHorizonPrunesIdleApps(t *testing.T) {
+	base := time.Unix(10000, 0)
+	cur := base
+	e := New(Config{}, nil, dnscache.New(time.Hour, 100), nil)
+	e.nowFn = func() time.Time { return cur }
+
+	e.ingest(types.Flow{Proto: types.ProtoTCP, Direction: types.DirIn, LocalPort: 1, RemoteIP: "1.2.3.4", Bytes: 10})
+	e.updateSnapshot()
+	if got := len(e.Snapshot().Apps); got != 1 {
+		t.Fatalf("apps = %d, want 1", got)
+	}
+	cur = base.Add(DefaultSessionHorizon + time.Minute)
+	e.updateSnapshot()
+	if got := len(e.Snapshot().Apps); got != 0 {
+		t.Fatalf("an app idle past the default horizon is still in the session: %d", got)
+	}
+}
+
+func TestNegativeSessionHorizonKeepsEverything(t *testing.T) {
+	base := time.Unix(10000, 0)
+	cur := base
+	e := New(Config{SessionHorizon: -1}, nil, dnscache.New(time.Hour, 100), nil)
+	e.nowFn = func() time.Time { return cur }
+
+	e.ingest(types.Flow{Proto: types.ProtoTCP, Direction: types.DirIn, LocalPort: 1, RemoteIP: "1.2.3.4", Bytes: 10})
+	cur = base.Add(30 * 24 * time.Hour)
+	e.updateSnapshot()
+	if got := len(e.Snapshot().Apps); got != 1 {
+		t.Fatalf("a negative horizon pruned the session: apps = %d, want 1", got)
+	}
+}

@@ -4,21 +4,32 @@
 package dnscache
 
 import (
+	"container/list"
 	"encoding/json"
 	"os"
+	"sort"
 	"sync"
 	"time"
 )
 
 type entry struct {
+	ip   string
 	host string
 	seen time.Time
+	el   *list.Element // position in Cache.order
 }
 
 // Cache is a bounded, TTL'd IP -> hostname map. Safe for concurrent use.
+//
+// Entries are kept in a list ordered by when they were last seen, oldest at
+// the front, so eviction is a pop rather than a scan. That matters on the
+// packet path: a laptop that has been up for a few days runs this cache full,
+// and full is where every DNS answer and every SNI hit used to pay an O(n)
+// walk over 20 000 entries to find the one to drop.
 type Cache struct {
 	mu    sync.RWMutex
-	byIP  map[string]entry
+	byIP  map[string]*entry
+	order *list.List // of *entry; front = least recently seen
 	ttl   time.Duration
 	max   int
 	nowFn func() time.Time
@@ -34,7 +45,8 @@ func New(ttl time.Duration, max int) *Cache {
 		max = 50000
 	}
 	return &Cache{
-		byIP:  make(map[string]entry),
+		byIP:  make(map[string]*entry),
+		order: list.New(),
 		ttl:   ttl,
 		max:   max,
 		nowFn: time.Now,
@@ -46,34 +58,46 @@ func (c *Cache) Put(ip, host string) {
 	if ip == "" || host == "" {
 		return
 	}
+	now := c.nowFn()
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if len(c.byIP) >= c.max {
-		if _, exists := c.byIP[ip]; !exists {
-			c.evictOldestLocked()
-		}
+	if e, ok := c.byIP[ip]; ok {
+		// Seen again, so it is now the newest entry: the back of the list.
+		e.host, e.seen = host, now
+		c.order.MoveToBack(e.el)
+		return
 	}
-	c.byIP[ip] = entry{host: host, seen: c.nowFn()}
+	if len(c.byIP) >= c.max {
+		c.evictOldestLocked()
+	}
+	e := &entry{ip: ip, host: host, seen: now}
+	e.el = c.order.PushBack(e)
+	c.byIP[ip] = e
 }
 
 // Lookup returns the hostname for ip, or "" if unknown or expired.
 func (c *Cache) Lookup(ip string) string {
 	c.mu.RLock()
 	e, ok := c.byIP[ip]
+	var host string
+	var seen time.Time
+	if ok {
+		host, seen = e.host, e.seen
+	}
 	c.mu.RUnlock()
 	if !ok {
 		return ""
 	}
-	if c.nowFn().Sub(e.seen) > c.ttl {
+	if c.nowFn().Sub(seen) > c.ttl {
 		c.mu.Lock()
 		// Re-check under write lock in case it was refreshed.
 		if cur, ok := c.byIP[ip]; ok && c.nowFn().Sub(cur.seen) > c.ttl {
-			delete(c.byIP, ip)
+			c.removeLocked(cur)
 		}
 		c.mu.Unlock()
 		return ""
 	}
-	return e.host
+	return host
 }
 
 // Len reports the number of cached mappings.
@@ -95,8 +119,9 @@ type record struct {
 func (c *Cache) SaveTo(path string) error {
 	c.mu.RLock()
 	recs := make([]record, 0, len(c.byIP))
-	for ip, e := range c.byIP {
-		recs = append(recs, record{IP: ip, Host: e.host, Seen: e.seen})
+	for el := c.order.Front(); el != nil; el = el.Next() {
+		e := el.Value.(*entry)
+		recs = append(recs, record{IP: e.ip, Host: e.host, Seen: e.seen})
 	}
 	c.mu.RUnlock()
 	b, err := json.Marshal(recs)
@@ -137,6 +162,10 @@ func (c *Cache) LoadFrom(path string) error {
 	if err := json.Unmarshal(b, &recs); err != nil {
 		return err
 	}
+	// Oldest first, so each record lands at (or near) the back and the
+	// position search below is a step or two, not a walk. SaveTo already
+	// writes them in this order; a file from elsewhere is sorted here.
+	sort.Slice(recs, func(i, j int) bool { return recs[i].Seen.Before(recs[j].Seen) })
 	now := c.nowFn()
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -144,28 +173,49 @@ func (c *Cache) LoadFrom(path string) error {
 		if r.IP == "" || r.Host == "" || now.Sub(r.Seen) > c.ttl {
 			continue
 		}
+		if e, ok := c.byIP[r.IP]; ok {
+			if !r.Seen.After(e.seen) {
+				continue // what we already hold is at least as fresh
+			}
+			c.removeLocked(e)
+		}
 		if len(c.byIP) >= c.max {
+			// Full: the record has to be newer than the oldest entry to earn a
+			// place, otherwise it is the one that would be evicted next anyway.
+			oldest := c.order.Front().Value.(*entry)
+			if !r.Seen.After(oldest.seen) {
+				continue
+			}
 			c.evictOldestLocked()
 		}
-		c.byIP[r.IP] = entry{host: r.Host, seen: r.Seen}
+		c.insertOrderedLocked(&entry{ip: r.IP, host: r.Host, seen: r.Seen})
 	}
 	return nil
 }
 
-// evictOldestLocked removes the least-recently-seen entry. Caller holds mu.
-// O(n) but only runs at capacity, which is rare for a personal monitor.
-func (c *Cache) evictOldestLocked() {
-	var oldestIP string
-	var oldest time.Time
-	first := true
-	for ip, e := range c.byIP {
-		if first || e.seen.Before(oldest) {
-			oldest = e.seen
-			oldestIP = ip
-			first = false
+// insertOrderedLocked places e by its seen time, searching back from the
+// newest end. Caller holds mu.
+func (c *Cache) insertOrderedLocked(e *entry) {
+	c.byIP[e.ip] = e
+	for el := c.order.Back(); el != nil; el = el.Prev() {
+		if !el.Value.(*entry).seen.After(e.seen) {
+			e.el = c.order.InsertAfter(e, el)
+			return
 		}
 	}
-	if oldestIP != "" {
-		delete(c.byIP, oldestIP)
+	e.el = c.order.PushFront(e)
+}
+
+// removeLocked drops e from both the map and the order. Caller holds mu.
+func (c *Cache) removeLocked(e *entry) {
+	delete(c.byIP, e.ip)
+	c.order.Remove(e.el)
+}
+
+// evictOldestLocked removes the least-recently-seen entry — the front of the
+// order — in O(1). Caller holds mu.
+func (c *Cache) evictOldestLocked() {
+	if el := c.order.Front(); el != nil {
+		c.removeLocked(el.Value.(*entry))
 	}
 }
