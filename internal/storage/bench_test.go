@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 	"testing"
@@ -38,7 +39,7 @@ func BenchmarkApps(b *testing.B) {
 	since := now.Add(-2 * time.Hour)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = s.Apps(since, now)
+		_, _ = s.Apps(context.Background(), since, now)
 	}
 }
 
@@ -71,7 +72,7 @@ func BenchmarkDomains(b *testing.B) {
 	since := now.Add(-2 * time.Hour)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = s.Domains(since, now)
+		_, _ = s.Domains(context.Background(), since, now)
 	}
 }
 
@@ -125,6 +126,6 @@ func BenchmarkTimeSeries(b *testing.B) {
 	step := 10 * time.Second
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = s.TimeSeries(since, now, step)
+		_, _ = s.TimeSeries(context.Background(), since, now, step)
 	}
 }
