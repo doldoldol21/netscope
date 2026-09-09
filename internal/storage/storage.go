@@ -4,6 +4,7 @@
 package storage
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -35,7 +36,6 @@ CREATE TABLE IF NOT EXISTS app_samples (
 	conns   INTEGER NOT NULL DEFAULT 0,
 	PRIMARY KEY (bucket, app)
 );
-CREATE INDEX IF NOT EXISTS idx_app_bucket ON app_samples(bucket);
 
 CREATE TABLE IF NOT EXISTS domain_samples (
 	bucket   INTEGER NOT NULL,
@@ -47,7 +47,6 @@ CREATE TABLE IF NOT EXISTS domain_samples (
 	country  TEXT    NOT NULL DEFAULT '',
 	PRIMARY KEY (bucket, domain, app)
 );
-CREATE INDEX IF NOT EXISTS idx_domain_bucket ON domain_samples(bucket);
 
 -- Per-interface daily byte totals, for metered/tethering data tracking. Kept at
 -- day granularity (one row per interface per local day) so a billing cycle's
@@ -280,6 +279,12 @@ func openOnce(path string) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("apply schema: %w", err)
 	}
+	// Migrate: drop the bucket indexes older versions created on the sample
+	// tables. Each table's primary key already starts with bucket, so SQLite
+	// served every range scan from the key and only ever *wrote* to these —
+	// once per row, every ten seconds, for the life of the daemon.
+	_, _ = db.Exec(`DROP INDEX IF EXISTS idx_app_bucket`)
+	_, _ = db.Exec(`DROP INDEX IF EXISTS idx_domain_bucket`)
 	// Migrate: add the country column to databases created before GeoIP support.
 	// (CREATE TABLE above already includes it for fresh DBs; this is a no-op error
 	// on those, which we ignore.)
@@ -652,8 +657,8 @@ type IfaceUsage struct {
 
 // IfaceUsageAllSince returns per-interface totals for every interface with usage
 // on or after sinceDay (unix seconds at local midnight), most-used first.
-func (s *Store) IfaceUsageAllSince(sinceDay int64) ([]IfaceUsage, error) {
-	rows, err := s.rdb.Query(`
+func (s *Store) IfaceUsageAllSince(ctx context.Context, sinceDay int64) ([]IfaceUsage, error) {
+	rows, err := s.rdb.QueryContext(ctx, `
 		SELECT iface, SUM(rx), SUM(tx) FROM iface_usage
 		WHERE day >= ? GROUP BY iface ORDER BY SUM(rx)+SUM(tx) DESC`, sinceDay)
 	if err != nil {
@@ -678,7 +683,7 @@ func (s *Store) IfaceUsageAllSince(sinceDay int64) ([]IfaceUsage, error) {
 // almost never fire. When there isn't a whole day inside, everything collapses
 // onto the sample path (dayFrom == dayTo == since leaves both edge windows
 // covering the full range).
-func (s *Store) splitRange(since, until time.Time) (dayFrom, dayTo int64) {
+func (s *Store) splitRange(ctx context.Context, since, until time.Time) (dayFrom, dayTo int64) {
 	from, to := since.Unix(), until.Unix()
 	dayFrom = dayStart(from)
 	if dayFrom < from { // partial first day: the rollup starts at the next midnight
@@ -691,7 +696,7 @@ func (s *Store) splitRange(since, until time.Time) (dayFrom, dayTo int64) {
 	// recorded after `until`. Ask the data, not the clock: if no sample exists
 	// at or after `until`, the row and the window contain exactly the same
 	// bytes. (Guessing with a grace period got this wrong; see the audit test.)
-	if s.noSamplesAtOrAfter(to) {
+	if s.noSamplesAtOrAfter(ctx, to) {
 		dayTo = nextDay(to)
 	}
 	if dayTo <= dayFrom {
@@ -702,9 +707,9 @@ func (s *Store) splitRange(since, until time.Time) (dayFrom, dayTo int64) {
 
 // noSamplesAtOrAfter reports whether the sample tables are empty from ts
 // onwards — an indexed existence probe, not a scan.
-func (s *Store) noSamplesAtOrAfter(ts int64) bool {
+func (s *Store) noSamplesAtOrAfter(ctx context.Context, ts int64) bool {
 	var one int
-	err := s.rdb.QueryRow(`
+	err := s.rdb.QueryRowContext(ctx, `
 		SELECT 1 WHERE EXISTS (SELECT 1 FROM app_samples    WHERE bucket >= ?1)
 		            OR EXISTS (SELECT 1 FROM domain_samples WHERE bucket >= ?1)`, ts).Scan(&one)
 	return err == sql.ErrNoRows
@@ -713,13 +718,18 @@ func (s *Store) noSamplesAtOrAfter(ts int64) bool {
 // nowFn is time.Now, overridable in tests.
 var nowFn = time.Now
 
+// The read methods take a context so a request that has gone away — a
+// dashboard tab closed mid-"month" — stops the query instead of finishing it
+// for nobody. Only the read pool honours it; flushes and maintenance run on
+// the writer to completion by design.
+
 // Apps returns per-app totals over [since, until), ranked by total bytes.
 // Whole days come from the daily rollup and only the partial edges touch the
 // raw samples: aggregating a week of 10s buckets took ~600ms and grew with
 // retention, while the rollup answers the same question in ~15ms.
-func (s *Store) Apps(since, until time.Time) ([]types.AppTraffic, error) {
-	dayFrom, dayTo := s.splitRange(since, until)
-	rows, err := s.rdb.Query(`
+func (s *Store) Apps(ctx context.Context, since, until time.Time) ([]types.AppTraffic, error) {
+	dayFrom, dayTo := s.splitRange(ctx, since, until)
+	rows, err := s.rdb.QueryContext(ctx, `
 		SELECT app, MAX(path), SUM(rx), SUM(tx), MAX(conns) FROM (
 			SELECT app, path, rx, tx, conns FROM app_daily
 				WHERE day >= ?1 AND day < ?2
@@ -750,9 +760,9 @@ func (s *Store) Apps(since, until time.Time) ([]types.AppTraffic, error) {
 
 // Domains returns per-domain totals over [since, until), ranked by total bytes.
 // Whole days come from the daily rollup (see Apps).
-func (s *Store) Domains(since, until time.Time) ([]types.DomainStat, error) {
-	dayFrom, dayTo := s.splitRange(since, until)
-	rows, err := s.rdb.Query(`
+func (s *Store) Domains(ctx context.Context, since, until time.Time) ([]types.DomainStat, error) {
+	dayFrom, dayTo := s.splitRange(ctx, since, until)
+	rows, err := s.rdb.QueryContext(ctx, `
 		SELECT domain, MAX(app), SUM(rx), SUM(tx), MAX(category), MAX(country) FROM (
 			SELECT domain, app, rx, tx, category, country FROM domain_daily
 				WHERE day >= ?1 AND day < ?2
@@ -783,9 +793,9 @@ func (s *Store) Domains(since, until time.Time) ([]types.DomainStat, error) {
 
 // DomainsForApp returns per-domain totals for a single app over [since, until),
 // ranked by total bytes — backs the dashboard's per-app drill-down.
-func (s *Store) DomainsForApp(app string, since, until time.Time) ([]types.DomainStat, error) {
-	dayFrom, dayTo := s.splitRange(since, until)
-	rows, err := s.rdb.Query(`
+func (s *Store) DomainsForApp(ctx context.Context, app string, since, until time.Time) ([]types.DomainStat, error) {
+	dayFrom, dayTo := s.splitRange(ctx, since, until)
+	rows, err := s.rdb.QueryContext(ctx, `
 		SELECT domain, MAX(app), SUM(rx), SUM(tx), MAX(category), MAX(country) FROM (
 			SELECT domain, app, rx, tx, category, country FROM domain_daily
 				WHERE day >= ?1 AND day < ?2 AND app = ?5
@@ -816,12 +826,12 @@ func (s *Store) DomainsForApp(app string, since, until time.Time) ([]types.Domai
 
 // TimeSeries returns rx/tx totals bucketed into intervals of step over
 // [since, until). Empty intervals are omitted.
-func (s *Store) TimeSeries(since, until time.Time, step time.Duration) ([]types.TimePoint, error) {
+func (s *Store) TimeSeries(ctx context.Context, since, until time.Time, step time.Duration) ([]types.TimePoint, error) {
 	stepSec := int64(step.Seconds())
 	if stepSec <= 0 {
 		stepSec = 60
 	}
-	rows, err := s.rdb.Query(`
+	rows, err := s.rdb.QueryContext(ctx, `
 		SELECT (bucket / ?) * ? AS slot, SUM(rx), SUM(tx)
 		FROM app_samples
 		WHERE bucket >= ? AND bucket < ?
@@ -847,12 +857,12 @@ func (s *Store) TimeSeries(since, until time.Time, step time.Duration) ([]types.
 
 // AppTimeSeries returns one app's rx/tx bucketed into intervals of step over
 // [since, until). Empty intervals are omitted.
-func (s *Store) AppTimeSeries(app string, since, until time.Time, step time.Duration) ([]types.TimePoint, error) {
+func (s *Store) AppTimeSeries(ctx context.Context, app string, since, until time.Time, step time.Duration) ([]types.TimePoint, error) {
 	stepSec := int64(step.Seconds())
 	if stepSec <= 0 {
 		stepSec = 60
 	}
-	rows, err := s.rdb.Query(`
+	rows, err := s.rdb.QueryContext(ctx, `
 		SELECT (bucket / ?) * ? AS slot, SUM(rx), SUM(tx)
 		FROM app_samples
 		WHERE bucket >= ? AND bucket < ? AND app = ?

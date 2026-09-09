@@ -149,7 +149,7 @@ func (s *Server) handleNetUsage(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	rows, err := s.store.IfaceUsageAllSince(since.Unix())
+	rows, err := s.store.IfaceUsageAllSince(r.Context(), since.Unix())
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -326,7 +326,7 @@ func (s *Server) handleApps(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	since, until := parseRange(r)
-	apps, err := s.store.Apps(since, until)
+	apps, err := s.store.Apps(r.Context(), since, until)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -345,9 +345,9 @@ func (s *Server) handleDomains(w http.ResponseWriter, r *http.Request) {
 		err     error
 	)
 	if app := r.URL.Query().Get("app"); app != "" {
-		domains, err = s.store.DomainsForApp(app, since, until) // per-app drill-down
+		domains, err = s.store.DomainsForApp(r.Context(), app, since, until) // per-app drill-down
 	} else {
-		domains, err = s.store.Domains(since, until)
+		domains, err = s.store.Domains(r.Context(), since, until)
 	}
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -368,9 +368,9 @@ func (s *Server) handleTimeSeries(w http.ResponseWriter, r *http.Request) {
 		err    error
 	)
 	if app := r.URL.Query().Get("app"); app != "" {
-		points, err = s.store.AppTimeSeries(app, since, until, step) // per-app drill-down
+		points, err = s.store.AppTimeSeries(r.Context(), app, since, until, step) // per-app drill-down
 	} else {
-		points, err = s.store.TimeSeries(since, until, step)
+		points, err = s.store.TimeSeries(r.Context(), since, until, step)
 	}
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -413,11 +413,11 @@ func (s *Server) handleSummary(w http.ResponseWriter, r *http.Request) {
 		apps, domains = snap.Apps, snap.Domains
 	} else {
 		var err error
-		if apps, err = s.store.Apps(since, until); err != nil {
+		if apps, err = s.store.Apps(r.Context(), since, until); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		if domains, err = s.store.Domains(since, until); err != nil {
+		if domains, err = s.store.Domains(r.Context(), since, until); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
