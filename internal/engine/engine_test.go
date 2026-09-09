@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"context"
 	"path/filepath"
 	"testing"
 	"time"
@@ -170,7 +171,7 @@ func TestFlushPersistsAndResets(t *testing.T) {
 		t.Errorf("session accumulators should persist across flush, got apps=%d domains=%d", len(e.sessApps), len(e.sessDomains))
 	}
 
-	apps, err := store.Apps(fixed.Add(-time.Minute), fixed.Add(time.Minute))
+	apps, err := store.Apps(context.Background(), fixed.Add(-time.Minute), fixed.Add(time.Minute))
 	if err != nil {
 		t.Fatal(err)
 	}

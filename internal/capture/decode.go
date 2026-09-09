@@ -4,7 +4,9 @@
 package capture
 
 import (
+	"fmt"
 	"net"
+	"strings"
 
 	"github.com/doldoldol21/netscope/internal/dnscache"
 	"github.com/doldoldol21/netscope/pkg/types"
@@ -51,9 +53,11 @@ func ipKey(ip net.IP) ([16]byte, bool) {
 	return k, false
 }
 
-// Decode reduces a packet to a Flow. The bool is false when the packet is not
-// an attributable IP/TCP/UDP packet (e.g. ARP, loopback chatter) or when it is
-// purely intra-host traffic we choose to ignore.
+// Decode reduces a packet to a Flow. The bool is false when the packet has no
+// IP layer (ARP, loopback chatter) or when it is purely intra-host traffic we
+// choose to ignore. Every IP packet counts: TCP and UDP carry ports the
+// resolver can attribute; anything else (ICMP, tunnels, trailing fragments) is
+// a portless flow that still carries its bytes.
 func (d *Decoder) Decode(pkt gopacket.Packet) (types.Flow, bool) {
 	nl := pkt.NetworkLayer()
 	if nl == nil {
@@ -80,7 +84,13 @@ func (d *Decoder) Decode(pkt gopacket.Packet) (types.Flow, bool) {
 	case *layers.UDP:
 		proto, sport, dport = types.ProtoUDP, uint16(t.SrcPort), uint16(t.DstPort)
 	default:
-		return types.Flow{}, false
+		// No transport header to read: ICMP, ESP/GRE and the other non-TCP/UDP
+		// protocols, and every IPv4 fragment after the first. There is no port
+		// to resolve a process by, so these land under "unknown" — but the
+		// bytes were on the wire and the kernel counted them, so they have to
+		// count here too. Dropping them made the totals disagree with the
+		// interface counters for traffic capture had in fact seen (#82).
+		proto = ipProtoName(pkt, nl)
 	}
 
 	// Learn IP->host mappings from DNS responses before deciding direction so
@@ -120,6 +130,47 @@ func (d *Decoder) Decode(pkt gopacket.Packet) (types.Flow, bool) {
 		// Offline sources without per-packet timestamps; caller stamps later.
 	}
 	return flow, true
+}
+
+// ipProtoNames maps an IP protocol number to the label a portless flow
+// carries, built once so the packet path does a table lookup and no string
+// work. Names follow IANA in lower case ("icmp", "gre"); numbers gopacket has
+// no name for read "ip/<n>".
+var ipProtoNames = func() (t [256]types.Protocol) {
+	for i := range t {
+		p := layers.IPProtocol(i)
+		switch p {
+		case layers.IPProtocolICMPv4:
+			t[i] = "icmp"
+		case layers.IPProtocolESP:
+			t[i] = "esp"
+		default:
+			name := p.String()
+			if name == "UnknownIPProtocol" || name == "" {
+				t[i] = types.Protocol(fmt.Sprintf("ip/%d", i))
+			} else {
+				t[i] = types.Protocol(strings.ToLower(name))
+			}
+		}
+	}
+	return t
+}()
+
+// ipProtoName labels a packet with no TCP/UDP header by its IP protocol. A
+// non-first IPv4 fragment carries the protocol of the datagram it belongs to,
+// so a fragmented UDP transfer still counts as "udp" (portless); an IPv6
+// fragment header names the protocol behind it.
+func ipProtoName(pkt gopacket.Packet, nl gopacket.NetworkLayer) types.Protocol {
+	switch n := nl.(type) {
+	case *layers.IPv4:
+		return ipProtoNames[n.Protocol]
+	case *layers.IPv6:
+		if f, ok := pkt.Layer(layers.LayerTypeIPv6Fragment).(*layers.IPv6Fragment); ok {
+			return ipProtoNames[f.NextHeader]
+		}
+		return ipProtoNames[n.NextHeader]
+	}
+	return "ip"
 }
 
 // direction figures out which endpoint is local and reports the flow direction

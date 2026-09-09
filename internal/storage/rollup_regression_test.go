@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -48,7 +49,7 @@ func TestFallBackDayIsNotDoubleCounted(t *testing.T) {
 		{"week", day.AddDate(0, 0, -6)},
 		{"today", day},
 	} {
-		apps, err := s.Apps(c.since, until)
+		apps, err := s.Apps(context.Background(), c.since, until)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -70,7 +71,7 @@ func TestFallBackDayLeadingEdge(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	apps, err := s.Apps(day.Add(30*time.Minute), day.Add(90*time.Minute))
+	apps, err := s.Apps(context.Background(), day.Add(30*time.Minute), day.Add(90*time.Minute))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +96,7 @@ func TestClosedRangeIgnoresLaterBytes(t *testing.T) {
 	if err := s.FlushApps(now.Add(-10*time.Second).Unix(), []types.AppTraffic{{Name: "claude", RxBytes: 500}}); err != nil {
 		t.Fatal(err)
 	}
-	apps, err := s.Apps(mid, now.Add(-30*time.Minute)) // excludes the recent 500
+	apps, err := s.Apps(context.Background(), mid, now.Add(-30*time.Minute)) // excludes the recent 500
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -151,7 +152,7 @@ func TestPurgeRebuildsStraddlingDay(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertRollupMatchesSamples(t, s)
-	apps, err := s.Apps(yesterday, mid)
+	apps, err := s.Apps(context.Background(), yesterday, mid)
 	if err != nil {
 		t.Fatal(err)
 	}

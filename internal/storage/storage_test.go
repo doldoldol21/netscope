@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -23,7 +24,7 @@ func TestIfaceUsage(t *testing.T) {
 	_ = s.AddIfaceUsage("en5", 3000, 0, 0)
 
 	byIface := func(sinceDay int64) map[string]storageUsage {
-		rows, err := s.IfaceUsageAllSince(sinceDay)
+		rows, err := s.IfaceUsageAllSince(context.Background(), sinceDay)
 		if err != nil {
 			t.Fatalf("all since %d: %v", sinceDay, err)
 		}
@@ -141,7 +142,7 @@ func TestEnforceSizeCap(t *testing.T) {
 	}
 	// The newest day must survive (we delete oldest-first).
 	newest := time.Unix(base+5*day, 0)
-	apps, _ := s.Apps(newest.Add(-time.Hour), newest.Add(time.Hour))
+	apps, _ := s.Apps(context.Background(), newest.Add(-time.Hour), newest.Add(time.Hour))
 	if len(apps) == 0 {
 		t.Fatal("newest day was deleted; cap should drop oldest first")
 	}
@@ -165,7 +166,7 @@ func TestFlushAndQueryApps(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	apps, err := s.Apps(base.Add(-time.Minute), base.Add(time.Minute))
+	apps, err := s.Apps(context.Background(), base.Add(-time.Minute), base.Add(time.Minute))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -186,7 +187,7 @@ func TestQueryRangeExclusive(t *testing.T) {
 	base := time.Unix(1_000_000, 0)
 	s.FlushApps(base.Unix(), []types.AppTraffic{{Name: "A", RxBytes: 10}})
 	// Query a window that ends before the sample -> nothing.
-	apps, err := s.Apps(base.Add(-time.Hour), base.Add(-time.Minute))
+	apps, err := s.Apps(context.Background(), base.Add(-time.Hour), base.Add(-time.Minute))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -212,7 +213,7 @@ func TestDomainsAndTimeSeries(t *testing.T) {
 		}
 	}
 
-	doms, err := s.Domains(t0.Add(-time.Minute), t0.Add(time.Minute))
+	doms, err := s.Domains(context.Background(), t0.Add(-time.Minute), t0.Add(time.Minute))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -220,7 +221,7 @@ func TestDomainsAndTimeSeries(t *testing.T) {
 		t.Fatalf("domain aggregation wrong: %+v", doms)
 	}
 
-	pts, err := s.TimeSeries(t0.Add(-time.Minute), t0.Add(time.Minute), 10*time.Second)
+	pts, err := s.TimeSeries(context.Background(), t0.Add(-time.Minute), t0.Add(time.Minute), 10*time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -246,7 +247,7 @@ func TestPurge(t *testing.T) {
 	if _, err := s.Purge(time.Unix(500_000, 0)); err != nil {
 		t.Fatal(err)
 	}
-	apps, _ := s.Apps(time.Unix(0, 0), time.Unix(2_000_000, 0))
+	apps, _ := s.Apps(context.Background(), time.Unix(0, 0), time.Unix(2_000_000, 0))
 	if len(apps) != 1 || apps[0].Name != "new" {
 		t.Fatalf("purge wrong, remaining: %+v", apps)
 	}
@@ -282,7 +283,7 @@ func TestDailyRollupMatchesSamples(t *testing.T) {
 
 	tomorrow := midnight.AddDate(0, 0, 1)
 	// Day-aligned: served from the rollup.
-	apps, err := s.Apps(midnight, tomorrow)
+	apps, err := s.Apps(context.Background(), midnight, tomorrow)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -292,7 +293,7 @@ func TestDailyRollupMatchesSamples(t *testing.T) {
 	if apps[0].Path != "/Applications/Claude.app" {
 		t.Errorf("rollup lost the app path: %q", apps[0].Path)
 	}
-	doms, err := s.Domains(midnight, tomorrow)
+	doms, err := s.Domains(context.Background(), midnight, tomorrow)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -302,7 +303,7 @@ func TestDailyRollupMatchesSamples(t *testing.T) {
 
 	// Same range widened by a minute on both ends: now it has no whole day
 	// inside, so it is answered purely from the samples — same totals.
-	raw, err := s.Apps(midnight.Add(-time.Minute), tomorrow.Add(time.Minute))
+	raw, err := s.Apps(context.Background(), midnight.Add(-time.Minute), tomorrow.Add(time.Minute))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -335,7 +336,7 @@ func TestBackfillsRollupOnOpen(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer s2.Close()
-	apps, err := s2.Apps(midnight, midnight.AddDate(0, 0, 1))
+	apps, err := s2.Apps(context.Background(), midnight, midnight.AddDate(0, 0, 1))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -360,7 +361,7 @@ func TestPurgeDropsRollupDays(t *testing.T) {
 	if _, err := s.Purge(midnight.AddDate(0, 0, -1)); err != nil {
 		t.Fatal(err)
 	}
-	apps, err := s.Apps(old, old.AddDate(0, 0, 1))
+	apps, err := s.Apps(context.Background(), old, old.AddDate(0, 0, 1))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -380,7 +381,7 @@ func TestOpenEndedRangeUsesTodayRollup(t *testing.T) {
 	if err := s.FlushApps(ts.Unix(), []types.AppTraffic{{Name: "claude", RxBytes: 100, TxBytes: 10}}); err != nil {
 		t.Fatal(err)
 	}
-	apps, err := s.Apps(mid.AddDate(0, 0, -6), now)
+	apps, err := s.Apps(context.Background(), mid.AddDate(0, 0, -6), now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -388,7 +389,7 @@ func TestOpenEndedRangeUsesTodayRollup(t *testing.T) {
 		t.Fatalf("open-ended week = %+v, want exactly one claude row with rx=100 tx=10 (no double count)", apps)
 	}
 	// The same range asked as a closed window over the same sample agrees.
-	closed, err := s.Apps(mid.AddDate(0, 0, -6), ts.Add(time.Hour))
+	closed, err := s.Apps(context.Background(), mid.AddDate(0, 0, -6), ts.Add(time.Hour))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -526,7 +527,7 @@ func TestRollupAgreesWithSamplesAcrossRanges(t *testing.T) {
 	}
 	for _, c := range cases {
 		want := rawApps(c.since, c.until)
-		got, err := s.Apps(c.since, c.until)
+		got, err := s.Apps(context.Background(), c.since, c.until)
 		if err != nil {
 			t.Fatalf("%s: %v", c.name, err)
 		}
@@ -581,7 +582,7 @@ func TestVerifyRollupsRepairsDrift(t *testing.T) {
 	if !repaired {
 		t.Fatal("drift went unnoticed")
 	}
-	apps, err := s.Apps(mid, now)
+	apps, err := s.Apps(context.Background(), mid, now)
 	if err != nil {
 		t.Fatal(err)
 	}
