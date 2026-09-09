@@ -29,7 +29,7 @@ func startAlertsLoop(client *http.Client) {
 		// Let the daemon come up before the first check.
 		time.Sleep(8 * time.Second)
 		for {
-			runAlertCheck()
+			guard("alerts", runAlertCheck)
 			time.Sleep(30 * time.Second)
 		}
 	}()

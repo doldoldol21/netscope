@@ -574,6 +574,9 @@ $("helperbanner").onclick = (e) => {
   } else {
     const go = $("helper-go");
     if (go) go.textContent = t("upd.downloading");
+    const txt = $("helperbanner").querySelector(".ub-txt");
+    if (txt) txt.textContent = t("pop.helperUpdate"); // clear a previous failure's wording
+    $("helperbanner").title = "";
     r.EventsEmit("netscope:updatehelper"); // Go prompts once, reinstalls, replies on "netscope:helper"
   }
 };
@@ -585,8 +588,14 @@ window.addEventListener("DOMContentLoaded", () => {
     window.runtime.EventsOn("netscope:menubar", (cfg) => fillMenuBar(cfg));
     window.runtime.EventsOn("netscope:theme", (t) => applyTheme(t));
     window.runtime.EventsOn("netscope:update", (st) => renderUpdate(st));
-    window.runtime.EventsOn("netscope:updateerror", () => {
-      $("upd-status").textContent = t("upd.failed");
+    window.runtime.EventsOn("netscope:updateerror", (e) => {
+      e = e || {};
+      // Say which stage failed, not just that one did: "download failed" is a
+      // retry, "didn't verify" is a stop. The raw cause goes in the tooltip.
+      const key = "upd.err." + (e.stage || "unknown");
+      const msg = t(key);
+      $("upd-status").textContent = msg === key ? t("upd.failed") : msg;
+      $("upd-status").title = e.detail || "";
       $("upd-status").classList.remove("avail");
       // Hand every control back, not just the settings one — the footer button
       // may well be the one they clicked.
@@ -597,9 +606,18 @@ window.addEventListener("DOMContentLoaded", () => {
       if (st) setFooterUpdate(st.updateAvailable ? st.latest : null);
     });
     window.runtime.EventsOn("netscope:helper", (st) => renderHelper(st));
-    window.runtime.EventsOn("netscope:helpererror", () => {
+    window.runtime.EventsOn("netscope:helpererror", (e) => {
+      e = e || {};
       const go = $("helper-go");
       if (go) go.textContent = t("pop.updateGo");
+      // The banner is the only place this can be said; it stays until the
+      // next attempt, which restores the usual wording.
+      const banner = $("helperbanner");
+      if (banner) {
+        const txt = banner.querySelector(".ub-txt");
+        if (txt) txt.textContent = t("pop.helperFailed");
+        banner.title = e.detail || "";
+      }
     });
     // Ask for cached update + helper status + theme so the popover styles itself on launch.
     if (window.runtime.EventsEmit) {

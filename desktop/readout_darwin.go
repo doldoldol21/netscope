@@ -109,39 +109,45 @@ func startMenuBarReadout(client *http.Client) {
 	go func() {
 		time.Sleep(6 * time.Second) // let the daemon come up first
 		for {
-			st, ok := fetchCapture(client)
-			if ok {
-				readoutMu.Lock()
-				lastMode = st.mode()
-				if lastMode == readoutRates {
-					lastRx, lastTx = compactRate(st.rx), compactRate(st.tx)
-					lastTotalBps = st.rx + st.tx
-				} else {
-					// Paused, stopped, or not seeing the link: no rate worth
-					// animating, and the numbers would be indistinguishable
-					// from a quiet link. A marker goes out instead.
-					lastRx, lastTx, lastTotalBps = "", "", 0
-				}
-				readoutMu.Unlock()
-				renderReadout()
-			} else {
-				// Daemon unreachable: clear the cached rates so the icon
-				// animation falls back to idle instead of forever animating at
-				// the last-seen throughput (a dead daemon would otherwise look
-				// like steady mid-traffic). Nothing is being captured while it
-				// is down, so this renders like any other stopped state — and
-				// goes through renderReadout rather than blanking the text, or
-				// a pending update would vanish for exactly as long as the
-				// daemon stays down.
-				readoutMu.Lock()
-				lastRx, lastTx, lastTotalBps = "", "", 0
-				lastMode = readoutStopped
-				readoutMu.Unlock()
-				renderReadout()
-			}
+			guard("menubar readout", func() { readoutTick(client) })
 			time.Sleep(readoutInterval)
 		}
 	}()
+}
+
+// readoutTick is one poll: fetch the live snapshot, cache what the readout and
+// the icon animation need, and redraw.
+func readoutTick(client *http.Client) {
+	st, ok := fetchCapture(client)
+	if ok {
+		readoutMu.Lock()
+		lastMode = st.mode()
+		if lastMode == readoutRates {
+			lastRx, lastTx = compactRate(st.rx), compactRate(st.tx)
+			lastTotalBps = st.rx + st.tx
+		} else {
+			// Paused, stopped, or not seeing the link: no rate worth
+			// animating, and the numbers would be indistinguishable
+			// from a quiet link. A marker goes out instead.
+			lastRx, lastTx, lastTotalBps = "", "", 0
+		}
+		readoutMu.Unlock()
+		renderReadout()
+		return
+	}
+	// Daemon unreachable: clear the cached rates so the icon
+	// animation falls back to idle instead of forever animating at
+	// the last-seen throughput (a dead daemon would otherwise look
+	// like steady mid-traffic). Nothing is being captured while it
+	// is down, so this renders like any other stopped state — and
+	// goes through renderReadout rather than blanking the text, or
+	// a pending update would vanish for exactly as long as the
+	// daemon stays down.
+	readoutMu.Lock()
+	lastRx, lastTx, lastTotalBps = "", "", 0
+	lastMode = readoutStopped
+	readoutMu.Unlock()
+	renderReadout()
 }
 
 // renderReadout formats the last-seen rates with the current style + color and
