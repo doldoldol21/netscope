@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
+	"log"
 	"net"
 	"net/http"
 	"net/url"
@@ -199,7 +200,8 @@ func main() {
 			wruntime.EventsOn(ctx, "netscope:doupdate", func(...interface{}) {
 				go func() {
 					if err := performUpdate(); err != nil {
-						wruntime.EventsEmit(ctx, "netscope:updateerror", err.Error())
+						log.Printf("update: %v", err)
+						wruntime.EventsEmit(ctx, "netscope:updateerror", updateErrorJSON(err))
 					}
 				}()
 			})
@@ -212,7 +214,8 @@ func main() {
 			wruntime.EventsOn(ctx, "netscope:updatehelper", func(...interface{}) {
 				go func() {
 					if err := performHelperUpdate(client, sock); err != nil {
-						wruntime.EventsEmit(ctx, "netscope:helpererror", err.Error())
+						log.Printf("helper update: %v", err)
+						wruntime.EventsEmit(ctx, "netscope:helpererror", map[string]string{"detail": err.Error()})
 					}
 					wruntime.EventsEmit(ctx, "netscope:helper", helperStatusJSON())
 				}()

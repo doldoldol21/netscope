@@ -5,7 +5,10 @@ package types
 
 import "time"
 
-// Protocol identifies the L4 protocol a flow uses.
+// Protocol identifies the L4 protocol a flow uses. TCP and UDP are the ones a
+// process can be resolved for; any other IP protocol is labelled by its IANA
+// name in lower case ("icmp", "esp", "gre") or "ip/<number>" when it has none,
+// and such flows carry no ports.
 type Protocol string
 
 const (

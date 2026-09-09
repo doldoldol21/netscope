@@ -192,3 +192,114 @@ func TestDecodeLearnsDNS(t *testing.T) {
 		t.Errorf("DNS cache = %q, want example.com", got)
 	}
 }
+
+// Every IP packet counts, not just the ones with a port. The BPF filter hands
+// over `ip or ip6`; the decoder used to keep TCP/UDP and drop the rest, so
+// ICMP, tunnels and trailing fragments vanished from totals the kernel's own
+// counters included.
+func TestDecodeCountsICMP(t *testing.T) {
+	ip := &layers.IPv4{
+		Version: 4, IHL: 5, TTL: 64, Protocol: layers.IPProtocolICMPv4,
+		SrcIP: net.ParseIP("1.1.1.1"), DstIP: net.ParseIP("192.168.1.10"),
+	}
+	icmp := &layers.ICMPv4{TypeCode: layers.CreateICMPv4TypeCode(layers.ICMPv4TypeEchoReply, 0), Seq: 1}
+	pkt := buildPacket(t, eth(), ip, icmp, gopacket.Payload(make([]byte, 56)))
+
+	dec := NewDecoder([]string{"192.168.1.10"}, nil)
+	flow, ok := dec.Decode(pkt)
+	if !ok {
+		t.Fatal("ICMP packet was dropped")
+	}
+	if flow.Proto != "icmp" || flow.Direction != types.DirIn || flow.RemoteIP != "1.1.1.1" {
+		t.Errorf("flow = %+v, want inbound icmp from 1.1.1.1", flow)
+	}
+	if flow.LocalPort != 0 || flow.RemotePort != 0 {
+		t.Errorf("portless flow carried ports: %+v", flow)
+	}
+	if flow.Bytes != uint64(len(pkt.Data())) {
+		t.Errorf("Bytes = %d, want the wire length %d", flow.Bytes, len(pkt.Data()))
+	}
+}
+
+func TestDecodeCountsTrailingFragmentsAsTheirProtocol(t *testing.T) {
+	// The second fragment of a UDP datagram: no transport header at all.
+	ip := &layers.IPv4{
+		Version: 4, IHL: 5, TTL: 64, Protocol: layers.IPProtocolUDP,
+		FragOffset: 185, // 1480 bytes in
+		SrcIP:      net.ParseIP("192.168.1.10"), DstIP: net.ParseIP("203.0.113.9"),
+	}
+	pkt := buildPacket(t, eth(), ip, gopacket.Payload(make([]byte, 400)))
+	if pkt.TransportLayer() != nil {
+		t.Fatal("test packet unexpectedly decoded a transport layer")
+	}
+
+	dec := NewDecoder([]string{"192.168.1.10"}, nil)
+	flow, ok := dec.Decode(pkt)
+	if !ok {
+		t.Fatal("trailing fragment was dropped")
+	}
+	if flow.Proto != types.ProtoUDP || flow.Direction != types.DirOut || flow.RemoteIP != "203.0.113.9" {
+		t.Errorf("flow = %+v, want outbound udp to 203.0.113.9", flow)
+	}
+	if flow.LocalPort != 0 || flow.RemotePort != 0 {
+		t.Errorf("a fragment has no ports to report: %+v", flow)
+	}
+}
+
+func TestDecodeLabelsOtherProtocols(t *testing.T) {
+	dec := NewDecoder([]string{"192.168.1.10"}, nil)
+	for proto, want := range map[layers.IPProtocol]types.Protocol{
+		layers.IPProtocolGRE:   "gre",
+		layers.IPProtocolESP:   "esp",
+		layers.IPProtocolIGMP:  "igmp",
+		layers.IPProtocol(253): "ip/253",
+	} {
+		ip := &layers.IPv4{
+			Version: 4, IHL: 5, TTL: 64, Protocol: proto,
+			SrcIP: net.ParseIP("192.168.1.10"), DstIP: net.ParseIP("198.51.100.7"),
+		}
+		pkt := buildPacket(t, eth(), ip, gopacket.Payload(make([]byte, 20)))
+		flow, ok := dec.Decode(pkt)
+		if !ok {
+			t.Errorf("proto %d dropped", proto)
+			continue
+		}
+		if flow.Proto != want {
+			t.Errorf("proto %d labelled %q, want %q", proto, flow.Proto, want)
+		}
+	}
+}
+
+func TestDecodeCountsICMPv6(t *testing.T) {
+	ip := &layers.IPv6{
+		Version: 6, HopLimit: 64, NextHeader: layers.IPProtocolICMPv6,
+		SrcIP: net.ParseIP("2001:db8::1"), DstIP: net.ParseIP("2001:db8::10"),
+	}
+	icmp := &layers.ICMPv6{TypeCode: layers.CreateICMPv6TypeCode(layers.ICMPv6TypeEchoRequest, 0)}
+	icmp.SetNetworkLayerForChecksum(ip)
+	e := eth()
+	e.EthernetType = layers.EthernetTypeIPv6
+	pkt := buildPacket(t, e, ip, icmp, gopacket.Payload(make([]byte, 8)))
+
+	dec := NewDecoder([]string{"2001:db8::10"}, nil)
+	flow, ok := dec.Decode(pkt)
+	if !ok {
+		t.Fatal("ICMPv6 packet was dropped")
+	}
+	if flow.Proto != "icmpv6" || flow.Direction != types.DirIn {
+		t.Errorf("flow = %+v, want inbound icmpv6", flow)
+	}
+}
+
+func TestDecodeStillIgnoresIntraHostICMP(t *testing.T) {
+	ip := &layers.IPv4{
+		Version: 4, IHL: 5, TTL: 64, Protocol: layers.IPProtocolICMPv4,
+		SrcIP: net.ParseIP("127.0.0.1"), DstIP: net.ParseIP("127.0.0.1"),
+	}
+	icmp := &layers.ICMPv4{TypeCode: layers.CreateICMPv4TypeCode(layers.ICMPv4TypeEchoRequest, 0)}
+	pkt := buildPacket(t, eth(), ip, icmp)
+	dec := NewDecoder([]string{"127.0.0.1"}, nil)
+	if _, ok := dec.Decode(pkt); ok {
+		t.Error("intra-host ICMP should be ignored like any other loopback traffic")
+	}
+}
