@@ -53,7 +53,7 @@ downloaded it).
 - **Self-updating** — checks GitHub Releases and updates in one click;
   downloads are SHA-256 verified.
 - **CLI** — `netscope`, `netscope apps --range week`,
-  `netscope export … > out.csv`.
+  `netscope export … > out.csv`, `netscope --version`.
 - **Localized** — follows your system language (English, 한국어, 日本語).
 
 ## How it works
