@@ -145,10 +145,16 @@ func TestOpenAppIgnoresABundleUnderTheCurrentDirectory(t *testing.T) {
 
 	open, calls := recordingOpen(t, true) // every launch "fails": we only care what was tried
 	_ = openAppWith("", open)
+	if len(*calls) == 0 {
+		t.Fatal("nothing was tried at all")
+	}
 	for _, c := range *calls {
+		if c[0] == "-b" {
+			continue // a bundle id for Launch Services, not a path
+		}
 		for _, a := range c {
-			if !filepath.IsAbs(a) && strings.Contains(a, "netscope.app") {
-				t.Fatalf("launched a relative bundle path %q from the working directory", a)
+			if !filepath.IsAbs(a) {
+				t.Fatalf("launched a relative path %q from the working directory", a)
 			}
 		}
 	}
