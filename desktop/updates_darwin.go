@@ -111,23 +111,25 @@ func startUpdateLoop() {
 		var last time.Time
 		var failures int
 		for {
-			updMu.Lock()
-			auto := updPrefs.AutoCheck
-			updMu.Unlock()
+			guard("update check", func() {
+				updMu.Lock()
+				auto := updPrefs.AutoCheck
+				updMu.Unlock()
 
-			wait := updateCheckInterval
-			if failures > 0 {
-				wait = nextRetryDelay(failures)
-			}
-			if auto && checkDue(time.Now(), last, wait) {
-				last = time.Now()
-				if st, ok := runUpdateCheck(); ok {
-					failures = 0
-					announceUpdate(st)
-				} else {
-					failures++
+				wait := updateCheckInterval
+				if failures > 0 {
+					wait = nextRetryDelay(failures)
 				}
-			}
+				if auto && checkDue(time.Now(), last, wait) {
+					last = time.Now()
+					if st, ok := runUpdateCheck(); ok {
+						failures = 0
+						announceUpdate(st)
+					} else {
+						failures++
+					}
+				}
+			})
 			time.Sleep(updateLoopTick)
 		}
 	}()
