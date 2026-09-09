@@ -30,13 +30,34 @@ type portKey struct {
 	port  uint16
 }
 
+// procEntry is one PID's cached identity. start is the process start time
+// (unix seconds, 0 when the platform cannot tell), so a PID handed to a new
+// process after a wrap is not mistaken for the one that had it before.
+type procEntry struct {
+	proc  types.Process
+	start int64
+}
+
+// resolved reports whether the entry names a real process. A failed lookup is
+// not worth remembering: the next scan has to try again, or a process whose
+// path could not be read once stays "unknown" for as long as it lives.
+func (e procEntry) resolved() bool {
+	return e.proc.Path != "" || (e.proc.Name != "" && e.proc.Name != "unknown")
+}
+
+// reusable says whether a cached entry may stand in for a fresh lookup of pid
+// with the given start time.
+func (e procEntry) reusable(start int64) bool {
+	return e.resolved() && e.start == start
+}
+
 // Resolver holds the reverse index and process metadata cache. Safe for
 // concurrent use.
 type Resolver struct {
 	mu      sync.RWMutex
 	byTuple map[types.ConnKey]types.Process
 	byPort  map[portKey]types.Process
-	paths   map[int]types.Process // pid -> process (path/name) cache
+	paths   map[int]procEntry // pid -> process (path/name) cache
 
 	lastScan    time.Time
 	minInterval time.Duration
@@ -54,7 +75,7 @@ func New(minInterval time.Duration) *Resolver {
 	return &Resolver{
 		byTuple:     make(map[types.ConnKey]types.Process),
 		byPort:      make(map[portKey]types.Process),
-		paths:       make(map[int]types.Process),
+		paths:       make(map[int]procEntry),
 		minInterval: minInterval,
 		nowFn:       time.Now,
 	}
@@ -106,7 +127,7 @@ func (r *Resolver) Refresh() bool {
 	byTuple := make(map[types.ConnKey]types.Process, len(conns))
 	byPort := make(map[portKey]types.Process, len(conns))
 	for _, c := range conns {
-		proc := paths[c.PID]
+		proc := paths[c.PID].proc
 		if c.RAddr != "" && c.RPort != 0 {
 			byTuple[types.ConnKey{
 				Proto:      c.Proto,

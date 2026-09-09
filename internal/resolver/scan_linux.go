@@ -17,7 +17,7 @@ import (
 
 // scan enumerates every process's TCP/UDP sockets via /proc and returns them as
 // rawConn rows plus a PID→Process cache for path/name resolution.
-func scan(pathCache map[int]types.Process) ([]rawConn, map[int]types.Process) {
+func scan(pathCache map[int]procEntry) ([]rawConn, map[int]procEntry) {
 	// 1. Collect all active socket inodes from /proc/net/{tcp,tcp6,udp,udp6}.
 	inodes := collectSocketInodes()
 
@@ -25,17 +25,17 @@ func scan(pathCache map[int]types.Process) ([]rawConn, map[int]types.Process) {
 	pidByInode := buildInodePIDMap(inodes)
 
 	// 3. Walk /proc to gather PID→name/path for each discovered PID.
-	procMap := make(map[int]types.Process)
+	procMap := make(map[int]procEntry)
 	for _, pid := range pidByInode {
 		if _, ok := procMap[pid]; ok {
 			continue
 		}
-		if cached, ok := pathCache[pid]; ok {
+		if cached, ok := pathCache[pid]; ok && cached.reusable(0) {
 			procMap[pid] = cached
 			continue
 		}
 		name, path := procInfo(pid)
-		procMap[pid] = types.Process{PID: pid, Name: name, Path: path}
+		procMap[pid] = procEntry{proc: types.Process{PID: pid, Name: name, Path: path}}
 	}
 
 	// 4. Build rawConn rows from the parsed inodes.
