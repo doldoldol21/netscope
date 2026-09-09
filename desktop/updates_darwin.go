@@ -312,6 +312,32 @@ func saveUpdatePrefsLocked() {
 	}
 }
 
+// updateError says which stage of an update failed, alongside the cause. The
+// popover localizes the stage; the cause goes in a tooltip for whoever is
+// debugging. Every stage is "failed" from where the user sits, but they don't
+// all mean the same thing: a dropped download is worth retrying, a checksum
+// that didn't match is a reason to stop and look.
+type updateError struct {
+	Stage string // busy | none | install | download | verify | unpack | handoff
+	Err   error
+}
+
+func (e *updateError) Error() string { return e.Stage + ": " + e.Err.Error() }
+func (e *updateError) Unwrap() error { return e.Err }
+
+func failAt(stage string, err error) error { return &updateError{Stage: stage, Err: err} }
+
+// updateErrorJSON is the payload emitted on netscope:updateerror. An error
+// that didn't come through failAt still reports, as stage "unknown".
+func updateErrorJSON(err error) map[string]string {
+	stage := "unknown"
+	var ue *updateError
+	if errors.As(err, &ue) {
+		stage, err = ue.Stage, ue.Err
+	}
+	return map[string]string{"stage": stage, "detail": err.Error()}
+}
+
 // performUpdate downloads the latest app bundle and swaps it in. Because we
 // can't replace our own running bundle in-place, it hands off to a detached
 // shell script that waits for this process to exit, replaces the bundle, and
@@ -323,7 +349,7 @@ func performUpdate() (err error) {
 	// the app replaced while it is being replaced. A UI that disables its
 	// buttons is not enough on its own: this is the only place that can be sure.
 	if !updateRunning.CompareAndSwap(false, true) {
-		return errors.New("an update is already in progress")
+		return failAt("busy", errors.New("an update is already in progress"))
 	}
 	// Released on every failure path. Success never gets here — it hands off to
 	// the swapper and exits.
@@ -335,50 +361,117 @@ func performUpdate() (err error) {
 
 	st := updStatusSnapshot()
 	if !st.UpdateAvailable || st.AssetURL == "" {
-		return errors.New("no update available")
+		return failAt("none", errors.New("no update available"))
 	}
 	appPath, err := installedAppPath()
 	if err != nil {
-		return err
+		return failAt("install", err)
 	}
 
 	tmp, err := os.MkdirTemp("", "netscope-update-")
 	if err != nil {
-		return err
+		return failAt("download", err)
 	}
+	// The swapper removes tmp once it has finished with it; every failure
+	// before the handoff has to do the same, or a download that fails to verify
+	// leaves its 200 MB behind — and the retry adds another.
+	defer func() {
+		if err != nil {
+			_ = os.RemoveAll(tmp)
+		}
+	}()
 	zipPath := filepath.Join(tmp, "netscope.zip")
 	if err := download(st.AssetURL, zipPath, maxUpdateBytes); err != nil {
-		return fmt.Errorf("download: %w", err)
+		return failAt("download", err)
 	}
 	if err := verifyDownload(st, zipPath, tmp); err != nil {
-		return fmt.Errorf("verify: %w", err)
+		return failAt("verify", err)
 	}
 
 	out := filepath.Join(tmp, "out")
 	if err := exec.Command("/usr/bin/ditto", "-x", "-k", zipPath, out).Run(); err != nil {
-		return fmt.Errorf("unpack: %w", err)
+		return failAt("unpack", err)
 	}
 	newApp := findBundle(out)
 	if newApp == "" {
-		return errors.New("archive did not contain netscope.app")
+		return failAt("unpack", errors.New("archive did not contain netscope.app"))
+	}
+	// checksums.txt vouches for the zip; this vouches for what came out of it.
+	// Releases are ad-hoc signed, which still seals every file's hash into the
+	// bundle, so a truncated or edited bundle fails here instead of being
+	// swapped in and stripped of quarantine.
+	if err := verifyBundleSignature(newApp); err != nil {
+		return failAt("verify", err)
 	}
 	_ = exec.Command("/usr/bin/xattr", "-cr", newApp).Run() // strip any quarantine
 
-	// A detached swapper: wait for us to exit, then replace the bundle. Move the
-	// old bundle aside first and only delete it once the new one is in place —
-	// so a failed mv (cross-volume, perms, SIP) never leaves the user with no
-	// app. On any failure, restore the backup and relaunch it.
-	script := fmt.Sprintf(`#!/bin/bash
+	logPath := filepath.Join(filepath.Dir(alerts.ConfigPath()), "update.log")
+	script := swapScript(os.Getpid(), appPath, newApp, tmp, logPath)
+	scriptPath := filepath.Join(tmp, "swap.sh")
+	if err := os.WriteFile(scriptPath, []byte(script), 0o755); err != nil {
+		return failAt("handoff", err)
+	}
+	cmd := exec.Command("/bin/bash", scriptPath)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true} // survive our exit
+	if err := cmd.Start(); err != nil {
+		return failAt("handoff", err)
+	}
+	// Hand off: quit so the swapper can replace the bundle and relaunch.
+	go func() {
+		time.Sleep(300 * time.Millisecond)
+		os.Exit(0)
+	}()
+	return nil
+}
+
+// verifyBundleSignature runs codesign over the unpacked bundle. --deep reaches
+// the nested daemon binary; --strict refuses the signature formats that only
+// cover part of a bundle.
+func verifyBundleSignature(app string) error {
+	out, err := exec.Command("/usr/bin/codesign", "--verify", "--deep", "--strict", app).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("bundle signature did not verify: %s", strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+// swapScript is the detached swapper: wait for pid (us) to exit, move the
+// installed bundle aside, move the new one in, relaunch. It only ever deletes
+// the old bundle once the new one is in place, and it only ever *proceeds* on
+// the strength of a bundle it moved itself or found genuinely absent.
+//
+// That second rule is the point. A bundle that is present but won't move
+// (permissions, SIP, a volume that refuses the rename) used to be treated as
+// "already gone", after which `mv new app` — with app still a directory — put
+// the new bundle inside the old one and relaunched the old build, reporting
+// nothing. Now it leaves the installed bundle untouched, relaunches it, and
+// writes why to logPath.
+func swapScript(pid int, app, newApp, tmp, logPath string) string {
+	return fmt.Sprintf(`#!/bin/bash
 pid=%[1]d
 app=%[2]s
 new=%[3]s
 tmp=%[4]s
+log=%[5]s
 bak="$app.bak.$$"
+note() { echo "$(date '+%%Y-%%m-%%d %%H:%%M:%%S') $*" >> "$log" 2>/dev/null; }
 while kill -0 "$pid" 2>/dev/null; do sleep 0.3; done
-if ! mv "$app" "$bak" 2>/dev/null; then bak=""; fi   # may already be gone
+if [ -e "$app" ]; then
+  if ! mv "$app" "$bak" 2>/dev/null; then
+    # Still there and won't move: leave it alone. Going on would nest the new
+    # bundle inside it and relaunch the old build as though this had worked.
+    note "swap failed: could not move $app aside; left it untouched"
+    open "$app"
+    rm -rf "$tmp"
+    exit 1
+  fi
+else
+  bak=""   # nothing installed to move aside (removed since the check)
+fi
 if mv "$new" "$app" 2>/dev/null; then
   xattr -cr "$app" 2>/dev/null || true
   [ -n "$bak" ] && rm -rf "$bak"
+  note "swapped in $app"
   # Restart the capture helper so it runs the just-installed daemon binary.
   # KeepAlive would otherwise keep the OLD daemon process alive until reboot.
   # Ask the daemon to restart over its unix socket — since it already runs as
@@ -387,26 +480,12 @@ if mv "$new" "$app" 2>/dev/null; then
   curl -s --unix-socket /var/run/netscope/netscoped.sock -X POST http://x/api/restart 2>/dev/null || true
 else
   # restore the original so the user is never left without an app
+  note "swap failed: could not move the new bundle into place; restored the previous one"
   [ -n "$bak" ] && mv "$bak" "$app" 2>/dev/null
 fi
 open "$app"
 rm -rf "$tmp"
-`, os.Getpid(), shQuote(appPath), shQuote(newApp), shQuote(tmp))
-	scriptPath := filepath.Join(tmp, "swap.sh")
-	if err := os.WriteFile(scriptPath, []byte(script), 0o755); err != nil {
-		return err
-	}
-	cmd := exec.Command("/bin/bash", scriptPath)
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true} // survive our exit
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("start updater: %w", err)
-	}
-	// Hand off: quit so the swapper can replace the bundle and relaunch.
-	go func() {
-		time.Sleep(300 * time.Millisecond)
-		os.Exit(0)
-	}()
-	return nil
+`, pid, shQuote(app), shQuote(newApp), shQuote(tmp), shQuote(logPath))
 }
 
 // shQuote renders s as a single-quoted shell word. Single quotes are the only
