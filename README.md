@@ -102,7 +102,7 @@ re-applying afterwards.
 
 ## Develop
 
-Requires Go 1.25+ and Xcode Command Line Tools.
+Requires Go 1.26+ and Xcode Command Line Tools.
 
 ```sh
 make demo       # synthetic daemon + app, no root needed
