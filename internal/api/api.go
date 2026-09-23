@@ -5,7 +5,10 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
+	"log"
 	"net"
 	"net/http"
 	"strconv"
@@ -14,6 +17,7 @@ import (
 	"github.com/doldoldol21/netscope/internal/buildinfo"
 	"github.com/doldoldol21/netscope/internal/capture"
 	"github.com/doldoldol21/netscope/internal/engine"
+	"github.com/doldoldol21/netscope/internal/helperinstall"
 	"github.com/doldoldol21/netscope/internal/storage"
 	"github.com/doldoldol21/netscope/internal/update"
 	"github.com/doldoldol21/netscope/pkg/types"
@@ -41,6 +45,20 @@ type Server struct {
 	// which causes a clean shutdown; launchd's KeepAlive then restarts it with
 	// the new binary.
 	RestartFunc func()
+
+	// HelperInstaller, when set, lets POST /api/helper/refresh replace the
+	// root-owned daemon copy with a release binary the app names — after the
+	// installer has verified it against the release's published checksum. The
+	// daemon sets this only when it runs as root under launchd; nil answers
+	// 501 so the app falls back to its admin prompt.
+	HelperInstaller HelperInstaller
+}
+
+// HelperInstaller vets and installs a successor daemon binary. Implemented by
+// internal/helperinstall; an interface here so the API package stays free of
+// the install mechanics and tests can stub it.
+type HelperInstaller interface {
+	Install(req helperinstall.Request) error
 }
 
 // NewServer builds a Server. store, updater and capturer may be nil.
@@ -68,6 +86,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/netusage", s.handleNetUsage)
 	mux.HandleFunc("/api/session/reset", s.handleSessionReset)
 	mux.HandleFunc("/api/restart", s.handleRestart)
+	mux.HandleFunc("/api/helper/refresh", s.handleHelperRefresh)
 	return mux
 }
 
@@ -97,6 +116,45 @@ func (s *Server) handleRestart(w http.ResponseWriter, r *http.Request) {
 	// Schedule the restart after the response has been flushed so the caller
 	// gets a clean 204. launchd's KeepAlive=true will bring the daemon back
 	// with the newly swapped binary.
+	go func() {
+		time.Sleep(200 * time.Millisecond)
+		s.RestartFunc()
+	}()
+}
+
+// handleHelperRefresh asks the daemon to install a newer copy of itself. The
+// request only names a file and a version; whether that file is really the
+// release is the installer's call, made against GitHub, never against the
+// caller. On success the daemon restarts the same way /api/restart does and
+// launchd brings the new binary up.
+func (s *Server) handleHelperRefresh(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.HelperInstaller == nil || s.RestartFunc == nil {
+		http.Error(w, "helper refresh not available", http.StatusNotImplemented)
+		return
+	}
+	var req helperinstall.Request
+	if err := json.NewDecoder(io.LimitReader(r.Body, 4096)).Decode(&req); err != nil {
+		http.Error(w, "bad request: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := s.HelperInstaller.Install(req); err != nil {
+		log.Printf("helper refresh: %v", err)
+		switch {
+		case errors.Is(err, helperinstall.ErrNotRoot), errors.Is(err, helperinstall.ErrNotManaged):
+			http.Error(w, err.Error(), http.StatusNotImplemented)
+		case errors.Is(err, helperinstall.ErrRejected):
+			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+		default:
+			http.Error(w, err.Error(), http.StatusBadGateway) // could not reach GitHub to vouch
+		}
+		return
+	}
+	log.Printf("helper refresh: installed %s from %s; restarting", req.Version, req.Path)
+	w.WriteHeader(http.StatusNoContent)
 	go func() {
 		time.Sleep(200 * time.Millisecond)
 		s.RestartFunc()

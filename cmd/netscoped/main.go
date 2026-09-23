@@ -25,6 +25,7 @@ import (
 	"github.com/doldoldol21/netscope/internal/demo"
 	"github.com/doldoldol21/netscope/internal/dnscache"
 	"github.com/doldoldol21/netscope/internal/engine"
+	"github.com/doldoldol21/netscope/internal/helperinstall"
 	"github.com/doldoldol21/netscope/internal/ipc"
 	"github.com/doldoldol21/netscope/internal/resolver"
 	"github.com/doldoldol21/netscope/internal/revdns"
@@ -255,6 +256,20 @@ func run(iface, pcapFile string, demoMode bool, sock, dbPath string, noStore boo
 	// Wire the restart endpoint: cancelling the context causes a clean shutdown,
 	// and launchd's KeepAlive=true brings the daemon back with the new binary.
 	apiSrv.RestartFunc = stop
+	// Let the app hand us a newer release of ourselves without an admin prompt.
+	// Only meaningful as the root-owned launchd helper; the installer refuses
+	// anything GitHub did not publish for the claimed version, and any version
+	// that is not newer than this one.
+	if os.Geteuid() == 0 {
+		apiSrv.HelperInstaller = &helperinstall.Installer{
+			Repo:       buildinfo.Repo,
+			Current:    buildinfo.Version,
+			HelperPath: helperinstall.DefaultHelperPath,
+			PlistPath:  helperinstall.DefaultPlistPath,
+			Fetch:      update.Fetch,
+			EUID:       os.Geteuid,
+		}
+	}
 	srv := &http.Server{Handler: apiSrv.Handler()}
 	go func() {
 		<-ctx.Done()

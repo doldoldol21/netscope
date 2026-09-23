@@ -472,12 +472,10 @@ if mv "$new" "$app" 2>/dev/null; then
   xattr -cr "$app" 2>/dev/null || true
   [ -n "$bak" ] && rm -rf "$bak"
   note "swapped in $app"
-  # Restart the capture helper so it runs the just-installed daemon binary.
-  # KeepAlive would otherwise keep the OLD daemon process alive until reboot.
-  # Ask the daemon to restart over its unix socket — since it already runs as
-  # root, no admin prompt is needed. After it exits, launchd's KeepAlive
-  # restarts it with the just-swapped binary.
-  curl -s --unix-socket /var/run/netscope/netscoped.sock -X POST http://x/api/restart 2>/dev/null || true
+  # The capture helper is a separate root-owned copy, so restarting it here
+  # would only relaunch the old build. The new app refreshes it on start
+  # (daemonctl.AutoRefreshHelper): the daemon verifies the bundled binary
+  # against the release's checksums.txt and installs it itself.
 else
   # restore the original so the user is never left without an app
   note "swap failed: could not move the new bundle into place; restored the previous one"
@@ -538,14 +536,8 @@ const (
 	maxChecksumBytes = 256 << 10
 )
 
-// allowedUpdateHost restricts update downloads to GitHub itself and its asset
-// CDN (release downloads redirect to *.githubusercontent.com). Anything else —
-// even if it appears in an API response — is refused.
-func allowedUpdateHost(host string) bool {
-	host = strings.ToLower(host)
-	return host == "github.com" || host == "api.github.com" ||
-		strings.HasSuffix(host, ".githubusercontent.com")
-}
+// allowedUpdateHost is the one allowlist, shared with the daemon's own fetches.
+func allowedUpdateHost(host string) bool { return update.AllowedHost(host) }
 
 // download fetches url to dest, refusing non-GitHub hosts (including on
 // redirects) and responses larger than maxBytes.
