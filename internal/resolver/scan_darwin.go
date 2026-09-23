@@ -134,16 +134,17 @@ import (
 // sockets; the bound keeps the C buffer fixed-size and the scan bounded.
 const maxRows = 16384
 
-// scan enumerates current sockets via libproc and resolves executable paths,
-// reusing the supplied cache only for a PID that was resolved before and is
-// still the same process (same start time). A PID that failed to resolve is
+// scan enumerates current sockets via libproc, fills in the kernel-owned ones
+// libproc cannot see from the pcb list, and resolves executable paths, reusing
+// the supplied cache only for a PID that was resolved before and is still the
+// same process (same start time). A PID that failed to resolve is
 // tried again every scan, and a PID handed to a new process after a wrap is
 // not mistaken for the one that had it.
 func scan(pathCache map[int]procEntry) ([]rawConn, map[int]procEntry) {
 	rows := make([]C.ns_conn_row, maxRows)
 	n := int(C.ns_scan(&rows[0], C.int(maxRows)))
-	if n <= 0 {
-		return nil, pathCache
+	if n < 0 {
+		n = 0 // the fd walk failed outright; the pcb list below still works
 	}
 
 	newPaths := make(map[int]procEntry, len(pathCache))
@@ -177,7 +178,29 @@ func scan(pathCache map[int]procEntry) ([]rawConn, map[int]procEntry) {
 			RPort: uint16(row.fport),
 		})
 	}
+
+	// Sockets the kernel owns on a process' behalf (Network.framework / NECP
+	// clients: cloudd, softwareupdated, apsd, trustd, mDNSResponder …) hold no
+	// fd, so the walk above never meets them. The kernel's pcb list does.
+	before := len(conns)
+	conns = mergePCBs(conns, listPCBs())
+	for _, c := range conns[before:] {
+		if _, ok := newPaths[c.PID]; ok {
+			continue
+		}
+		start := pidStart(c.PID)
+		if cached, hit := pathCache[c.PID]; hit && cached.reusable(start) {
+			newPaths[c.PID] = cached
+		} else {
+			newPaths[c.PID] = procEntry{proc: resolveProcess(c.PID), start: start}
+		}
+	}
 	return conns, newPaths
+}
+
+// pidStart returns the process start time in unix seconds, 0 if unknown.
+func pidStart(pid int) int64 {
+	return int64(C.ns_proc_start(C.int(pid)))
 }
 
 // resolveProcess names a PID. proc_pidpath is the first choice, but it fails
