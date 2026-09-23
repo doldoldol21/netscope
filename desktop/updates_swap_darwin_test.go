@@ -105,8 +105,10 @@ func TestSwapScriptReplacesTheBundleAndRelaunchesIt(t *testing.T) {
 	if !strings.Contains(calls, "open "+f.app) {
 		t.Errorf("new bundle was not relaunched; calls:\n%s", calls)
 	}
-	if !strings.Contains(calls, "curl ") {
-		t.Errorf("daemon was not asked to restart; calls:\n%s", calls)
+	// The helper is a separate root-owned copy: restarting the daemon here
+	// would only relaunch the old build. The new app refreshes it on start.
+	if strings.Contains(calls, "curl ") {
+		t.Errorf("swap script still pokes the daemon; calls:\n%s", calls)
 	}
 }
 

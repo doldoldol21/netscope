@@ -25,6 +25,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/doldoldol21/netscope/internal/buildinfo"
 )
 
 const (
@@ -186,6 +188,16 @@ func RefreshHelper(client *http.Client, sock string) error {
 	}
 	if reason == "" {
 		return nil
+	}
+	// First ask the running daemon to install its successor itself: no prompt,
+	// and it checks the file against the release's checksums.txt. A daemon
+	// that cannot (too old, not root, could not verify) leaves the privileged
+	// install as the way that always works.
+	if err := refreshViaDaemon(client, bundled, buildinfo.Version); err == nil {
+		log.Printf("daemonctl: %s; the daemon installed %s itself", reason, buildinfo.Version)
+		return waitForDaemon(client)
+	} else {
+		log.Printf("daemonctl: %s; prompt-free refresh not taken: %v", reason, err)
 	}
 	log.Printf("daemonctl: %s; reinstalling the capture helper", reason)
 	if ierr := installDaemon(bundled, sock); ierr != nil {

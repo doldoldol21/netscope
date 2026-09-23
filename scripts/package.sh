@@ -32,8 +32,12 @@ and launch it. The first run installs the capture helper (one admin prompt).
 TXT
 
 echo "==> checksums"
-# SHA-256 of the release zip, verified by the in-app self-update and install.sh.
-( cd "$DIST" && shasum -a 256 netscope-*-app.zip > checksums.txt )
+# SHA-256 of the release zip, verified by the in-app self-update and install.sh,
+# and of the daemon inside the bundle: the running root helper refreshes itself
+# from the bundle only when the bundled binary hashes to this published value
+# (internal/helperinstall), so no admin prompt is needed after a self-update.
+( cd "$DIST" && shasum -a 256 netscope-*-app.zip > checksums.txt \
+  && ( cd netscope.app/Contents/MacOS && shasum -a 256 netscoped ) >> checksums.txt )
 
 # Optional notarization (Developer ID builds only).
 if [ "$SIGN_ID" != "-" ] && [ -n "${NETSCOPE_NOTARY_PROFILE:-}" ]; then

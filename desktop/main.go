@@ -62,7 +62,15 @@ func main() {
 	// Bring the capture daemon up if it isn't already (one admin prompt on a
 	// fresh direct-download install; no-op when installed via install.sh).
 	client := ipc.Client(sock)
-	go func() { _ = daemonctl.Ensure(client, sock) }()
+	go func() {
+		_ = daemonctl.Ensure(client, sock)
+		// After a self-update the bundle carries a newer daemon than the
+		// root-owned helper launchd runs. Ask the daemon to install it — no
+		// prompt; it verifies the file against the release checksums itself.
+		// If that is not possible the popover banner still offers the
+		// admin-prompt route.
+		daemonctl.AutoRefreshHelper(client, sock)
+	}()
 
 	// Watch today's usage against the user's thresholds and notify on crossings.
 	startAlertsLoop(client)
