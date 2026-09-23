@@ -87,7 +87,10 @@ Two things do go out, both ordinary network requests rather than capture data:
 - **Update checks.** Every few hours the app asks `api.github.com` for the
   latest release, and the daemon makes the same check to fill `/api/version`.
   These are separate: *Automatic updates* in settings stops the app's check
-  only, and the daemon's needs `netscoped --no-update-check`.
+  only, and the daemon's needs `netscoped --no-update-check`. Installing an
+  update you clicked is a third request, which that flag does not cover: the
+  daemon fetches that release's `checksums.txt` from `github.com` once, to
+  verify the new capture helper before installing it.
 
 Daemon flags live in `/Library/LaunchDaemons/io.netscope.daemon.plist` under
 `ProgramArguments`. After editing it, make launchd re-read the file — a restart
