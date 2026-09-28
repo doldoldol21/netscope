@@ -181,3 +181,59 @@ void focusPopover(void) {
     [NSApp activateIgnoringOtherApps:YES];
   });
 }
+
+// installPopoverMaterial shapes the popover's translucent backdrop. Wails
+// already puts a full-window NSVisualEffectView under the webview for a
+// translucent window (WindowIsTranslucent); left alone it paints the whole
+// rectangle, so the 10px band the page keeps around its card shows up as a
+// square frame. This finds that view and makes it the card: inset to the
+// page's body padding, rounded to the card's radius, and on the system's
+// popover material rather than the default window one. Idempotent.
+static BOOL gMaterialShaped = NO;
+static NSWindow *wailsWindow(void) {
+  for (NSWindow *w in [NSApp windows]) {
+    if ([w isKindOfClass:NSClassFromString(@"WailsWindow")]) return w;
+  }
+  return nil;
+}
+void installPopoverMaterial(void) {
+  dispatch_async(dispatch_get_main_queue(), ^{
+    if (gMaterialShaped) return;
+    NSWindow *win = wailsWindow();
+    if (!win) return;
+    NSView *content = win.contentView;
+    NSVisualEffectView *ev = nil;
+    for (NSView *v in content.subviews) {
+      if ([v isKindOfClass:[NSVisualEffectView class]]) { ev = (NSVisualEffectView *)v; break; }
+    }
+    if (!ev) {
+      ev = [[NSVisualEffectView alloc] initWithFrame:content.bounds];
+      ev.blendingMode = NSVisualEffectBlendingModeBehindWindow;
+      ev.state = NSVisualEffectStateActive;
+      [content addSubview:ev positioned:NSWindowBelow relativeTo:nil];
+    }
+    ev.frame = NSInsetRect(content.bounds, 10, 10);
+    ev.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable; // margins stay fixed
+    ev.material = NSVisualEffectMaterialPopover;
+    ev.wantsLayer = YES;
+    ev.layer.cornerRadius = 12;
+    ev.layer.masksToBounds = YES;
+    if (@available(macOS 10.15, *)) ev.layer.cornerCurve = kCACornerCurveContinuous;
+    gMaterialShaped = YES;
+  });
+}
+
+// setPopoverAppearance makes the window follow the app's theme choice, so the
+// material and the page's prefers-color-scheme agree: "auto" hands the window
+// back to the system, "light"/"dark" pin it. The page's own data-theme handles
+// the CSS; this handles what AppKit draws behind it.
+void setPopoverAppearance(const char *mode) {
+  NSString *m = [NSString stringWithUTF8String:mode ?: "auto"];
+  dispatch_async(dispatch_get_main_queue(), ^{
+    NSWindow *win = wailsWindow();
+    if (!win) return;
+    if ([m isEqualToString:@"light"]) win.appearance = [NSAppearance appearanceNamed:NSAppearanceNameAqua];
+    else if ([m isEqualToString:@"dark"]) win.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
+    else win.appearance = nil;
+  });
+}

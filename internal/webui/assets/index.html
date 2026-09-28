@@ -8,7 +8,7 @@
 <link rel="stylesheet" href="panel.css" />
 </head>
 <body>
-<div class="panel">
+<div class="panel" id="panel">
   <header class="drag">
     <span class="brand">netscope</span>
     <span class="dot" id="dot"></span>
@@ -19,54 +19,40 @@
             data-i18n-aria="tip.pause" data-i18n-tip="tip.pause" data-tip="Pause capture" data-tip-down>⏸</button>
   </header>
   <div class="iface-menu" id="iface-menu" hidden></div>
-
   <button class="updbanner" id="updbanner" hidden>
     <span class="ub-txt" data-i18n="pop.updateAvailable">Update available</span>
     <span class="ub-go" data-i18n="pop.updateGo">Update ↻</span>
   </button>
-
   <div class="updbanner" id="helperbanner" hidden>
     <span class="ub-txt" data-i18n="pop.helperUpdate">Capture helper needs updating</span>
     <span class="ub-go" id="helper-go" data-i18n="pop.updateGo">Update ↻</span>
     <span class="ub-x" id="helper-dismiss" role="button" tabindex="0"
           data-i18n-aria="pop.helperDismiss" aria-label="Dismiss">✕</span>
   </div>
-
-  <div class="today">
-    <div class="k" data-i18n="card.todayTotal">Today · total</div>
+  <!-- One block says everything about now: today's total as the one big
+       figure, with its split and the live rates stacked beside it. -->
+  <section class="hero">
     <div class="big" id="t-total"><span class="n">—</span></div>
-    <div class="today-split" id="t-split"></div>
-  </div>
-
-  <section class="rates">
-    <div class="rate down">
-      <div class="k" data-i18n="rate.down">down</div>
-      <div class="line"><span class="v" id="rx">—</span></div>
-    </div>
-    <div class="rate up">
-      <div class="k" data-i18n="rate.up">up</div>
-      <div class="line"><span class="v" id="tx">—</span></div>
+    <div class="stack">
+      <div class="l"><span class="lab" data-i18n="pop.today">Today</span><span class="vals" id="t-split"></span></div>
+      <div class="l"><span class="lab" data-i18n="pop.now">Now</span><span class="vals"><span class="rx" id="rx">—</span><span class="tx" id="tx">—</span></span></div>
     </div>
   </section>
-
-  <canvas id="spark"></canvas>
-
   <div class="section-head">
     <span class="k" data-i18n="pop.topApps">Top apps</span><span class="hint" id="active"></span>
   </div>
   <ul class="apps" id="apps"></ul>
-
   <footer>
-    <button class="primary" id="dash" aria-label="Open Dashboard" data-i18n-aria="pop.openDash"><span data-i18n="pop.openDash">Open Dashboard</span></button>
-    <!-- Sits to the RIGHT of the dashboard button on purpose: that button keeps
+    <button class="item" id="dash" aria-label="Open Dashboard" data-i18n-aria="pop.openDash"><span data-i18n="pop.openDash">Open Dashboard</span></button>
+    <!-- Sits to the RIGHT of the dashboard item on purpose: that item keeps
          its position, so muscle memory can't land on "update and restart". -->
-    <button class="primary upd" id="dash-upd" hidden></button>
+    <button class="upd" id="dash-upd" hidden></button>
+    <span class="spacer"></span>
     <button class="ghost" id="alerts-btn" aria-label="Settings"
             data-i18n-aria="tip.settings" data-i18n-tip="tip.settings" data-tip="Settings">⚙</button>
     <button class="ghost" id="quit" aria-label="Quit netscope"
             data-i18n-aria="tip.quit" data-i18n-tip="tip.quit" data-tip="Quit">⏻</button>
   </footer>
-
   <div class="settings" id="settings">
     <div class="set-head">
       <span data-i18n="set.title">Settings</span>

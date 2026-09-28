@@ -3,7 +3,7 @@
 package main
 
 /*
-#cgo LDFLAGS: -framework Cocoa
+#cgo LDFLAGS: -framework Cocoa -framework QuartzCore
 #include <stdlib.h>
 extern void installStatusItem(const void *png, int len);
 extern void setStatusImage(const void *png, int len);
@@ -12,6 +12,8 @@ extern void setStatusText(const char *utf8);
 extern void positionPopover(int winW, int winH);
 extern void enablePopoverDismiss(void);
 extern void focusPopover(void);
+extern void installPopoverMaterial(void);
+extern void setPopoverAppearance(const char *mode);
 */
 import "C"
 
@@ -74,4 +76,17 @@ func popoverDidHideGo() {
 	// thread (the resign-key observer), so hop off it before calling the Wails
 	// runtime, which must not run on the main thread.
 	go setPanelLive(ctx, false)
+}
+
+// installPopoverMaterial puts a vibrancy view behind the popover's transparent
+// webview, so the panel is drawn on the same blurred material as the system's
+// own menu-bar popovers. Idempotent.
+func installPopoverMaterial() { C.installPopoverMaterial() }
+
+// setPopoverAppearance pins the popover window's appearance to the theme
+// ("auto" follows the system), so the translucent material matches the page.
+func setPopoverAppearance(mode string) {
+	cs := C.CString(mode)
+	defer C.free(unsafe.Pointer(cs))
+	C.setPopoverAppearance(cs)
 }

@@ -17,66 +17,9 @@ const numUnitHTML = (n, rate) => {
 };
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
-// Theme colors for the canvas, cached — getComputedStyle is a forced style
-// resolution and drawSpark runs every second. Invalidated on theme change
-// (applyTheme) and on OS light/dark flips.
-let sparkColorCache = null;
-function sparkColors() {
-  if (sparkColorCache) return sparkColorCache;
-  const css = getComputedStyle(document.body);
-  sparkColorCache = {
-    rx: css.getPropertyValue("--rx").trim(),
-    tx: css.getPropertyValue("--tx").trim(),
-    rxFill: css.getPropertyValue("--rx-fill").trim(),
-    txFill: css.getPropertyValue("--tx-fill").trim(),
-  };
-  return sparkColorCache;
-}
-window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { sparkColorCache = null; });
-
-// ---- sparkline ----
-const spark = $("spark"), sx = spark.getContext("2d"), hist = [], MAXP = 80;
-// The popover is fixed-size, so cache the canvas rect instead of forcing
-// layout with getBoundingClientRect on every 1 Hz draw (right after the DOM
-// writes in render(), which made it a guaranteed reflow).
-let sparkRect = null;
-window.addEventListener("resize", () => { sparkRect = null; });
-function drawSpark() {
-  const dpr = window.devicePixelRatio || 1;
-  const r = sparkRect && sparkRect.width >= 1 ? sparkRect : (sparkRect = spark.getBoundingClientRect());
-  // While the popover is hidden the canvas has no layout size; skip so we don't
-  // blank it to nothing (which made the graph "disappear" until the next tick).
-  if (r.width < 1 || r.height < 1) return;
-  // Assigning width/height clears and reallocates the backing bitmap, so only
-  // do it when the layout size actually changed (this redraws every second).
-  const W = Math.round(r.width * dpr), H = Math.round(r.height * dpr);
-  if (spark.width !== W || spark.height !== H) { spark.width = W; spark.height = H; }
-  sx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  const w = r.width, h = r.height; sx.clearRect(0, 0, w, h);
-  if (hist.length < 2) return;
-  const c = sparkColors();
-  const max = Math.max(1, ...hist.map((p) => Math.max(p.rx, p.tx)));
-  // Step traces with a flat soft fill (Field Notebook instrument-chart look).
-  const line = (key, color, fill) => {
-    const px = (i) => w * (i + (MAXP - hist.length)) / (MAXP - 1);
-    const py = (p) => h - (p[key] / max) * (h - 6) - 3;
-    const trace = () => {
-      sx.beginPath();
-      hist.forEach((p, i) => {
-        if (!i) { sx.moveTo(px(i), py(p)); return; }
-        sx.lineTo(px(i), py(hist[i - 1]));
-        sx.lineTo(px(i), py(p));
-      });
-    };
-    trace();
-    sx.lineTo(w, h); sx.lineTo(px(0), h); sx.closePath();
-    sx.fillStyle = fill; sx.fill();
-    trace();
-    sx.strokeStyle = color; sx.lineWidth = 1.2; sx.lineJoin = "round"; sx.stroke();
-  };
-  line("rx", c.rx, c.rxFill);
-  line("tx", c.tx, c.txFill);
-}
+// The popover carries no chart: the trend is the dashboard's job, and a menu
+// popover that redraws a canvas every second was the one thing in it that
+// did not look like macOS. What "now" needs is two numbers.
 
 const setText = (el, s) => { if (el && el.textContent !== s) el.textContent = s; };
 // Guarded attribute/HTML writes: rewriting an identical value still replaces
@@ -104,16 +47,14 @@ function render(s) {
   }
   updateMetaText(); // capturing can change while the interface name does not
   const rxEl = $("rx"), txEl = $("tx");
-  const rxHTML = numUnitHTML(s.rxPerSec, true), txHTML = numUnitHTML(s.txPerSec, true);
+  const rxHTML = "↓ " + numUnitHTML(s.rxPerSec, true), txHTML = "↑ " + numUnitHTML(s.txPerSec, true);
   if (rxEl.innerHTML !== rxHTML) rxEl.innerHTML = rxHTML;
   if (txEl.innerHTML !== txHTML) txEl.innerHTML = txHTML;
   if (s.activeApps != null) setText($("active"), t("pop.active", { n: s.activeApps }));
 
-  hist.push({ rx: Number(s.rxPerSec) || 0, tx: Number(s.txPerSec) || 0 });
-  while (hist.length > MAXP) hist.shift();
-  drawSpark();
-
-  const apps = (s.apps || []).slice(0, 6);
+  // Three rows: the popover answers "who, right now"; the ranking past that is
+  // what the dashboard is for. The order is the rank, so no rank column.
+  const apps = (s.apps || []).slice(0, 3);
   const el = $("apps");
   if (!apps.length) { if (appsSig !== "empty") { el.innerHTML = `<li class="empty">${t("state.waiting")}</li>`; appsSig = "empty"; } return; }
   const max = Math.max(1, ...apps.map((a) => Number(a.rxBytes) + Number(a.txBytes)));
@@ -133,7 +74,6 @@ function render(s) {
       if (li !== target) el.insertBefore(li, target);
       prev = li;
       const a = apps[i];
-      setText(li.querySelector(".rk"), String(i + 1));
       setText(li.querySelector(".by"), fmtBytes(Number(a.rxBytes) + Number(a.txBytes)));
       const seg = li.querySelector(".ub").children;
       const rxW = (100 * Number(a.rxBytes) / max).toFixed(1) + "%";
@@ -143,15 +83,15 @@ function render(s) {
     }
     if (appsSig) return;
   }
-  const html = apps.map((a, i) => {
+  const html = apps.map((a) => {
     const name = a.name || "unknown";
     const total = Number(a.rxBytes) + Number(a.txBytes);
     const rxW = (100 * Number(a.rxBytes) / max).toFixed(1);
     const txW = (100 * Number(a.txBytes) / max).toFixed(1);
-    return `<li data-k="${esc(name)}"><span class="rk">${i + 1}</span>` +
-      `<span class="mid"><span class="nm" title="${esc(a.path || name)}">${esc(name)}</span>` +
-      `<span class="ub"><i class="rx" style="width:${rxW}%"></i><i class="tx" style="width:${txW}%"></i></span></span>` +
-      `<span class="by">${fmtBytes(total)}</span></li>`;
+    return `<li data-k="${esc(name)}">` +
+      `<span class="nm" title="${esc(a.path || name)}">${esc(name)}</span>` +
+      `<span class="by">${fmtBytes(total)}</span>` +
+      `<span class="ub"><i class="rx" style="width:${rxW}%"></i><i class="tx" style="width:${txW}%"></i></span></li>`;
   }).join("");
   el.innerHTML = html;
   appsSig = sig;
@@ -176,6 +116,9 @@ async function loadToday() {
     const s = await r.json();
     const rx = Number(s.totalRx) || 0, tx = Number(s.totalTx) || 0;
     setHTML($("t-total"), numUnitHTML(rx + tx));
+    // "1023 GB" is four digits: the figure steps down a size so the stack
+    // beside it still fits in the popover's width.
+    $("t-total").classList.toggle("wide", fmtParts(rx + tx).num.length >= 4);
     setHTML($("t-split"),
       `<span class="rx">↓ ${fmtBytes(rx)}</span>` +
       `<span class="tx">↑ ${fmtBytes(tx)}</span>`);
@@ -199,28 +142,14 @@ function connect() {
 }
 function disconnect() { if (es) { es.close(); es = null; } }
 
-// Seed the sparkline from the daemon's recent per-second history so the graph is
-// continuous on (re)open instead of starting blank — the popover only collects
-// live points while visible, so without this it has gaps for the time it was
-// closed. Live messages append after.
-async function seedSpark() {
-  try {
-    const r = await fetch("/api/ratehist");
-    if (!r.ok) return;
-    const pts = await r.json();
-    if (!Array.isArray(pts) || !pts.length) return;
-    hist.length = 0;
-    for (const p of pts.slice(-MAXP)) {
-      hist.push({ rx: Number(p.rxPerSec) || 0, tx: Number(p.txPerSec) || 0 });
-    }
-    drawSpark();
-  } catch (_) { /* daemon not ready */ }
-}
 // nsLive(true|false): start/stop the live stream + today's-total polling.
 window.nsLive = (on) => {
   wantLive = !!on;
   if (on) {
-    seedSpark(); // continuous history on (re)open, then live appends
+    // Opening makes the window key, and WebKit hands focus to the first
+    // focusable thing — a banner's dismiss glyph, ringed. Nothing in the
+    // popover wants focus until the user reaches for it.
+    if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
     connect();
     loadToday();
     if (!todayTimer) todayTimer = setInterval(loadToday, 15000);
@@ -260,7 +189,6 @@ function applyTheme(mode) {
   const m = ["auto", "light", "dark"].includes(mode) ? mode : "auto";
   if (m === "auto") document.documentElement.removeAttribute("data-theme");
   else document.documentElement.setAttribute("data-theme", m);
-  sparkColorCache = null; // canvas colors changed with the theme
   const sel = $("set-theme");
   if (sel) sel.value = m;
 }
@@ -502,6 +430,15 @@ function renderUpdate(st) {
     banner.hidden = true; now.hidden = true;
     setFooterUpdate(null);
   }
+  syncBannerState();
+}
+
+// A banner takes the height of an app row. The popover is fixed-size, so
+// rather than clip the third row half-way the list yields it (CSS) while any
+// banner is up.
+function syncBannerState() {
+  const up = !$("updbanner").hidden || !$("helperbanner").hidden;
+  $("panel").classList.toggle("has-banner", up);
 }
 
 // setFooterUpdate shows (or hides) the update button that shares the footer with
@@ -564,6 +501,7 @@ function renderHelper(st) {
   if (!banner) return;
   banner.dataset.digest = st.digest || "";
   banner.hidden = !st.needsUpdate;
+  syncBannerState();
 }
 $("helperbanner").onclick = (e) => {
   const r = rt();
@@ -632,5 +570,3 @@ window.addEventListener("DOMContentLoaded", () => {
 // popover's DOM is ready, and toggles it on show/hide thereafter.
 window.nsLive(true);
 refreshIface(); // populate the capture-interface chip + menu
-drawSpark();
-window.addEventListener("resize", drawSpark);
