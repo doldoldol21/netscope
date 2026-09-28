@@ -7,6 +7,9 @@
 // just an orderOut — none of which disturbs the menu-bar popover.
 
 static NSWindow *gDash = nil;
+// Width of the page's sidebar (styles.css .shell grid column) — the material
+// strip behind it has to be the same.
+static const CGFloat kDashSidebarWidth = 250;
 static WKWebView *gDashWeb = nil;
 static id gDashDelegate = nil;
 static id gDashKeyMonitor = nil;
@@ -113,8 +116,10 @@ void openDashWindow(const char *curl) {
       gDash.title = @"netscope";
       gDash.titlebarAppearsTransparent = YES;        // blend the bar into the UI
       gDash.titleVisibility = NSWindowTitleVisible;   // show "netscope" in the title bar
-      gDash.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
-      gDash.backgroundColor = [NSColor colorWithSRGBRed:13/255.0 green:17/255.0 blue:23/255.0 alpha:1.0];
+      // No pinned appearance: setDashAppearance follows the theme setting, and
+      // the dynamic system colour keeps the (transparent) title bar strip on
+      // the window's own ground in either scheme.
+      gDash.backgroundColor = [NSColor windowBackgroundColor];
       // Don't let the window shrink past the point where the tables still show
       // every column. Below ~1080 the numeric columns start crowding the name
       // out; the CSS can cope (it stacks the panels), but a dashboard whose
@@ -161,7 +166,23 @@ void openDashWindow(const char *curl) {
       [cfg.userContentController addScriptMessageHandler:gExportHandler name:@"netscopeExport"];
       gDashWeb = [[WKWebView alloc] initWithFrame:frame configuration:cfg];
       gDashWeb.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
-      gDash.contentView = gDashWeb;
+      // The page's sidebar sits on the system's sidebar material, the way
+      // System Settings and Finder draw theirs: a vibrancy view under the
+      // left strip, a webview that draws no background over it, and the page
+      // painting its main column opaque and its sidebar as a tint only. The
+      // strip is 250pt to match the CSS sidebar width at every window size.
+      NSView *root = [[NSView alloc] initWithFrame:frame];
+      root.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+      NSVisualEffectView *sidebar = [[NSVisualEffectView alloc]
+        initWithFrame:NSMakeRect(0, 0, kDashSidebarWidth, frame.size.height)];
+      sidebar.autoresizingMask = NSViewHeightSizable | NSViewMaxXMargin;
+      sidebar.material = NSVisualEffectMaterialSidebar;
+      sidebar.blendingMode = NSVisualEffectBlendingModeBehindWindow;
+      sidebar.state = NSVisualEffectStateFollowsWindowActiveState;
+      [root addSubview:sidebar];
+      [gDashWeb setValue:@NO forKey:@"drawsBackground"];
+      [root addSubview:gDashWeb];
+      gDash.contentView = root;
       [gDash center];
     }
     NSURL *url = [NSURL URLWithString:urlStr];
@@ -204,5 +225,18 @@ void dashEvalJS(const char *js) {
 void closeDashWindow(void) {
   dispatch_async(dispatch_get_main_queue(), ^{
     if (gDash) [gDash orderOut:nil];
+  });
+}
+
+// setDashAppearance makes the dashboard window follow the app's theme choice:
+// "auto" hands it to the system, "light"/"dark" pin it. The page's data-theme
+// handles the CSS; this handles the title bar and the sidebar material.
+void setDashAppearance(const char *mode) {
+  NSString *m = [NSString stringWithUTF8String:mode ?: "auto"];
+  dispatch_async(dispatch_get_main_queue(), ^{
+    if (!gDash) return;
+    if ([m isEqualToString:@"light"]) gDash.appearance = [NSAppearance appearanceNamed:NSAppearanceNameAqua];
+    else if ([m isEqualToString:@"dark"]) gDash.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
+    else gDash.appearance = nil;
   });
 }

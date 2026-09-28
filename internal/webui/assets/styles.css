@@ -1,84 +1,100 @@
-/* netscope dashboard — "Field Notebook" design language.
-   Shared by the daemon web view and the Wails desktop app. No build step:
-   plain CSS custom properties with a light (paper) default and a dark scheme.
-   Type: the system stack — SF Pro for words, SF Mono for figures. Nothing is
-   bundled: this runs in a WKWebView on macOS, so the most ordinary thing it can
-   look like is macOS, and matching the OS is also what keeps native form
-   controls from standing out against everything around them. */
+/* netscope dashboard — drawn in macOS's own grammar, the same one the popover
+   uses: the system face at 13/12/11px, a sidebar on the system's sidebar
+   material (an NSVisualEffectView sits under the left 250pt of a webview that
+   draws no background; this sheet only tints it), Finder-style list tables,
+   segmented controls for ranges, toolbar buttons. Two hues are ours — ↓ teal
+   and ↑ terracotta — everything else is the system's greys. Light default,
+   dark scheme via the OS or an explicit choice. No build step. */
 
 :root {
   color-scheme: light;
-  --bg: #eef1f4;          /* page paper */
-  --surface: #f9fbfc;     /* raised bands: header, chart, connections, footer */
-  --side: #e6ebef;        /* sidebar paper */
-  --line: #d3d9de;        /* structural hairlines */
-  --line-soft: #dfe5ea;   /* row separators */
-  --line-side: #dde3e8;   /* sidebar separators + bar tracks */
-  --fg: #14181d;
-  --fg-dim: #566069;
-  --muted: #87909a;
-  --faint: #a6afb8;
-  --accent: #1f6f8b;      /* ink teal — also the download series */
+  --bg: #f5f5f7;            /* window ground (main column) */
+  --surface: #fbfbfd;       /* raised bands: toolbar, chart, connections, footer */
+  --side: rgba(236, 236, 240, .55); /* tint over the sidebar material */
+  --line: rgba(0, 0, 0, .1);        /* structural hairlines */
+  --line-soft: rgba(0, 0, 0, .06);  /* row separators */
+  --line-side: rgba(0, 0, 0, .08);  /* sidebar separators + bar tracks */
+  --zebra: rgba(0, 0, 0, .025);
+  --fg: rgba(0, 0, 0, .86);
+  --fg-dim: rgba(0, 0, 0, .55);
+  --muted: rgba(0, 0, 0, .4);
+  --faint: rgba(0, 0, 0, .26);
+  --accent: #1f6f8b;        /* teal — also the download series */
   --accent-hover: #2c86a4;
   --rx: #1f6f8b;
-  --rx-fill: rgba(31, 111, 139, .13);
-  --tx: #cf5b42;          /* ink orange — upload */
-  --tx-fill: rgba(207, 91, 66, .14);
-  --s3: #6f8794;          /* share strip: third slice */
-  --s-rest: #ced6dc;      /* share strip: everything else */
-  --num: #14181d;         /* totals column */
-  --rank-up: #2f7d52;     /* rank climbed — the only green in the palette */
-  --rank-down: #87909a;   /* rank fell — grey, so the pair can't be misread */
-  --btn-bg: #e6ebef;
-  --overlay: rgba(20, 24, 29, .34);
-  --shadow-pop: 0 18px 34px -20px rgba(8, 18, 26, .5);
-  --shadow-modal: 0 40px 80px -40px rgba(8, 18, 26, .6);
-  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
-  --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
-  /* label = the recurring uppercase section marker */
-  --label-font: 500 10.5px/1 var(--sans);
-  --label-track: 1.4px;
+  --rx-fill: rgba(31, 111, 139, .12);
+  --tx: #cf5b42;            /* terracotta — upload */
+  --tx-fill: rgba(207, 91, 66, .12);
+  --s3: #6f8794;            /* share strip: third slice */
+  --s-rest: rgba(0, 0, 0, .12); /* share strip: everything else */
+  --num: rgba(0, 0, 0, .86); /* totals column */
+  --rank-up: #2f7d52;
+  --rank-down: rgba(0, 0, 0, .4);
+  --field: rgba(0, 0, 0, .05);      /* search fields */
+  --seg: rgba(0, 0, 0, .06);        /* segmented control track */
+  --seg-on: #fff;                   /* selected segment */
+  --btn: #fff;                      /* toolbar buttons */
+  --btn-line: rgba(0, 0, 0, .14);
+  --btn-bg: #fff;
+  --overlay: rgba(0, 0, 0, .3);
+  --shadow-pop: 0 0 0 .5px rgba(0, 0, 0, .18), 0 6px 18px rgba(0, 0, 0, .14);
+  --shadow-modal: 0 0 0 .5px rgba(0, 0, 0, .2), 0 24px 60px rgba(0, 0, 0, .28);
+  --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  /* Figures use the same face with tabular numerals; app.js reads --mono for
+     canvas axis labels, so it stays defined and points at the system face. */
+  --mono: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --label-font: 600 11px/1 var(--sans);
 }
 
 /* Dark scheme: automatically when the OS is dark and no explicit choice, or
-   forced via [data-theme="dark"]. [data-theme="light"] keeps the paper above. */
+   forced via [data-theme="dark"]. [data-theme="light"] keeps the light set. */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     color-scheme: dark;
-    --bg: #10161a; --surface: #161e23; --side: #131a1f;
-    --line: #263038; --line-soft: #1e262c; --line-side: #1f2a31;
-    --fg: #e8eef2; --fg-dim: #a4b0b8; --muted: #7b878f; --faint: #6b767d;
+    --bg: #1e1e20; --surface: #232326; --side: rgba(40, 40, 44, .45);
+    --line: rgba(255, 255, 255, .1); --line-soft: rgba(255, 255, 255, .06); --line-side: rgba(255, 255, 255, .12);
+    --zebra: rgba(255, 255, 255, .03);
+    --fg: rgba(255, 255, 255, .9); --fg-dim: rgba(255, 255, 255, .6); --muted: rgba(255, 255, 255, .45); --faint: rgba(255, 255, 255, .3);
     --accent: #4fa3c0; --accent-hover: #63b3ce;
     --rx: #4fa3c0; --rx-fill: rgba(79, 163, 192, .16);
-    --tx: #ef7f68; --tx-fill: rgba(239, 127, 104, .18);
-    --s3: #5f7d8c; --s-rest: #2b3841;
-    --num: #c3ccd3; --btn-bg: #1b242a;
-    --rank-up: #57b884; --rank-down: #7b878f;
-    --overlay: rgba(4, 8, 11, .5);
+    --tx: #ef7f68; --tx-fill: rgba(239, 127, 104, .16);
+    --s3: #8fa4b0; --s-rest: rgba(255, 255, 255, .14);
+    --num: rgba(255, 255, 255, .9);
+    --rank-up: #57b884; --rank-down: rgba(255, 255, 255, .45);
+    --field: rgba(255, 255, 255, .08); --seg: rgba(255, 255, 255, .08); --seg-on: rgba(255, 255, 255, .18);
+    --btn: rgba(255, 255, 255, .08); --btn-line: rgba(255, 255, 255, .14); --btn-bg: rgba(255, 255, 255, .08);
+    --overlay: rgba(0, 0, 0, .5);
+    --shadow-pop: 0 0 0 .5px rgba(0, 0, 0, .6), 0 6px 18px rgba(0, 0, 0, .4);
+    --shadow-modal: 0 0 0 .5px rgba(0, 0, 0, .7), 0 24px 60px rgba(0, 0, 0, .55);
   }
 }
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --bg: #10161a; --surface: #161e23; --side: #131a1f;
-  --line: #263038; --line-soft: #1e262c; --line-side: #1f2a31;
-  --fg: #e8eef2; --fg-dim: #a4b0b8; --muted: #7b878f; --faint: #6b767d;
+  --bg: #1e1e20; --surface: #232326; --side: rgba(40, 40, 44, .45);
+  --line: rgba(255, 255, 255, .1); --line-soft: rgba(255, 255, 255, .06); --line-side: rgba(255, 255, 255, .12);
+  --zebra: rgba(255, 255, 255, .03);
+  --fg: rgba(255, 255, 255, .9); --fg-dim: rgba(255, 255, 255, .6); --muted: rgba(255, 255, 255, .45); --faint: rgba(255, 255, 255, .3);
   --accent: #4fa3c0; --accent-hover: #63b3ce;
   --rx: #4fa3c0; --rx-fill: rgba(79, 163, 192, .16);
-  --tx: #ef7f68; --tx-fill: rgba(239, 127, 104, .18);
-  --s3: #5f7d8c; --s-rest: #2b3841;
-  --num: #c3ccd3; --btn-bg: #1b242a;
-  --rank-up: #57b884; --rank-down: #7b878f;
-  --overlay: rgba(4, 8, 11, .5);
+  --tx: #ef7f68; --tx-fill: rgba(239, 127, 104, .16);
+  --s3: #8fa4b0; --s-rest: rgba(255, 255, 255, .14);
+  --num: rgba(255, 255, 255, .9);
+  --rank-up: #57b884; --rank-down: rgba(255, 255, 255, .45);
+  --field: rgba(255, 255, 255, .08); --seg: rgba(255, 255, 255, .08); --seg-on: rgba(255, 255, 255, .18);
+  --btn: rgba(255, 255, 255, .08); --btn-line: rgba(255, 255, 255, .14); --btn-bg: rgba(255, 255, 255, .08);
+  --overlay: rgba(0, 0, 0, .5);
+  --shadow-pop: 0 0 0 .5px rgba(0, 0, 0, .6), 0 6px 18px rgba(0, 0, 0, .4);
+  --shadow-modal: 0 0 0 .5px rgba(0, 0, 0, .7), 0 24px 60px rgba(0, 0, 0, .55);
 }
 
 * { box-sizing: border-box; }
 html, body { height: 100%; }
 body {
-  margin: 0; background: var(--bg); color: var(--fg);
-  font-family: var(--sans); font-size: 13.5px; line-height: 1.45;
-  -webkit-font-smoothing: antialiased;
-  /* Native app shell: the window itself does not scroll — the header/footer
-     are fixed and the sidebar + main column scroll independently. */
+  /* Transparent on purpose: the sidebar material shows through the aside.
+     Every opaque area paints itself (main, bands, tables). */
+  margin: 0; background: transparent; color: var(--fg);
+  font-family: var(--sans); font-size: 13px; line-height: 1.4;
+  -webkit-font-smoothing: antialiased; font-variant-numeric: tabular-nums;
   height: 100vh; display: flex; flex-direction: column; overflow: hidden;
   overscroll-behavior: none;
 }
@@ -86,374 +102,308 @@ body {
    webview out of macOS overlay scrollbars, which is what pinned a grey bar
    beside every panel. Left alone, the system draws its own — visible while
    scrolling, faded out otherwise — and follows color-scheme for dark mode.
-   (Hover-toggling the styled thumb doesn't work either: WebKit doesn't repaint
-   scrollbar pseudo-elements when the hover ends, so the bar stayed put.)
    scrollbar-gutter: stable below keeps layout steady for anyone whose system
    is set to "Always show scrollbars". */
 
-/* the uppercase section marker used everywhere */
-.k {
-  font: var(--label-font); text-transform: uppercase;
-  letter-spacing: var(--label-track); color: var(--muted); white-space: nowrap;
-}
-
-/* ---------- header (fixed toolbar) ---------- */
-header {
-  position: relative; flex: 0 0 auto; z-index: 10;
-  display: flex; align-items: baseline; gap: 14px;
-  padding: 15px 24px 12px;
-  background: var(--surface); border-bottom: 1px solid var(--line);
-  --wails-draggable: drag; /* Wails drag region (NOT -webkit-app-region) */
-}
+/* section caption: what System Settings uses over a group */
+.k { font: var(--label-font); color: var(--muted); white-space: nowrap; }
+.spacer { flex: 1; }
 /* Keep interactive controls clickable even inside a drag region. */
 button, a, input, select, canvas, th, .tabs { --wails-draggable: no-drag; }
-/* Native controls default to the UA's own font and size, which is why selects
-   and inputs used to sit visibly apart from the text beside them. Inheriting is
-   the base rule; anything that wants different type still says so below. */
 button, input, select, textarea { font: inherit; }
-
-header .brand { display: flex; align-items: center; gap: 10px; }
-header h1 { font: 600 17px/1 var(--sans); letter-spacing: -.3px; margin: 0; }
-.dot { width: 5px; height: 5px; border-radius: 50%; background: var(--muted); transition: background .3s; }
-.dot.live { background: var(--tx); }   /* recording mark */
-.dot.warn { background: var(--muted); }
-.status-line {
-  font: 400 12px/1 var(--mono); color: var(--fg-dim); letter-spacing: .2px; align-self: center;
-  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-header .hdr-btn { flex: none; }
-header .spacer, .spacer { flex: 1; }
-.hdr-btn {
-  background: none; border: 0; padding: 0; cursor: pointer;
-  font: 500 12.5px/1 var(--sans); color: var(--fg-dim); align-self: center;
-}
-.hdr-btn:hover { color: var(--accent); }
-.hdr-btn:active { color: var(--accent-hover); }
-.hdr-btn.on { color: var(--accent); }
-.iconbtn {
-  background: none; border: 0; padding: 0; cursor: pointer;
-  font: 400 13px/1 var(--sans); color: var(--fg-dim); align-self: center;
-}
-.iconbtn:hover { color: var(--accent); }
-.iconbtn:active { color: var(--accent-hover); }
 
 /* ---------- shell: sidebar + main ---------- */
 .shell {
   flex: 1 1 auto; min-height: 0;
-  display: grid; grid-template-columns: 296px minmax(0, 1fr);
+  display: grid; grid-template-columns: 250px minmax(0, 1fr);
 }
 body.stale .shell { opacity: .5; filter: saturate(.55); transition: opacity .25s, filter .25s; pointer-events: none; }
 
+/* ---------- sidebar (on the material) ---------- */
 aside {
   background: var(--side); border-right: 1px solid var(--line);
   overflow-y: auto; display: flex; flex-direction: column;
-  scrollbar-gutter: stable; /* overlay thumb: reserve space so content can't shift */
+  scrollbar-gutter: stable;
 }
-.side-block { padding: 16px 22px; }
+.side-block { padding: 12px 16px 14px; }
 .side-block + .side-block { border-top: 1px solid var(--line-side); }
-.side-block:first-child { padding-top: 18px; }
+.side-block:first-child { padding-top: 14px; }
 .side-block:empty { display: none; }
 
-.big { display: flex; align-items: baseline; gap: 8px; margin-top: 11px; }
-.big .n {
-  font: 400 42px/1 var(--mono); letter-spacing: -1.8px;
-  font-variant-numeric: tabular-nums;
-}
-.big .u { font: 400 15px/1 var(--mono); color: var(--muted); }
-.side-split { display: flex; gap: 16px; margin-top: 12px; font: 400 12.5px/1 var(--mono); white-space: nowrap; }
+.big { display: flex; align-items: baseline; gap: 4px; margin-top: 7px; }
+.big .n { font: 600 30px/1 var(--sans); letter-spacing: -.7px; }
+.big .u { font: 500 12px/1 var(--sans); color: var(--fg-dim); }
+.side-split { display: flex; gap: 10px; margin-top: 7px; font: 400 12px/1 var(--sans); white-space: nowrap; }
 .side-split .rx { color: var(--rx); }
 .side-split .tx { color: var(--tx); }
-.side-note { font: 400 11.5px/1.5 var(--mono); color: var(--muted); margin-top: 9px; }
-.now-row { display: flex; align-items: baseline; gap: 7px; margin-top: 9px; }
-.now-row .arr { font: 400 12px/1 var(--mono); width: 11px; }
+.side-note { font: 400 11px/1.45 var(--sans); color: var(--muted); margin-top: 5px; }
+.now-row { display: flex; align-items: baseline; gap: 5px; margin-top: 6px; }
+.now-row .arr { font: 500 12px/1 var(--sans); width: 10px; }
 .arr.rx { color: var(--rx); }
 .arr.tx { color: var(--tx); }
-.now-row .now-v { font: 400 24px/1 var(--mono); font-variant-numeric: tabular-nums; }
+.now-row .now-v { font: 600 20px/1 var(--sans); letter-spacing: -.3px; }
 
-.side-head { display: flex; align-items: baseline; gap: 10px; }
+.side-head { display: flex; align-items: center; gap: 8px; }
 .side-head .tabs { margin-left: auto; }
 .side-list .side-head { margin-bottom: 4px; }
-.side-row { display: flex; align-items: baseline; gap: 9px; padding: 6px 0; }
+.side-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; }
 .side-row.country { display: grid; grid-template-columns: 26px 1fr auto; align-items: center; }
-.side-row .cc { font: 400 12.5px/1 var(--mono); }
-.mini-bar { display: block; height: 3px; background: var(--line-side); min-width: 40px; }
-.mini-bar i { display: block; height: 100%; background: var(--rx); opacity: .65; }
+.side-row .cc { font: 500 12px/1 var(--sans); }
+.mini-bar { display: block; height: 3px; background: var(--line-side); border-radius: 2px; min-width: 40px; overflow: hidden; }
+.mini-bar i { display: block; height: 100%; background: var(--rx); }
 .side-label {
-  /* One line, clipped. A two-word interface name ("iPhone USB") used to wrap in
-     this narrow row, and overflow-wrap:anywhere would break it mid-word. The row
-     carries a title with the interface and both byte totals, so nothing is lost. */
   flex: 1; min-width: 0;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  font: 400 13px/1.4 var(--sans);
+  font: 400 12.5px/1.4 var(--sans);
 }
-.side-num { font: 400 12px/1 var(--mono); color: var(--fg-dim); white-space: nowrap; text-align: right; min-width: 52px; }
-.tag { flex: none; font: 400 10.5px/1 var(--mono); color: var(--muted); }
+.side-num { font: 400 11.5px/1 var(--sans); color: var(--fg-dim); white-space: nowrap; text-align: right; min-width: 52px; }
+.tag { flex: none; font: 400 10.5px/1 var(--sans); color: var(--muted); }
 
 /* ---------- main column ---------- */
 main {
   min-width: 0; overflow-y: auto; display: flex; flex-direction: column;
-  scrollbar-gutter: stable;
+  background: var(--bg); scrollbar-gutter: stable;
 }
-.band { flex: 0 0 auto; background: var(--surface); }
-.chart-band { border-bottom: 1px solid var(--line); padding-bottom: 14px; }
-.conns-band { border-top: 1px solid var(--line); margin-top: auto; padding-bottom: 6px; }
-.band > header, .panel > header {
-  display: flex; align-items: baseline; gap: 12px; padding: 13px 24px 7px;
-}
-.band h2, .panel h2 {
-  font: var(--label-font); text-transform: uppercase;
-  letter-spacing: var(--label-track); color: var(--fg); margin: 0;
-}
-.hint { font: 400 11.5px/1 var(--mono); color: var(--muted); white-space: nowrap; }
 
-/* underline tabs (mono, ink accent) */
-.tabs { display: inline-flex; gap: 14px; font: 400 12px/1 var(--mono); }
+/* toolbar row under the native title bar: status + toolbar buttons. Sticky,
+   so it stays while the column scrolls. */
+header.toolbar {
+  position: sticky; top: 0; z-index: 10; flex: 0 0 auto;
+  display: flex; align-items: center; gap: 10px; height: 40px;
+  padding: 0 16px; background: var(--surface); border-bottom: 1px solid var(--line);
+  --wails-draggable: drag; /* Wails drag region (NOT -webkit-app-region) */
+}
+.dot { width: 6px; height: 6px; border-radius: 50%; background: var(--faint); transition: background .3s; flex: none; }
+.dot.live { background: var(--tx); }   /* recording mark */
+.dot.warn { background: var(--faint); }
+.status-line {
+  font: 400 12px/1 var(--sans); color: var(--fg-dim);
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* toolbar buttons: bordered, 24px, 6px radius, the way NSToolbar draws them */
+.hdr-btn {
+  flex: none; height: 24px; padding: 0 10px; cursor: pointer;
+  font: 500 12px/1 var(--sans); color: var(--fg);
+  background: var(--btn); border: 0; border-radius: 6px;
+  box-shadow: 0 0 0 .5px var(--btn-line), 0 .5px 1px rgba(0, 0, 0, .12);
+}
+.hdr-btn:hover { box-shadow: 0 0 0 .5px var(--btn-line), 0 1px 2px rgba(0, 0, 0, .16); }
+.hdr-btn:active { background: var(--seg); }
+.hdr-btn.on { color: var(--accent); }
+.iconbtn {
+  background: none; border: 0; padding: 0; cursor: pointer;
+  font: 400 13px/1 var(--sans); color: var(--fg-dim);
+}
+.iconbtn:hover { color: var(--fg); }
+
+.band { flex: 0 0 auto; background: var(--surface); }
+.chart-band { border-bottom: 1px solid var(--line); padding-bottom: 10px; }
+.conns-band { border-top: 1px solid var(--line); margin-top: auto; padding-bottom: 4px; }
+.band > header, .panel > header {
+  display: flex; align-items: center; gap: 10px; height: 38px; padding: 0 16px;
+}
+.band h2, .panel h2 { font: 600 12.5px/1 var(--sans); color: var(--fg); margin: 0; white-space: nowrap; }
+.hint { font: 400 11px/1 var(--sans); color: var(--muted); white-space: nowrap; }
+
+/* segmented control (ranges) */
+.tabs { display: inline-flex; background: var(--seg); border-radius: 6px; padding: 2px; gap: 1px; }
 .tabs button {
-  background: none; border: 0; padding: 0 0 3px; cursor: pointer;
-  font: inherit; color: var(--muted); border-bottom: 1.5px solid transparent;
+  background: none; border: 0; padding: 2px 8px; cursor: pointer; border-radius: 5px;
+  font: 500 11px/1.5 var(--sans); color: var(--fg-dim);
 }
 .tabs button:hover { color: var(--fg); }
-.tabs button.active { color: var(--accent); border-bottom-color: var(--accent); }
-.side-head .tabs { gap: 9px; font-size: 11px; }
+.tabs button.active { background: var(--seg-on); color: var(--fg); box-shadow: 0 .5px 2px rgba(0, 0, 0, .15); }
+.side-head .tabs button { padding: 1px 6px; font-size: 10.5px; }
 
-/* minimal search input — flexes down before it pushes the tabs out */
+/* search field, rounded like NSSearchField */
 .search {
   appearance: none; -webkit-appearance: none;
-  background: none; border: 0; border-bottom: 1px solid var(--line);
-  padding: 2px 0 3px; flex: 0 1 150px; width: 150px; min-width: 60px;
-  font: 400 11.5px/1 var(--mono); color: var(--fg);
+  background: var(--field); border: 0; border-radius: 6px;
+  padding: 3px 8px; height: 22px; flex: 0 1 170px; width: 170px; min-width: 70px;
+  font: 400 11.5px/1 var(--sans); color: var(--fg);
 }
-.search::placeholder { color: var(--faint); }
-.search:focus { outline: none; border-bottom-color: var(--accent); }
+.search::placeholder { color: var(--muted); }
+.search:focus { outline: none; box-shadow: 0 0 0 2.5px rgba(31, 111, 139, .35); }
 .search::-webkit-search-cancel-button { -webkit-appearance: none; }
 
 /* ---------- throughput chart ---------- */
-.chart-wrap { position: relative; padding: 0 24px; }
-canvas#chart { display: block; width: 100%; height: 150px; margin-top: 4px; }
+.chart-wrap { position: relative; padding: 0 16px; }
+canvas#chart { display: block; width: 100%; height: 150px; margin-top: 2px; }
 .tooltip {
   position: absolute; top: 8px; left: 0; transform: translateX(-50%);
   pointer-events: none; opacity: 0; transition: opacity .12s;
-  background: var(--surface); border: 1px solid var(--line); border-radius: 4px;
-  box-shadow: var(--shadow-pop);
-  padding: 6px 9px; font: 400 11.5px/1.6 var(--mono); white-space: nowrap; z-index: 5;
+  background: var(--surface); border-radius: 5px; box-shadow: var(--shadow-pop);
+  padding: 5px 8px; font: 400 11.5px/1.5 var(--sans); white-space: nowrap; z-index: 5;
 }
-.tooltip b { font-weight: 700; }
+.tooltip b { font-weight: 600; }
 .tooltip .t-time { color: var(--muted); }
 .chart-legend {
-  display: flex; align-items: center; gap: 18px; padding: 8px 24px 0;
-  font: 400 11.5px/1 var(--mono); color: var(--fg-dim);
+  display: flex; align-items: center; gap: 14px; padding: 6px 16px 0;
+  font: 400 11px/1 var(--sans); color: var(--fg-dim);
 }
-.chart-legend .key { display: inline-flex; align-items: center; gap: 6px; }
-.chart-legend .swatch { width: 7px; height: 7px; flex: none; }
+.chart-legend .key { display: inline-flex; align-items: center; gap: 5px; }
+.chart-legend .swatch { width: 8px; height: 8px; border-radius: 2px; flex: none; }
 
 /* session share strip */
-.share { display: flex; align-items: center; gap: 10px; padding: 12px 24px 0; flex-wrap: wrap; }
-/* display:flex above would defeat the UA [hidden] rule — restate it. */
+.share { display: flex; align-items: center; gap: 10px; padding: 10px 16px 0; flex-wrap: wrap; }
 .share[hidden] { display: none; }
-.share .k { width: 104px; flex: none; font-size: 10px; }
-.share-bar { flex: 1; display: flex; height: 6px; overflow: hidden; background: var(--line-side); }
+.share .k { width: 92px; flex: none; }
+.share-bar { flex: 1; display: flex; height: 6px; border-radius: 3px; overflow: hidden; background: var(--s-rest); }
 .share-bar i { display: block; height: 100%; transition: width .45s ease; }
 .share i.s1 { background: var(--rx); }
 .share i.s2 { background: var(--tx); }
 .share i.s3 { background: var(--s3); }
 .share i.s-rest { background: var(--s-rest); }
 .share-legend {
-  display: flex; gap: 18px; margin-left: 114px; flex-basis: 100%; margin-top: 7px;
-  font: 400 11.5px/1 var(--mono); color: var(--fg-dim); min-width: 0; flex-wrap: wrap;
+  display: flex; gap: 14px; margin-left: 102px; flex-basis: 100%; margin-top: 5px;
+  font: 400 11px/1 var(--sans); color: var(--fg-dim); min-width: 0; flex-wrap: wrap;
 }
-.share-legend .key { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
-.share-legend .key i { width: 7px; height: 7px; flex: none; }
+.share-legend .key { display: inline-flex; align-items: center; gap: 5px; min-width: 0; }
+.share-legend .key i { width: 8px; height: 8px; border-radius: 2px; flex: none; }
 .share-legend .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 170px; }
 .share-legend .pc { color: var(--muted); }
 
 /* ---------- apps | domains columns ---------- */
 .cols { display: grid; grid-template-columns: 1fr 1fr; background: var(--bg); flex: 1 0 auto; }
 .cols .panel { min-width: 0; }
-.cols .panel:first-child { border-right: 1px solid var(--line-soft); }
+.cols .panel:first-child { border-right: 1px solid var(--line); }
 .panel > header { flex-wrap: wrap; }
 .panel > header .tabs { margin-left: auto; }
 
-/* ---------- tables ---------- */
+/* ---------- tables: Finder list grammar ---------- */
 /* Fixed layout so a narrow window shrinks the name column (ellipsis) instead
    of letting the nowrap numeric columns push the table into the neighboring
-   panel. The numeric/rank columns get explicit widths; name takes the rest. */
+   panel. Numeric columns get explicit widths; name takes the rest. */
 .tbl { width: 100%; border-collapse: collapse; table-layout: fixed; }
 .tbl th.num, .tbl td.num { width: 84px; }
-.tbl th:first-child, .tbl td:first-child { width: 44px; } /* rank + row padding */
-/* Live connections has no rank column and one column more than the others, so
-   it needs its own widths — with auto layout its nowrap cells (app, host:port)
-   pushed the table wider than the panel and produced a horizontal scrollbar.
-   Fixed layout with the app column proportional keeps it inside the panel at
-   every width; long names ellipsize and the peek shows them in full. */
+/* The order is the rank: the rank column (an empty header + td.rank) is not
+   shown. The cells stay in the DOM — app.js addresses them by index. */
+.tbl th:empty, .tbl td.rank { display: none; }
 #conns .tbl th:first-child, #conns .tbl td:first-child { width: 26%; }
 #conns .tbl th:nth-child(3), #conns .tbl td:nth-child(3) { width: 54px; }
 .tbl th {
-  font: 500 10px/1 var(--sans); text-transform: uppercase; letter-spacing: 1.2px;
-  color: var(--muted); text-align: left; padding: 6px 8px;
-  border-bottom: 1px solid var(--line-soft); white-space: nowrap;
+  font: 600 11px/1 var(--sans); color: var(--muted); text-align: left; padding: 5px 8px 6px;
+  border-bottom: 1px solid var(--line); white-space: nowrap;
   user-select: none; -webkit-user-select: none;
-  /* Stay visible while long lists scroll under (main is the scroll container). */
-  position: sticky; top: 0; z-index: 2; background: var(--bg);
+  position: sticky; top: 40px; z-index: 2; background: var(--bg);
 }
-/* Only genuinely sortable headers advertise clickability. */
 .tbl th[data-key] { cursor: pointer; }
 .tbl th[data-key]:hover { color: var(--fg); }
-#conns .tbl th { background: var(--surface); }
-#drill-domains .tbl th { background: var(--bg); }
+#conns .tbl th { background: var(--surface); top: auto; position: static; }
+#drill-domains .tbl th { background: var(--bg); top: 0; }
 .tbl th, .tbl td { padding-left: 8px; padding-right: 8px; }
-.tbl th:first-child, .tbl td:first-child { padding-left: 24px; }
-.tbl th:last-child, .tbl td:last-child { padding-right: 24px; }
+.tbl th:first-child, .tbl td:first-child { padding-left: 16px; }
+.tbl th:last-child, .tbl td:last-child { padding-right: 16px; }
 .tbl th .caret { visibility: hidden; font-size: 7px; margin-left: 3px; }
-.tbl th.sorted .caret { visibility: visible; color: var(--accent); }
+.tbl th.sorted .caret { visibility: visible; color: var(--fg-dim); }
 .tbl th.num, .tbl td.num { text-align: right; }
-.tbl td { padding-top: 8px; padding-bottom: 8px; vertical-align: baseline; }
-.tbl tbody tr { border-top: 1px solid var(--line-soft); }
-.tbl tbody tr:first-child { border-top: 0; }
-.tbl tbody tr:hover { background: var(--surface); }
-.tbl td.rank { width: 28px; font: 400 11px/1.4 var(--mono); color: var(--faint); white-space: nowrap; }
-/* The rank-move arrow holds its width whether or not it shows anything, so a
-   row that just climbed never shifts the column as the arrow fades in and out.
-   The triangle is drawn with borders rather than set as ▲/▼: at this size the
-   font glyphs render thin and the two directions stop being tellable apart. */
+.tbl td { padding-top: 6px; padding-bottom: 6px; vertical-align: baseline; }
+.tbl tbody tr:nth-child(even) { background: var(--zebra); }
+.tbl tbody tr:hover { background: var(--line-soft); }
+.tbl td.rank { font: 400 11px/1.4 var(--sans); color: var(--faint); white-space: nowrap; }
 .tbl td.rank .rk-move { display: inline-block; width: 11px; opacity: 0; }
 .tbl td.rank .rk-move::before {
   content: ""; display: inline-block; vertical-align: 1px;
   border-left: 4px solid transparent; border-right: 4px solid transparent;
 }
-/* Green is the one hue added to a two-hue palette: reusing teal or orange here
-   would read as the download/upload colours three columns to the right. Down
-   stays grey — a row climbing is the event worth catching; falling is its
-   counterpart, and grey-against-green separates instantly at this size. */
 .tbl td.rank .rk-move.up::before { border-bottom: 6px solid var(--rank-up); }
 .tbl td.rank .rk-move.down::before { border-top: 6px solid var(--rank-down); }
-.tbl td.rank .rk { font-variant-numeric: tabular-nums; }
-.tbl td.num {
-  font: 400 12.5px/1.4 var(--mono); font-variant-numeric: tabular-nums;
-  white-space: nowrap; color: var(--num);
-}
+.tbl td.num { font: 400 12.5px/1.4 var(--sans); white-space: nowrap; color: var(--num); }
 .tbl td.num.rx, td.rx { color: var(--rx); }
 .tbl td.num.tx, td.tx { color: var(--tx); }
 tr.clickable { cursor: pointer; }
-/* Drill-down affordance: a chevron appears on hover/focus of an app row, and
-   keyboard focus gets a visible ring (rows are tabbable). */
 tr.clickable .cell-name::after {
   content: "›"; flex: none; color: var(--faint);
   font: 400 13px/1 var(--sans); opacity: 0; transition: opacity .12s;
 }
 tr.clickable:hover .cell-name::after,
-tr.clickable:focus-visible .cell-name::after { opacity: 1; color: var(--accent); }
+tr.clickable:focus-visible .cell-name::after { opacity: 1; color: var(--fg-dim); }
 tr.clickable:focus-visible,
-.tbl th[data-key]:focus-visible {
-  outline: 1.5px solid var(--accent); outline-offset: -1.5px;
-}
+.tbl th[data-key]:focus-visible { outline: 1.5px solid var(--accent); outline-offset: -1.5px; }
 button:focus-visible, .search:focus-visible, select:focus-visible, input:focus-visible {
   outline: 1.5px solid var(--accent); outline-offset: 2px;
 }
-.tabs button:focus-visible { outline-offset: 1px; }
+.tabs button:focus-visible { outline-offset: 0; }
 
 .cell-name { display: flex; align-items: baseline; gap: 7px; min-width: 0; overflow: hidden; }
 .cell-name .label {
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  font: 400 13.5px/1.4 var(--sans);
+  font: 400 13px/1.4 var(--sans);
 }
-.cell-name .label small { color: var(--muted); font-size: 11.5px; }
+.cell-name .label small { color: var(--muted); font-size: 11px; }
 .cell-name .swatch { width: 7px; height: 7px; border-radius: 50%; flex: none; align-self: center; }
 .cell-ico { position: relative; width: 16px; height: 16px; flex: none; align-self: center; }
 .cell-ico .swatch { position: absolute; inset: 0; margin: auto; }
 .app-ico { position: absolute; inset: 0; width: 16px; height: 16px; z-index: 1; border-radius: 3px; }
 .flag { font-size: 12px; }
-.chip { flex: none; font: 400 10.5px/1 var(--mono); color: var(--muted); }
+.chip { flex: none; font: 400 10.5px/1 var(--sans); color: var(--muted); }
 
 /* split usage bar: download + upload segments on a shared track */
-.usebar { display: flex; height: 3px; margin-top: 6px; background: var(--line-side); overflow: hidden; }
+.usebar { display: flex; height: 3px; margin-top: 4px; background: var(--line-side); border-radius: 2px; overflow: hidden; }
 .usebar i { display: block; height: 100%; transition: width .45s ease; }
 .usebar i.rx { background: var(--rx); }
 .usebar i.tx { background: var(--tx); }
 
 /* connections table tweaks */
-#conns .tbl td { padding-top: 5px; padding-bottom: 5px; }
+#conns .tbl td { padding-top: 4px; padding-bottom: 4px; }
 #conns .cell-name .label { font-size: 12.5px; }
 
 /* ---------- states, skeletons ---------- */
-.state { padding: 18px 24px; font: 400 12px/1.6 var(--mono); color: var(--muted); }
-aside .state { padding: 10px 0; }
+.state { padding: 14px 16px; font: 400 12px/1.5 var(--sans); color: var(--muted); }
+aside .state { padding: 8px 0; }
 .state .spin {
   display: inline-block; width: 10px; height: 10px; border-radius: 50%;
   border: 1.5px solid var(--line); border-top-color: var(--accent);
   animation: spin .8s linear infinite; vertical-align: -1px; margin-right: 6px;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
-.skel {
-  display: inline-block; background: var(--line-side); border-radius: 2px;
-  animation: ns-shimmer 1.2s ease-in-out infinite;
-}
+.skel { display: inline-block; background: var(--line-side); border-radius: 2px; animation: ns-shimmer 1.2s ease-in-out infinite; }
 .skel-line { height: 9px; }
 .skel-tbl td .skel { vertical-align: middle; }
 @keyframes ns-shimmer { 0%, 100% { opacity: .55; } 50% { opacity: 1; } }
 .fade-in { animation: ns-fade-in .18s ease-out; }
 @keyframes ns-fade-in { from { opacity: 0; } to { opacity: 1; } }
 
-/* ---------- data plan (sidebar block) ----------
-   Stacked: label+% line, used-of-limit figure, bar, mono sub. A one-line
-   header cannot fit the 296px sidebar (it overlapped in WKWebView). */
+/* ---------- data plan (sidebar block) ---------- */
 .plan-head { display: flex; align-items: baseline; gap: 8px; }
-/* The sidebar is where the identifying detail lives (which network the plan
-   counts, what a row is called), so it wraps instead of truncating — a clipped
-   "MONTHLY PLAN · IPH…" hides the one thing the line is there to say. .k sets
-   nowrap for the one-line section markers; override it here. */
-.plan-scope {
-  flex: 1; min-width: 0;
-  white-space: normal; line-height: 1.4;
+.plan-scope { flex: 1; min-width: 0; white-space: normal; line-height: 1.4; }
+.plan-pct { flex: none; font: 500 11.5px/1 var(--sans); color: var(--accent); }
+.plan-head .hdr-btn {
+  flex: none; height: auto; padding: 0; background: none; box-shadow: none;
+  font: 500 11.5px/1 var(--sans); color: var(--accent);
 }
-.plan-pct { flex: none; font: 400 12px/1 var(--mono); color: var(--accent); }
-.plan-head .hdr-btn { flex: none; align-self: baseline; font-size: 11.5px; }
-.plan-val { display: flex; align-items: baseline; gap: 8px; margin-top: 11px; white-space: nowrap; }
-.plan-val .n { font: 400 24px/1 var(--mono); font-variant-numeric: tabular-nums; }
-.plan-of { font: 400 13px/1 var(--mono); color: var(--muted); }
+.plan-head .hdr-btn:hover { color: var(--accent-hover); box-shadow: none; }
+.plan-val { display: flex; align-items: baseline; gap: 6px; margin-top: 7px; white-space: nowrap; }
+.plan-val .n { font: 600 22px/1 var(--sans); letter-spacing: -.4px; }
+.plan-of { font: 400 12px/1 var(--sans); color: var(--muted); }
 .plan-val .n.warn, .plan-val .n.over, .plan-pct.warn, .plan-pct.over { color: var(--tx); }
-.plan-bar { height: 4px; background: var(--line-side); margin-top: 11px; }
+.plan-bar { height: 4px; background: var(--line-side); border-radius: 2px; margin-top: 8px; overflow: hidden; }
 .plan-bar > i { display: block; height: 100%; background: var(--accent); transition: width .45s ease; }
 .plan-bar.warn > i, .plan-bar.over > i { background: var(--tx); }
-.plan-sub { font: 400 11.5px/1.6 var(--mono); color: var(--muted); margin-top: 9px; }
-/* Shown when Save is pressed with no allowance. Uses the upload orange — the
-   palette's existing "attention" colour, also the plan bar's .over state. */
-.plan-err { font: 400 11.5px/1.6 var(--mono); color: var(--tx); margin-top: 8px; }
+.plan-sub { font: 400 11px/1.5 var(--sans); color: var(--muted); margin-top: 6px; }
+.plan-err { font: 400 11px/1.5 var(--sans); color: var(--tx); margin-top: 6px; }
 .plan-err[hidden] { display: none; }
-.plan-card.plan-empty .plan-sub { margin-top: 8px; }
-/* Label/value rows: scannable in a narrow sidebar, unlike the run-on mono
-   sentence this replaced (which wrapped to four lines). */
-.plan-rows {
-  display: grid; grid-template-columns: auto 1fr; gap: 5px 10px;
-  margin: 10px 0 0;
-}
-.plan-rows dt { font: 400 11.5px/1.4 var(--sans); color: var(--muted); }
-.plan-rows dd {
-  margin: 0; text-align: right; white-space: nowrap;
-  font: 400 11.5px/1.4 var(--mono); color: var(--fg-dim);
-  font-variant-numeric: tabular-nums;
-}
+.plan-card.plan-empty .plan-sub { margin-top: 6px; }
+.plan-rows { display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; margin: 8px 0 0; }
+.plan-rows dt { font: 400 11px/1.4 var(--sans); color: var(--muted); }
+.plan-rows dd { margin: 0; text-align: right; white-space: nowrap; font: 400 11px/1.4 var(--sans); color: var(--fg-dim); }
 .plan-rows dd.over { color: var(--tx); }
-.plan-fields { display: grid; gap: 9px; margin-top: 11px; }
+.plan-fields { display: grid; gap: 8px; margin-top: 9px; }
 .plan-fields label {
   display: flex; align-items: center; gap: 8px; justify-content: space-between;
-  font: 400 12.5px/1 var(--sans); color: var(--fg-dim);
+  font: 400 12px/1 var(--sans); color: var(--fg-dim);
 }
 .plan-fields input, .plan-fields select {
-  color: var(--fg);
-  background: var(--bg); border: 1px solid var(--line); border-radius: 4px;
-  padding: 5px 7px; width: 74px; text-align: right;
+  color: var(--fg); background: var(--field); border: 0; border-radius: 5px;
+  padding: 4px 7px; width: 74px; text-align: right; font: 400 12px var(--sans);
 }
-/* Figures in mono so digits line up; the select lists interface names, which are
-   words and belong in the same face as every other word around them. */
-.plan-fields input { font: 400 12.5px var(--mono); }
-.plan-fields select { font: 400 12.5px var(--sans); width: auto; max-width: 150px; text-align: left; }
-.plan-fields input:focus, .plan-fields select:focus { outline: none; border-color: var(--accent); }
-.plan-actions { display: flex; gap: 14px; margin-top: 11px; }
+.plan-fields select { width: auto; max-width: 150px; text-align: left; }
+.plan-fields input:focus, .plan-fields select:focus { outline: none; box-shadow: 0 0 0 2.5px rgba(31, 111, 139, .35); }
+.plan-actions { display: flex; gap: 8px; margin-top: 9px; }
+.plan-actions .hdr-btn { height: 22px; font-size: 11.5px; }
 .plan-actions .hdr-btn.on { color: var(--accent); font-weight: 600; }
 
-/* ---------- drill-down overlay ---------- */
-/* visibility (not just opacity) keeps the closed dialog's buttons out of the
-   Tab order and the accessibility tree. */
+/* ---------- drill-down overlay (a sheet) ---------- */
 .drill {
   position: fixed; inset: 0; z-index: 40; display: flex;
   align-items: center; justify-content: center; padding: 28px;
@@ -464,97 +414,78 @@ aside .state { padding: 10px 0; }
 .drill-card {
   width: 760px; max-width: 100%; max-height: min(640px, 90vh);
   display: flex; flex-direction: column; overflow: hidden;
-  border-radius: 8px; border: 1px solid var(--line); background: var(--bg);
-  box-shadow: var(--shadow-modal);
+  border-radius: 10px; background: var(--bg); box-shadow: var(--shadow-modal);
   transform: translateY(6px); transition: transform .15s;
 }
 .drill.show .drill-card { transform: none; }
 .drill-head {
-  flex: 0 0 auto; display: flex; align-items: baseline; gap: 14px;
-  padding: 15px 22px 13px; background: var(--surface); border-bottom: 1px solid var(--line);
+  flex: 0 0 auto; display: flex; align-items: center; gap: 12px;
+  height: 44px; padding: 0 16px; background: var(--surface); border-bottom: 1px solid var(--line);
 }
 .drill-head h2 {
-  font: 600 15px/1 var(--sans); letter-spacing: -.2px; margin: 0;
+  font: 600 14px/1 var(--sans); letter-spacing: -.2px; margin: 0;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 340px;
 }
-.drill-x {
-  background: none; border: 0; padding: 0 0 0 6px; cursor: pointer;
-  font: 400 13px/1 var(--sans); color: var(--fg-dim); align-self: center;
-}
-.drill-x:hover { color: var(--accent); }
+.drill-x { background: none; border: 0; padding: 0 0 0 6px; cursor: pointer; font: 400 13px/1 var(--sans); color: var(--fg-dim); }
+.drill-x:hover { color: var(--fg); }
 .drill-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
 .drill-totals {
-  display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap;
-  padding: 16px 22px 0; font: 400 12px/1 var(--mono); white-space: nowrap;
+  display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
+  padding: 14px 16px 0; font: 400 12px/1 var(--sans); white-space: nowrap;
 }
-.drill-totals .dt-total { font: 400 28px/1 var(--mono); letter-spacing: -1px; font-variant-numeric: tabular-nums; }
-.drill-totals .dt-cap { color: var(--muted); font-size: 11.5px; }
-.drill-chart-wrap { padding: 10px 22px 0; }
+.drill-totals .dt-total { font: 600 26px/1 var(--sans); letter-spacing: -.6px; }
+.drill-totals .dt-cap { color: var(--muted); font-size: 11px; }
+.drill-chart-wrap { padding: 8px 16px 0; }
 .drill-chart-wrap canvas { display: block; width: 100%; height: 130px; }
-.drill-h3 {
-  font: var(--label-font); text-transform: uppercase; letter-spacing: var(--label-track);
-  color: var(--fg); margin: 16px 0 4px; padding: 0 22px;
-}
-#drill-domains .tbl th:first-child, #drill-domains .tbl td:first-child { padding-left: 22px; }
-#drill-domains .tbl th:last-child, #drill-domains .tbl td:last-child { padding-right: 22px; }
+.drill-h3 { font: 600 12.5px/1 var(--sans); color: var(--fg); margin: 14px 0 4px; padding: 0 16px; }
+#drill-domains .tbl th:first-child, #drill-domains .tbl td:first-child { padding-left: 16px; }
+#drill-domains .tbl th:last-child, #drill-domains .tbl td:last-child { padding-right: 16px; }
 
-/* ---------- footer ---------- */
+/* ---------- footer: a status bar, pinned to the column's bottom ---------- */
 footer {
-  flex: 0 0 auto; display: flex; align-items: center; gap: 14px;
-  padding: 8px 24px; border-top: 1px solid var(--line); background: var(--surface);
-  font: 400 11px/1 var(--mono); color: var(--muted);
+  position: sticky; bottom: 0; z-index: 10; flex: 0 0 auto;
+  display: flex; align-items: center; gap: 12px; height: 26px;
+  padding: 0 16px; border-top: 1px solid var(--line); background: var(--surface);
+  font: 400 11px/1 var(--sans); color: var(--muted);
 }
-footer #version b { font-weight: 700; }
+footer #version b { font-weight: 600; }
 footer kbd {
-  font: 400 10.5px/1 var(--mono); color: var(--fg-dim);
-  border: 1px solid var(--line); border-radius: 3px; padding: 1px 4px; background: var(--surface);
+  font: 500 10px/1 var(--sans); color: var(--fg-dim);
+  border-radius: 3px; padding: 1px 4px; box-shadow: 0 0 0 .5px var(--btn-line);
 }
 footer .keys { white-space: nowrap; }
 
 /* ---------- shared tooltip + truncation peek (tooltip.js) ---------- */
-/* tooltip.js toggles style.display, so hide via display (opacity:0 here left
-   the tip permanently invisible). */
+/* tooltip.js toggles style.display, so hide via display. */
 #ns-tip {
   position: fixed; z-index: 60; pointer-events: none; display: none;
   max-width: 340px;
   background: var(--surface); color: var(--fg);
-  border: 1px solid var(--line); border-radius: 4px; box-shadow: var(--shadow-pop);
-  padding: 6px 9px; font: 400 12px/1.5 var(--sans);
+  border-radius: 5px; box-shadow: var(--shadow-pop);
+  padding: 5px 8px; font: 400 11.5px/1.45 var(--sans);
 }
 #ns-peek {
   position: fixed; z-index: 60; max-width: 420px; display: none;
   background: var(--surface); color: var(--fg);
-  border: 1px solid var(--line); border-radius: 4px; box-shadow: var(--shadow-pop);
-  padding: 7px 10px; font: 400 12.5px/1.5 var(--mono);
+  border-radius: 5px; box-shadow: var(--shadow-pop);
+  padding: 6px 9px; font: 400 12px/1.45 var(--sans);
   cursor: copy; overflow-wrap: anywhere; word-break: normal;
 }
 #ns-peek .pk-sub { color: var(--muted); font-size: 11px; margin-top: 2px; }
-#ns-peek .pk-hint {
-  color: var(--faint); font: 400 9.5px/1 var(--sans);
-  text-transform: uppercase; letter-spacing: 1px; margin-top: 6px;
-}
+#ns-peek .pk-hint { color: var(--faint); font: 500 9.5px/1 var(--sans); margin-top: 5px; }
 
 /* ---------- responsive (narrow window) ----------
-   Step down instead of falling off a cliff: slimmer sidebar and tighter
-   numeric columns first, then apps/domains stack, then the sidebar joins
-   the scroll flow. */
+   The sidebar keeps its 250px: the material strip behind it is that wide.
+   Numeric columns tighten first, then apps/domains stack. */
 @media (max-width: 1180px) {
-  .shell { grid-template-columns: 248px minmax(0, 1fr); }
-  .side-block { padding-left: 18px; padding-right: 18px; }
-  .big .n { font-size: 36px; }
   .tbl th.num, .tbl td.num { width: 72px; }
   .tbl td.num { font-size: 11.5px; }
-  .tbl th:first-child, .tbl td:first-child { width: 36px; padding-left: 16px; }
-  .tbl th:last-child, .tbl td:last-child { padding-right: 16px; }
-  .band > header, .panel > header { padding-left: 16px; padding-right: 16px; }
-  .chart-wrap, .chart-legend, .share { padding-left: 16px; padding-right: 16px; }
-  .state { padding-left: 16px; padding-right: 16px; }
 }
 /* Below here the app window can't go (NSWindow minSize is 1080×640, see
    dashwindow.m) — these remain as the fallback for any narrower viewport. */
 @media (max-width: 1020px) {
   .cols { grid-template-columns: 1fr; }
-  .cols .panel:first-child { border-right: 0; border-bottom: 1px solid var(--line-soft); }
+  .cols .panel:first-child { border-right: 0; border-bottom: 1px solid var(--line); }
 }
 @media (max-width: 760px) {
   .shell { display: block; overflow-y: auto; }
