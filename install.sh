@@ -79,6 +79,10 @@ label="$1"; plist="$2"; exe="$3"; sock="$4"
 helper="/Library/PrivilegedHelperTools/${label}"
 install -d -m 755 -o root -g wheel /Library/PrivilegedHelperTools
 install -m 755 -o root -g wheel "$exe" "$helper"
+# The bundle was cleared of quarantine above, but a copy made from one that
+# wasn't (Homebrew cask, browser download) would carry the attribute, and
+# launchd refuses to exec a quarantined non-notarized binary as root.
+xattr -c "$helper" 2>/dev/null || true
 mkdir -p /var/run/netscope
 # Kill any stray daemon not managed by launchd (e.g. an old sudo-spawned
 # bootstrap). Two daemons on one database double-count traffic and fight over

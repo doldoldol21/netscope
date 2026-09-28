@@ -222,11 +222,33 @@ func runInstallScript(t *testing.T, installCmd, launchctlBody string) error {
 	t.Helper()
 	script := strings.NewReplacer(
 		"/usr/bin/install", installCmd,
+		"/usr/bin/xattr", "true",
 		"/bin/mkdir", "true",
 		"/bin/launchctl", "fake_launchctl",
 	).Replace(installScript("/tmp/src", "/tmp/plist"))
 	return exec.Command("/bin/sh", "-c",
 		"fake_launchctl() { "+launchctlBody+" }\n"+script).Run()
+}
+
+// A Homebrew cask or a browser download leaves the bundle quarantined, and
+// install(1) copies the attribute onto the root-owned helper — which launchd
+// then refuses to exec (seen live: "spawn scheduled", OS_REASON_EXEC, after a
+// `brew upgrade`). The script must strip it from the copy, after the copy and
+// before anything registers or starts the service.
+func TestInstallScriptClearsQuarantineOnTheHelperCopy(t *testing.T) {
+	s := installScript("/tmp/src", "/tmp/plist")
+	copyAt := strings.Index(s, "/usr/bin/install -m 755 -o root -g wheel '/tmp/src' '"+helperPath+"'")
+	clearAt := strings.Index(s, "/usr/bin/xattr -c '"+helperPath+"'")
+	bootAt := strings.Index(s, "bootstrap")
+	if copyAt < 0 || clearAt < 0 || bootAt < 0 {
+		t.Fatalf("script is missing a step:\n%s", s)
+	}
+	if !(copyAt < clearAt && clearAt < bootAt) {
+		t.Fatalf("quarantine must be cleared after the copy and before bootstrap:\n%s", s)
+	}
+	if !strings.Contains(s, "/usr/bin/xattr -c '"+helperPath+"' || true") {
+		t.Fatalf("a missing attribute is not a failure; the xattr line needs its own || true:\n%s", s)
+	}
 }
 
 const launchctlWorks = "return 0;"
