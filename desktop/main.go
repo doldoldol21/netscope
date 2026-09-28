@@ -36,8 +36,12 @@ import (
 )
 
 const (
-	popoverWidth  = 340
-	popoverHeight = 500
+	// A 300×250 card — title row, the hero (today's total + split + live
+	// rates), three app rows, a menu-row footer — plus the 10px band around it
+	// that the page uses for the shadow (panel.css body padding). Sized like a
+	// system menu, not a window; the settings overlay scrolls inside it.
+	popoverWidth  = 320
+	popoverHeight = 270
 )
 
 var (
@@ -166,6 +170,7 @@ func main() {
 					if t, ok := data[0].(string); ok {
 						saveTheme(t)
 						applied := loadTheme()
+						setPopoverAppearance(applied)                       // the material behind the page
 						wruntime.EventsEmit(ctx, "netscope:theme", applied) // popover
 						// Push to the dashboard window instantly (no polling lag).
 						dashEvalJS("window.nsApplyTheme&&window.nsApplyTheme('" + applied + "')")
@@ -240,7 +245,8 @@ func main() {
 			})
 		},
 		Mac: &mac.Options{
-			Appearance:           mac.NSAppearanceNameDarkAqua,
+			// No pinned Appearance: the window follows the theme setting
+			// (setPopoverAppearance), so the material and the page agree.
 			WebviewIsTransparent: true,
 			WindowIsTranslucent:  true,
 		},
@@ -370,6 +376,8 @@ func onStatusItemClick() {
 	// Place the window directly (global coords) before showing it, so it lands
 	// under the status item on whichever monitor the menu bar is on.
 	positionPopover(popoverWidth, popoverHeight)
+	installPopoverMaterial() // the translucent backdrop; a no-op after the first time
+	setPopoverAppearance(loadTheme())
 	wruntime.WindowShow(appCtx)
 	focusPopover()             // make it key so clicking away dismisses it
 	setPanelLive(appCtx, true) // resume live updates now that it's visible

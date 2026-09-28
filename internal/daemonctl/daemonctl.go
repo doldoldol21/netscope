@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/doldoldol21/netscope/internal/buildinfo"
+	"github.com/doldoldol21/netscope/internal/ipc"
 )
 
 const (
@@ -71,6 +72,15 @@ func Ensure(client *http.Client, sock string) error {
 			return nil
 		}
 		time.Sleep(300 * time.Millisecond)
+	}
+	// A root helper is only ever installed for the real socket. An app started
+	// against a dev socket (make demo, NETSCOPE_SOCK=…) whose synthetic daemon
+	// has gone away must not answer by rewriting the machine's launchd service
+	// to that path — which is exactly what happened once: one approved prompt
+	// later, the production helper was listening on /tmp and the installed
+	// app could not reach it.
+	if sock != ipc.DefaultSocketPath() {
+		return fmt.Errorf("daemon not running on %s; not installing the root helper for a non-default socket", sock)
 	}
 	netscoped, err := findNetscoped()
 	if err != nil {

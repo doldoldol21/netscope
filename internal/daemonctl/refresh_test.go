@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/doldoldol21/netscope/internal/helperinstall"
@@ -77,5 +78,19 @@ func TestAutoRefreshHelperDoesNothingForADevBuild(t *testing.T) {
 	}
 	if called {
 		t.Fatal("contacted the daemon without a bundled daemon to offer")
+	}
+}
+
+// The root helper is installed for the real socket only. An app pointed at a
+// dev socket whose synthetic daemon is gone must fail fast, not open an admin
+// prompt that rewrites the machine's launchd service to /tmp.
+func TestEnsureRefusesToInstallForANonDefaultSocket(t *testing.T) {
+	srv := httptest.NewServer(http.NotFoundHandler())
+	u, _ := url.Parse(srv.URL)
+	srv.Close() // nothing answers: Ensure will conclude no daemon is running
+	client := &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(u)}}
+	err := Ensure(client, "/tmp/netscope-test-nonexistent.sock")
+	if err == nil || !strings.Contains(err.Error(), "non-default socket") {
+		t.Fatalf("Ensure on a dev socket: err = %v, want a refusal naming the non-default socket", err)
 	}
 }
