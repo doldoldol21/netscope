@@ -73,7 +73,17 @@ func main() {
 		// prompt; it verifies the file against the release checksums itself.
 		// If that is not possible the popover banner still offers the
 		// admin-prompt route.
-		daemonctl.AutoRefreshHelper(client, sock)
+		if daemonctl.AutoRefreshHelper(client, sock) {
+			// The popover asked for helper status while this was still
+			// running and is showing the banner for a helper that no longer
+			// exists. Tell it.
+			winMu.Lock()
+			ctx := appCtx
+			winMu.Unlock()
+			if ctx != nil {
+				wruntime.EventsEmit(ctx, "netscope:helper", helperStatusJSON())
+			}
+		}
 	}()
 
 	// Watch today's usage against the user's thresholds and notify on crossings.

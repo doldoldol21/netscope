@@ -150,6 +150,11 @@ window.nsLive = (on) => {
     // focusable thing — a banner's dismiss glyph, ringed. Nothing in the
     // popover wants focus until the user reaches for it.
     if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
+    // Status can change while the popover is closed — the daemon refreshed
+    // the helper, a check found a release — so ask again on every open
+    // rather than trusting what was true at launch.
+    const r = rt();
+    if (r.EventsEmit) { r.EventsEmit("netscope:gethelper"); r.EventsEmit("netscope:getupdate"); }
     connect();
     loadToday();
     if (!todayTimer) todayTimer = setInterval(loadToday, 15000);
