@@ -132,7 +132,7 @@ func main() {
 			installStatusItem(statusIcon())
 			enablePopoverDismiss()
 			// The panel's "Open Dashboard" button asks to open the dashboard window.
-			wruntime.EventsOn(ctx, "netscope:opendash", func(...interface{}) {
+			openDash := func() {
 				if dashboardURL != "" {
 					// A per-process query (pid) makes the URL unique to this launch:
 					// 127.0.0.1:0 can hand back a port a previous launch used, and the
@@ -142,8 +142,15 @@ func main() {
 					// k= carries the per-launch UI token; the server turns it into a
 					// session cookie so later fetches from app.js authenticate too.
 					openDashWindow(fmt.Sprintf("%s/dashboard.html?p=%d&k=%s", dashboardURL, os.Getpid(), url.QueryEscape(uiToken)))
+					setDashAppearance(loadTheme()) // queued behind the window's creation on the main thread
 				}
-			})
+			}
+			wruntime.EventsOn(ctx, "netscope:opendash", func(...interface{}) { openDash() })
+			// Dev aid: open the dashboard on launch without a popover click
+			// (screenshots, layout work against `make demo`).
+			if os.Getenv("NETSCOPE_OPEN_DASH") != "" {
+				openDash()
+			}
 			// Alert-threshold settings, edited in the popover.
 			wruntime.EventsOn(ctx, "netscope:getalerts", func(...interface{}) {
 				wruntime.EventsEmit(ctx, "netscope:alerts", alertsConfigJSON())
@@ -181,6 +188,7 @@ func main() {
 						saveTheme(t)
 						applied := loadTheme()
 						setPopoverAppearance(applied)                       // the material behind the page
+						setDashAppearance(applied)                          // title bar + sidebar material
 						wruntime.EventsEmit(ctx, "netscope:theme", applied) // popover
 						// Push to the dashboard window instantly (no polling lag).
 						dashEvalJS("window.nsApplyTheme&&window.nsApplyTheme('" + applied + "')")

@@ -8,20 +8,6 @@
 <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-<header>
-  <div class="brand">
-    <h1>netscope</h1>
-    <span class="dot" id="dot"></span>
-  </div>
-  <span class="status-line" id="status-text" data-i18n="status.connecting">connecting…</span>
-  <span class="spacer"></span>
-  <button class="hdr-btn" id="pause-btn" aria-label="Pause capture" data-i18n="btn.pause"
-          data-i18n-aria="tip.pause" data-i18n-tip="tip.pause" data-tip="Pause capture" data-tip-down>Pause</button>
-  <button class="hdr-btn" id="export-all" aria-label="Export" data-i18n="btn.export"
-          data-i18n-aria="tip.exportJson" data-i18n-tip="tip.exportJson" data-tip="Export as JSON" data-tip-down>Export</button>
-  <button class="hdr-btn" id="reset-session" aria-label="Reset session" data-i18n="btn.reset"
-          data-i18n-aria="tip.reset" data-i18n-tip="tip.reset" data-tip="Reset the live session counters to zero (keeps history)" data-tip-down>Reset</button>
-</header>
 
 <div class="shell">
   <aside>
@@ -67,6 +53,17 @@
   </aside>
 
   <main>
+  <header class="toolbar">
+    <span class="dot" id="dot"></span>
+    <span class="status-line" id="status-text" data-i18n="status.connecting">connecting…</span>
+    <span class="spacer"></span>
+    <button class="hdr-btn" id="pause-btn" aria-label="Pause capture" data-i18n="btn.pause"
+            data-i18n-aria="tip.pause" data-i18n-tip="tip.pause" data-tip="Pause capture" data-tip-down>Pause</button>
+    <button class="hdr-btn" id="export-all" aria-label="Export" data-i18n="btn.export"
+            data-i18n-aria="tip.exportJson" data-i18n-tip="tip.exportJson" data-tip="Export as JSON" data-tip-down>Export</button>
+    <button class="hdr-btn" id="reset-session" aria-label="Reset session" data-i18n="btn.reset"
+            data-i18n-aria="tip.reset" data-i18n-tip="tip.reset" data-tip="Reset the live session counters to zero (keeps history)" data-tip-down>Reset</button>
+  </header>
     <!-- throughput band -->
     <section class="band chart-band">
       <header>
@@ -137,6 +134,11 @@
       </header>
       <div id="conns"></div>
     </section>
+  <footer>
+    <span id="version">netscope</span><span class="sep"></span><span data-i18n="footer.privacy">all data stays on this machine</span>
+    <span class="spacer"></span>
+    <span class="keys"><kbd>R</kbd> <span data-i18n="footer.refresh">refresh history</span> · <kbd>L</kbd> <span data-i18n="footer.jump">jump to session</span></span>
+  </footer>
   </main>
 </div>
 
@@ -165,11 +167,6 @@
   </div>
 </div>
 
-<footer>
-  <span id="version">netscope</span><span class="sep"></span><span data-i18n="footer.privacy">all data stays on this machine</span>
-  <span class="spacer"></span>
-  <span class="keys"><kbd>R</kbd> <span data-i18n="footer.refresh">refresh history</span> · <kbd>L</kbd> <span data-i18n="footer.jump">jump to session</span></span>
-</footer>
 
 <script src="i18n.js"></script>
 <script src="tooltip.js"></script>

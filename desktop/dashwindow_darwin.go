@@ -8,6 +8,7 @@ package main
 extern void openDashWindow(const char *url);
 extern void closeDashWindow(void);
 extern void dashEvalJS(const char *js);
+extern void setDashAppearance(const char *mode);
 */
 import "C"
 
@@ -31,3 +32,12 @@ func openDashWindow(url string) {
 
 // closeDashWindow hides the standalone dashboard window.
 func closeDashWindow() { C.closeDashWindow() }
+
+// setDashAppearance pins the dashboard window's appearance to the theme
+// ("auto" follows the system), so its title bar and sidebar material match
+// the page. Safe to call before the window exists (no-op).
+func setDashAppearance(mode string) {
+	cs := C.CString(mode)
+	defer C.free(unsafe.Pointer(cs))
+	C.setDashAppearance(cs)
+}
