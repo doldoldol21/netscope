@@ -370,6 +370,11 @@ func installScript(netscoped, plistSrc string) string {
 		// launchd runs as root can afterwards only be replaced by root.
 		fmt.Sprintf("/usr/bin/install -d -m 755 -o root -g wheel %s", shellQuote(filepath.Dir(helperPath))),
 		fmt.Sprintf("/usr/bin/install -m 755 -o root -g wheel %s %s", shellQuote(netscoped), shellQuote(helperPath)),
+		// A bundle that arrived through a browser or a Homebrew cask carries the
+		// quarantine attribute, and install(1) copies it along. launchd will not
+		// exec a quarantined, non-notarized binary as root (the service sits in
+		// "spawn scheduled" with OS_REASON_EXEC), so the copy sheds it here.
+		fmt.Sprintf("/usr/bin/xattr -c %s || true", shellQuote(helperPath)),
 		fmt.Sprintf("/usr/bin/install -m 644 -o root -g wheel %s %s", shellQuote(plistSrc), shellQuote(plistPath)),
 		"/bin/mkdir -p /var/run/netscope",
 		// Bootout any existing (possibly stuck or wrongly-owned) instance first,
