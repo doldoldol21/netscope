@@ -61,6 +61,10 @@
   // tooltip can't be copied from. Click copies it; when the element's title
   // carries extra info (an app's bundle path), it shows as a second line.
   let peek = null, peekHideTimer = 0, peekTarget = null;
+  // Once a peek has shown, the next name hovered within WARM_MS shows at once,
+  // the way macOS tooltips do: only the first hover of a sweep waits.
+  const PEEK_DELAY = 180, WARM_MS = 500;
+  let peekWarmUntil = 0;
 
   function hidePeek() {
     clearTimeout(peekHideTimer);
@@ -71,7 +75,10 @@
   // select text without it vanishing.
   function schedulePeekHide() {
     clearTimeout(peekHideTimer);
-    peekHideTimer = setTimeout(hidePeek, 250);
+    peekHideTimer = setTimeout(() => {
+      if (peekTarget) peekWarmUntil = Date.now() + WARM_MS;
+      hidePeek();
+    }, 250);
   }
 
   function peekEl() {
@@ -195,7 +202,8 @@
 
   // Truncated names peek immediately (the full text is information); full-width
   // names peek after a beat, purely as a copy affordance — instant popups on
-  // every row hover would be noise.
+  // every row hover would be noise. A peek already up, or one that just closed,
+  // skips the beat.
   let peekShowTimer = 0;
   document.addEventListener("mouseover", (e) => {
     const target = e.target.closest && e.target.closest(".label, .nm");
@@ -203,8 +211,15 @@
     clearTimeout(peekHideTimer);
     clearTimeout(peekShowTimer);
     if (target === peekTarget) return;
-    if (target.scrollWidth > target.clientWidth + 1) showPeek(target);
-    else peekShowTimer = setTimeout(() => showPeek(target), 550);
+    const warm = peekTarget || Date.now() < peekWarmUntil;
+    if (warm || target.scrollWidth > target.clientWidth + 1) { showPeek(target); return; }
+    peekShowTimer = setTimeout(() => {
+      // A live re-render (the popover rebuilds its list when the top three
+      // change) can swap the row out mid-wait. Its replacement gets no
+      // mouseover until the pointer moves, so find it by :hover instead.
+      const live = target.isConnected ? target : document.querySelector(".label:hover, .nm:hover");
+      if (live) showPeek(live);
+    }, PEEK_DELAY);
   });
   document.addEventListener("mouseout", (e) => {
     if (e.target.closest && e.target.closest(".label, .nm")) {
