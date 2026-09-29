@@ -48,7 +48,8 @@ var (
 	appCtx       context.Context
 	winMu        sync.Mutex
 	winVisible   bool
-	dashboardURL string // loopback URL for the dashboard window's webview
+	winHeight    = popoverHeight // taller while the settings are open
+	dashboardURL string          // loopback URL for the dashboard window's webview
 )
 
 func main() {
@@ -206,6 +207,24 @@ func main() {
 					}
 				}
 				setMenuBarAnim(on)
+			})
+			// The settings overlay asks for the height it needs (0 = the main
+			// view's). Remembered, so a popover reopened with the settings
+			// still up opens at their size.
+			wruntime.EventsOn(ctx, "netscope:popoverheight", func(data ...interface{}) {
+				h := popoverHeight
+				if len(data) > 0 {
+					if f, ok := data[0].(float64); ok {
+						h = settingsHeight(f)
+					}
+				}
+				winMu.Lock()
+				winHeight = h
+				visible := winVisible
+				winMu.Unlock()
+				if visible {
+					resizePopover(h)
+				}
 			})
 			// Software-update controls, surfaced in the popover.
 			wruntime.EventsOn(ctx, "netscope:getupdate", func(...interface{}) {
@@ -393,10 +412,10 @@ func onStatusItemClick() {
 		winVisible = false
 		return
 	}
-	wruntime.WindowSetSize(appCtx, popoverWidth, popoverHeight)
+	wruntime.WindowSetSize(appCtx, popoverWidth, winHeight)
 	// Place the window directly (global coords) before showing it, so it lands
 	// under the status item on whichever monitor the menu bar is on.
-	positionPopover(popoverWidth, popoverHeight)
+	positionPopover(popoverWidth, winHeight)
 	installPopoverMaterial() // the translucent backdrop; a no-op after the first time
 	setPopoverAppearance(loadTheme())
 	wruntime.WindowShow(appCtx)
@@ -418,6 +437,20 @@ func setPanelLive(ctx context.Context, on bool) {
 		arg = "true"
 	}
 	wruntime.WindowExecJS(ctx, "window.nsLive&&window.nsLive("+arg+")")
+}
+
+// settingsHeight turns the page's requested height into a window height: never
+// smaller than the main view, and bounded so a bad value can't make a window
+// taller than any screen (the native side clamps to the actual one).
+func settingsHeight(req float64) int {
+	const maxHeight = 2000
+	switch {
+	case !(req > popoverHeight): // also NaN
+		return popoverHeight
+	case req > maxHeight:
+		return maxHeight
+	}
+	return int(req)
 }
 
 func envOr(key, def string) string {

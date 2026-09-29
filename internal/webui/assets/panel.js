@@ -187,6 +187,41 @@ function openSettings() {
     r.EventsEmit("netscope:gettheme");   // Go replies on "netscope:theme"
   }
   $("settings").classList.add("show");
+  fitSettings();
+}
+
+// The popover is sized for the main view; the settings run about twice as
+// tall. While they are open the window grows down to fit them (Go keeps the
+// top edge under the status item and clamps to the screen, past which the
+// body scrolls as before), and it goes back when they close.
+function popoverHeight(h) {
+  const r = rt();
+  if (r.EventsEmit) r.EventsEmit("netscope:popoverheight", h);
+}
+let fitFrame = 0, fitSent = 0;
+function fitSettings() {
+  cancelAnimationFrame(fitFrame);
+  fitFrame = requestAnimationFrame(() => {
+    if (!$("settings").classList.contains("show")) return;
+    const body = document.querySelector(".set-body");
+    const pad = parseFloat(getComputedStyle(document.body).paddingTop) +
+      parseFloat(getComputedStyle(document.body).paddingBottom);
+    const h = Math.ceil(document.querySelector(".set-head").offsetHeight + body.scrollHeight + pad);
+    if (h !== fitSent) { fitSent = h; popoverHeight(h); }
+  });
+}
+function closeSettings() {
+  if (!$("settings").classList.contains("show")) return;
+  $("settings").classList.remove("show");
+  cancelAnimationFrame(fitFrame);
+  fitSent = 0;
+  popoverHeight(0); // 0 = the main view's own size
+}
+// Content that changes while open (the update button appearing, a reply
+// filling the menu-bar options) refits the window.
+if (window.ResizeObserver) {
+  const ro = new ResizeObserver(fitSettings);
+  document.querySelectorAll(".set-body > *").forEach((n) => ro.observe(n));
 }
 
 // ---- theme (shared with the dashboard; persisted server-side) ----
@@ -341,7 +376,7 @@ document.addEventListener("keydown", (e) => {
   if (e.key !== "Escape") return;
   const m = $("iface-menu");
   if (!m.hidden) { m.hidden = true; return; }
-  $("settings").classList.remove("show");
+  closeSettings();
 });
 
 // ---- menu-bar readout style ----
@@ -386,7 +421,7 @@ function saveAlerts() {
 }
 ["set-daily", "set-app", "set-up-daily", "set-up-app"].forEach((id) => { $(id).onchange = saveAlerts; });
 $("alerts-btn").onclick = openSettings;
-$("set-close").onclick = () => { $("settings").classList.remove("show"); };
+$("set-close").onclick = closeSettings;
 
 // ---- software updates ----
 let lastUpdateStatus = null;

@@ -1,4 +1,5 @@
 #import <Cocoa/Cocoa.h>
+#import <QuartzCore/QuartzCore.h>
 
 // Implemented in Go (//export).
 void statusItemClickedGo(void);
@@ -149,6 +150,30 @@ void positionPopover(int winW, int winH) {
         break;
       }
     }
+  });
+}
+
+// resizePopover changes the open popover's height in place, animated: the top
+// edge stays a hair under the status item and the window grows or shrinks
+// from the bottom, the way a menu-bar popover expands. It never runs past the
+// bottom of the visible screen; the page scrolls whatever does not fit. The
+// material view follows through its autoresizing mask.
+static NSWindow *wailsWindow(void);
+void resizePopover(int winH) {
+  dispatch_async(dispatch_get_main_queue(), ^{
+    NSWindow *w = wailsWindow();
+    if (!w || !w.isVisible) return;
+    NSRect f = w.frame;
+    CGFloat top = NSMaxY(f);
+    NSRect vis = (w.screen ?: [NSScreen mainScreen]).visibleFrame;
+    CGFloat h = MIN((CGFloat)winH, top - (vis.origin.y + 4));
+    if (h == f.size.height) return;
+    NSRect frame = NSMakeRect(f.origin.x, top - h, f.size.width, h);
+    [NSAnimationContext runAnimationGroup:^(NSAnimationContext *ctx) {
+      ctx.duration = 0.15; // the page's settings cross-fade
+      ctx.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseInEaseOut];
+      [[w animator] setFrame:frame display:YES];
+    } completionHandler:nil];
   });
 }
 

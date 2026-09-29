@@ -10,6 +10,7 @@ extern void setStatusImage(const void *png, int len);
 extern int menuBarAnimationActive(void);
 extern void setStatusText(const char *utf8);
 extern void positionPopover(int winW, int winH);
+extern void resizePopover(int winH);
 extern void enablePopoverDismiss(void);
 extern void focusPopover(void);
 extern void installPopoverMaterial(void);
@@ -45,6 +46,10 @@ func menuBarAnimationActive() bool { return C.menuBarAnimationActive() != 0 }
 func positionPopover(winWidth, winHeight int) {
 	C.positionPopover(C.int(winWidth), C.int(winHeight))
 }
+
+// resizePopover animates the open popover to winHeight, keeping its top edge
+// under the status item (clamped to the screen).
+func resizePopover(winHeight int) { C.resizePopover(C.int(winHeight)) }
 
 // setStatusText sets the live-rate text shown next to the menu-bar icon ("" clears it).
 func setStatusText(s string) {
