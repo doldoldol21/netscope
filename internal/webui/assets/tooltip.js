@@ -94,6 +94,8 @@
       const done = () => {
         const m = peek.querySelector(".pk-main");
         if (m) m.textContent = typeof t === "function" ? t("peek.copied") : "Copied";
+        const ico = peek.querySelector(".pk-ico");
+        if (ico) ico.remove(); // "Copied ✓" carries its own mark
         peekHideTimer = setTimeout(hidePeek, 700);
       };
       if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -111,6 +113,12 @@
     document.body.appendChild(peek);
     return peek;
   }
+
+  // Two overlapping sheets, the usual copy glyph; stroked in currentColor so
+  // it takes the peek's faint text color in either theme.
+  const COPY_ICON = '<svg viewBox="0 0 12 12" width="11" height="11" aria-hidden="true">' +
+    '<rect x="3.5" y="3.5" width="7" height="7" rx="1.5" fill="none" stroke="currentColor"/>' +
+    '<path d="M8.5 3.5V2.5a1 1 0 0 0-1-1h-5a1 1 0 0 0-1 1v5a1 1 0 0 0 1 1h1" fill="none" stroke="currentColor"/></svg>';
 
   const stripEmoji = (s) => s
     .replace(/[\u{1F1E6}-\u{1F1FF}\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}️]/gu, "")
@@ -174,10 +182,22 @@
     const p = peekEl();
     p.dataset.text = text;
     p.innerHTML = "";
-    const main = document.createElement("div");
+    // The copy affordance is an icon beside the name rather than a third line
+    // of "click to copy": a line of instructions made the peek cover the row
+    // below it, and the name it sits next to is what a click copies.
+    const row = document.createElement("div");
+    row.className = "pk-row";
+    const main = document.createElement("span");
     main.className = "pk-main";
     main.textContent = text;
-    p.appendChild(main);
+    row.appendChild(main);
+    const ico = document.createElement("span");
+    ico.className = "pk-ico";
+    ico.setAttribute("role", "img");
+    ico.setAttribute("aria-label", typeof t === "function" ? t("peek.copyHint") : "click to copy");
+    ico.innerHTML = COPY_ICON;
+    row.appendChild(ico);
+    p.appendChild(row);
     const subText = [meta, extra && extra !== text ? shortPath(extra, text) : ""]
       .filter(Boolean).join(" · ");
     if (subText) {
@@ -186,10 +206,6 @@
       sub.textContent = subText;
       p.appendChild(sub);
     }
-    const hint = document.createElement("div");
-    hint.className = "pk-hint";
-    hint.textContent = typeof t === "function" ? t("peek.copyHint") : "click to copy";
-    p.appendChild(hint);
     p.style.display = "block";
     const r = target.getBoundingClientRect(), pr = p.getBoundingClientRect();
     let top = r.bottom + 6;

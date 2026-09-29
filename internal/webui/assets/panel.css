@@ -300,7 +300,10 @@ footer {
   cursor: copy; overflow-wrap: anywhere; word-break: normal;
 }
 #ns-peek .pk-sub { color: var(--muted); font-size: 11px; margin-top: 2px; }
-#ns-peek .pk-hint { color: var(--faint); font: 500 9.5px/1 var(--sans); margin-top: 5px; }
+#ns-peek .pk-row { display: flex; align-items: baseline; gap: 8px; }
+#ns-peek .pk-main { flex: 1 1 auto; min-width: 0; }
+#ns-peek .pk-ico { flex: 0 0 auto; color: var(--faint); line-height: 0; position: relative; top: 1px; }
+#ns-peek:hover .pk-ico { color: var(--muted); }
 
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
