@@ -15,7 +15,14 @@ const assets = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../as
 const popoverURL = pathToFileURL(path.join(assets, "index.html")).href;
 
 let browser;
-before(async () => { browser = await webkit.launch(); });
+before(async () => {
+  browser = await webkit.launch();
+  // The first page in a fresh browser is slow to come up; take that here
+  // rather than inside whichever test happens to run first.
+  const warm = await browser.newPage();
+  await warm.goto(popoverURL);
+  await warm.close();
+});
 after(async () => { await browser?.close(); });
 
 // newPopover opens index.html at the popover's size, with the Wails runtime
@@ -24,6 +31,20 @@ after(async () => { await browser?.close(); });
 async function newPopover() {
   const page = await browser.newPage({ viewport: { width: 320, height: 270 } });
   await page.addInitScript(() => {
+    // Timings are taken in the page, not by the test: a round trip to the
+    // browser can itself outlast the peek's delay on a cold CI runner.
+    window.__overs = []; // [performance.now(), name] per pointer entry
+    window.__shown = []; // [performance.now(), name] per peek change
+    document.addEventListener("mouseover", (e) => {
+      const n = e.target.closest && e.target.closest(".nm");
+      if (n) window.__overs.push([performance.now(), n.textContent]);
+    }, true);
+    let last = null;
+    new MutationObserver(() => {
+      const p = document.getElementById("ns-peek");
+      const now = p && p.style.display === "block" ? p.querySelector(".pk-main")?.textContent : null;
+      if (now !== last) { last = now; if (now) window.__shown.push([performance.now(), now]); }
+    }).observe(document, { subtree: true, childList: true, attributes: true, characterData: true });
     window.__emits = [];
     window.runtime = {
       EventsEmit: (name, ...args) => window.__emits.push([name, ...args]),
@@ -56,6 +77,14 @@ async function awayFromNames(page) {
   await page.mouse.move(300, 20); // the header, clear of every name
 }
 
+// lag is how long, in the page's own clock, the peek took to show name after
+// the pointer last entered it.
+const lag = (page, name) => page.evaluate((n) => {
+  const over = window.__overs.filter(([, m]) => m === n).pop();
+  const shown = window.__shown.find(([t, m]) => m === n && over && t >= over[0]);
+  return over && shown ? shown[0] - over[0] : null;
+}, name);
+
 // waitPeek polls until the peek shows `name` or the time runs out.
 async function waitPeek(page, name, ms) {
   const end = Date.now() + ms;
@@ -70,9 +99,9 @@ test("a name that fits peeks after a beat, not at once", async () => {
   const page = await newPopover();
   await awayFromNames(page);
   await hover(page, 0);
-  await page.waitForTimeout(40);
-  assert.equal(await peekText(page), null, "peeked before the delay");
-  assert.ok(await waitPeek(page, "Safari", 1000), "never peeked");
+  assert.ok(await waitPeek(page, "Safari", 2000), "never peeked");
+  const ms = await lag(page, "Safari");
+  assert.ok(ms >= 120, `peeked ${ms}ms after the pointer arrived; a name that fits waits a beat`);
   await page.close();
 });
 
@@ -81,8 +110,10 @@ test("moving to the next name while one is up switches at once", async () => {
   await hover(page, 0);
   assert.ok(await waitPeek(page, "Safari", 1000));
   await hover(page, 1);
-  // Well inside the first-hover delay: only the warm path gets here in time.
-  assert.ok(await waitPeek(page, "Slack", 100), "kept the old name, or waited the full delay");
+  assert.ok(await waitPeek(page, "Slack", 2000), "kept showing the old name");
+  const ms = await lag(page, "Slack");
+  // Well inside the first-hover delay: only the warm path is this quick.
+  assert.ok(ms < 100, `took ${ms}ms to switch; it should not wait the first-hover delay again`);
   await page.close();
 });
 
