@@ -53,6 +53,8 @@ downloaded it).
 - **Self-updating** — checks GitHub Releases and updates in one click, no
   admin password: downloads are SHA-256 verified, and the root capture helper
   replaces itself only with a daemon whose hash the release publishes.
+  Updated some other way (`brew upgrade`, `install.sh`), the running app
+  notices its bundle was replaced and relaunches into it.
 - **CLI** — `netscope`, `netscope apps --range week`,
   `netscope export … > out.csv`, `netscope --version`.
 - **Localized** — follows your system language (English, 한국어, 日本語).

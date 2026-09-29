@@ -33,6 +33,12 @@ mkdir -p dist
 rm -rf "$APP"
 cp -R desktop/build/bin/netscope.app "$APP"
 CGO_ENABLED=1 go build -ldflags "$LDFLAGS" -o "$APP/Contents/MacOS/netscoped" ./cmd/netscoped
+# Wails stamps wails.json's productVersion (a fixed 0.1.0) into Info.plist;
+# replace it with the real one so Finder and `defaults read` agree with the
+# build. Before signing: the signature seals Info.plist.
+PLIST_VERSION="${VERSION#v}"
+plutil -replace CFBundleShortVersionString -string "$PLIST_VERSION" "$APP/Contents/Info.plist"
+plutil -replace CFBundleVersion -string "$PLIST_VERSION" "$APP/Contents/Info.plist"
 
 echo "==> signing (identity: $SIGN_ID)"
 codesign --force --sign "$SIGN_ID" "$APP/Contents/MacOS/netscoped"
