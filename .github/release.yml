@@ -1,0 +1,19 @@
+# Sections for GitHub's generated release notes (gh release create
+# --generate-notes). PRs are sorted by label; .github/workflows/pr-labels.yml
+# sets the label from the conventional-commit prefix of the PR title.
+changelog:
+  exclude:
+    labels: [skip-changelog]
+  categories:
+    - title: New
+      labels: [enhancement]
+    - title: Fixes
+      labels: [bug]
+    - title: Performance
+      labels: [performance]
+    - title: Docs
+      labels: [documentation]
+    - title: Dependencies
+      labels: [dependencies]
+    - title: Other changes
+      labels: ["*"]
