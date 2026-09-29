@@ -207,10 +207,22 @@
       p.appendChild(sub);
     }
     p.style.display = "block";
+    // Beside the name, on its own row, where it covers that row's figures
+    // rather than the next name down. Below the name it sat over the next row,
+    // so moving down the list landed on the peek instead of the next name.
+    // Only a name too long to leave room beside it falls back to below.
     const r = target.getBoundingClientRect(), pr = p.getBoundingClientRect();
-    let top = r.bottom + 6;
-    if (top + pr.height > window.innerHeight - PAD) top = r.top - pr.height - 6;
-    const left = Math.max(PAD, Math.min(r.left - 10, window.innerWidth - pr.width - PAD));
+    const glyphs = document.createRange();
+    glyphs.selectNodeContents(target);
+    const textRight = Math.min(glyphs.getBoundingClientRect().right, r.right);
+    let left = textRight + 10;
+    let top = r.top + r.height / 2 - pr.height / 2;
+    if (left + pr.width > window.innerWidth - PAD) {
+      top = r.bottom + 6;
+      if (top + pr.height > window.innerHeight - PAD) top = r.top - pr.height - 6;
+      left = Math.max(PAD, Math.min(r.left - 10, window.innerWidth - pr.width - PAD));
+    }
+    top = Math.max(PAD, Math.min(top, window.innerHeight - pr.height - PAD));
     p.style.top = Math.round(top) + "px";
     p.style.left = Math.round(left) + "px";
     peekTarget = target;
