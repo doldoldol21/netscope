@@ -1,0 +1,44 @@
+name: PR labels
+
+# Release notes are grouped by label (.github/release.yml), and every PR title
+# already carries its kind as a conventional-commit prefix. This turns the one
+# into the other, so nobody has to remember to label.
+#
+# pull_request_target runs with a token that can label, and it never checks
+# out or runs the PR's code — the title is the only input, read from the event.
+
+on:
+  pull_request_target:
+    types: [opened, edited, reopened]
+
+permissions:
+  pull-requests: write
+  issues: write
+
+jobs:
+  label:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Label from the title prefix
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          prefix="${TITLE%%:*}"
+          prefix="${prefix%%(*}"   # feat(scope) -> feat
+          prefix="${prefix%!}"     # feat! -> feat
+          case "$prefix" in
+            feat) label=enhancement ;;
+            fix) label=bug ;;
+            perf) label=performance ;;
+            docs) label=documentation ;;
+            test|chore|ci|build|refactor|style) label=maintenance ;;
+            *) echo "no conventional prefix in: $TITLE"; exit 0 ;;
+          esac
+          # A retitled PR drops the label its old prefix gave it.
+          for l in enhancement bug performance documentation maintenance; do
+            [ "$l" = "$label" ] || gh pr edit "$PR" -R "$REPO" --remove-label "$l" >/dev/null 2>&1 || true
+          done
+          gh pr edit "$PR" -R "$REPO" --add-label "$label"

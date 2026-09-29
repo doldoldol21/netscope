@@ -82,7 +82,19 @@ pure packages stay portable.
 
 ## Releasing (maintainers)
 
-Releases are automated. Merge changes to `main` via PR, then push a tag:
+Changes merge to `main` via PR as they are ready; releases are cut about once
+a week from whatever has landed, so people updating get one batch of changes
+rather than a notification per fix. A fix for broken capture, a security issue
+or a failed update ships on its own, as soon as it is merged.
+
+A PR that changes something a user would notice adds a line under
+`## Unreleased` in [CHANGELOG.md](CHANGELOG.md), written for someone using the
+app, not reading the code. Releasing renames that heading to the version and
+date and opens a fresh `## Unreleased` above it. PRs are labelled from their
+title prefix (`feat:`, `fix:`, `perf:`, `docs:`, …) automatically, which is
+how the generated list of PRs under each release is grouped.
+
+Releases are automated. Push a tag:
 
 ```sh
 git tag -a v0.7.0 -m "netscope v0.7.0"
@@ -90,7 +102,8 @@ git push origin v0.7.0
 ```
 
 GitHub Actions (`.github/workflows/release.yml`) builds `netscope.app` on macOS
-and publishes a release with the app zip + `install.sh`. (Run the workflow
+and publishes a release with the app zip + `install.sh`; the release notes open
+with that version's CHANGELOG section. (Run the workflow
 manually via *Actions ▸ Release ▸ Run workflow* to build a test artifact without
 publishing.)
 

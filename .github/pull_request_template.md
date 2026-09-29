@@ -17,4 +17,5 @@ Closes #
 - [ ] `make fmt` (no diff), `make vet`, `make test` all pass
 - [ ] Added/updated tests for behavior changes
 - [ ] Updated README / flags if user-facing behavior changed
+- [ ] Added a line under `## Unreleased` in CHANGELOG.md if users would notice
 - [ ] One focused change; commit messages follow the convention

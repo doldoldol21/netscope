@@ -41,6 +41,13 @@ jobs:
         # re-run after a partial failure), replace its assets instead of
         # failing on `gh release create`.
         run: |
+          # This version's CHANGELOG.md section (## 0.31.0 — date) goes above
+          # the generated PR list. No section: the PR list alone.
+          awk -v v="${GITHUB_REF_NAME#v}" '
+            /^## / { on = ($2 == v); next }
+            on' CHANGELOG.md > notes.md
+          notes=()
+          if grep -q '[^[:space:]]' notes.md; then notes=(--notes-file notes.md); fi
           if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
             gh release upload "${GITHUB_REF_NAME}" \
               dist/netscope-*-app.zip dist/checksums.txt dist/install.sh --clobber
@@ -48,5 +55,5 @@ jobs:
             gh release create "${GITHUB_REF_NAME}" \
               dist/netscope-*-app.zip dist/checksums.txt dist/install.sh \
               --title "netscope ${GITHUB_REF_NAME}" \
-              --generate-notes
+              --generate-notes "${notes[@]}"
           fi
