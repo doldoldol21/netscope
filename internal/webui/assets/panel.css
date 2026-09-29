@@ -210,13 +210,19 @@ footer {
 /* ---------- settings overlay ---------- */
 /* visibility (not just opacity/pointer-events) — otherwise the hidden
    overlay's inputs stay in the Tab order and are focusable while invisible. */
+/* The overlay has no fill of its own: --mat is translucent, so painting it
+   over the panel's own --mat let the rates and app list read through the
+   settings. It shares the panel's material instead, and the main view fades
+   out as the settings fade in. */
 .settings {
   position: absolute; inset: 0; z-index: 20; display: flex; flex-direction: column;
-  background: var(--mat); border-radius: 12px;
+  border-radius: 12px;
   opacity: 0; pointer-events: none; visibility: hidden;
   transition: opacity .15s, visibility .15s;
 }
 .settings.show { opacity: 1; pointer-events: auto; visibility: visible; }
+.panel > :not(.settings) { transition: opacity .15s, visibility .15s; }
+.panel:has(> .settings.show) > :not(.settings) { opacity: 0; visibility: hidden; }
 .set-head {
   flex: 0 0 auto; display: flex; align-items: center; gap: 8px; height: 34px;
   padding: 0 13px; border-bottom: 1px solid var(--line);
