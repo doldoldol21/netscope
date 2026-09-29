@@ -7,6 +7,9 @@ Releases before 0.30.0 are described there only.
 
 ## Unreleased
 
+- The name peek opens beside the name instead of below it, so it no longer
+  covers the next app in the list and moving down the list reaches it.
+
 ## 0.30.6 — 2026-09-29
 
 - The name peek in the app lists is smaller: "click to copy" is now a copy

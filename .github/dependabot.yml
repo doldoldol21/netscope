@@ -15,3 +15,9 @@ updates:
     groups:
       go-deps:
         patterns: ["*"]
+  - package-ecosystem: npm
+    directory: "/internal/webui/uitest"
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: chore

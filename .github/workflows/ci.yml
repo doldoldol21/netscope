@@ -87,3 +87,22 @@ jobs:
         run: go build ./...
       - name: test
         run: go test -race ./...
+
+  ui:
+    # The embedded web UI in WebKit, the engine behind the app's WKWebView:
+    # the name peek's timing and placement, and the settings overlay. These
+    # broke without a Go test noticing; see internal/webui/uitest.
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: internal/webui/uitest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: lts/*
+          cache: npm
+          cache-dependency-path: internal/webui/uitest/package-lock.json
+      - run: npm ci
+      - run: npx playwright install --with-deps webkit
+      - run: npm test

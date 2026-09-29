@@ -77,6 +77,10 @@ capture-sample: ## Capture 20s of traffic to testdata/sample.pcap (needs sudo)
 test: ## Run unit tests
 	go test ./...
 
+.PHONY: uitest
+uitest: ## Run the web UI smoke tests in WebKit (needs Node)
+	cd internal/webui/uitest && npm ci && npx playwright install webkit && npm test
+
 .PHONY: cover
 cover: ## Run tests with coverage summary
 	go test -cover ./...

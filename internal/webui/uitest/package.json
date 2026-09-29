@@ -1,0 +1,12 @@
+{
+  "name": "netscope-uitest",
+  "private": true,
+  "description": "Smoke tests for the embedded web UI in WebKit, the engine the app's WKWebView uses.",
+  "type": "module",
+  "scripts": {
+    "test": "node --test"
+  },
+  "devDependencies": {
+    "playwright": "1.63.0"
+  }
+}

@@ -46,12 +46,16 @@ Run the same checks CI runs — all must pass:
 make fmt        # gofmt -w (no diff after)
 make vet        # go vet ./...
 make test       # unit + offline integration (no root needed)
+make uitest     # the web UI in WebKit (needs Node; only when you touch internal/webui/assets)
 ```
 
 - Keep changes focused; one logical change per PR.
 - Match the surrounding style (comment density, naming, idioms).
 - Add/adjust tests for behavior changes — the decode/engine/storage/alerts/
   dnscache packages are pure and unit-tested; prefer testing logic there.
+- The web UI (`internal/webui/assets`) is covered by WebKit smoke tests in
+  `internal/webui/uitest`; a change to how it behaves under the pointer or
+  when settings open belongs there.
 - Update `README.md` if you change user-facing behavior or flags.
 
 ## Commit messages
