@@ -98,6 +98,9 @@ func main() {
 	// Periodically check GitHub for a newer release and notify on a new version.
 	startUpdateLoop()
 
+	// Relaunch into a bundle replaced from outside the app (brew, install.sh).
+	startBundleWatch()
+
 	err := wails.Run(&options.App{
 		Title: "netscope",
 		// Only one menu-bar app at a time: a second launch (login agent +
