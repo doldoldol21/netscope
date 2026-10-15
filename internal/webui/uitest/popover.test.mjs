@@ -158,16 +158,19 @@ test("the peek is two lines with a copy icon, and a click copies", async () => {
 
 test("settings hide the main view and ask for their height; closing gives it back", async () => {
   const page = await newPopover();
-  const mainView = () => page.evaluate(() =>
+  // mainViewIs waits for every main-view child to reach visibility v. Going
+  // hidden, visibility flips only when the .15s cross-fade ends, so a fixed
+  // sleep after the click raced a slow CI runner.
+  const mainViewIs = (v) => page.waitForFunction((v) =>
     [...document.getElementById("panel").children]
       .filter((c) => c.id !== "settings" && !c.hidden)
-      .map((c) => getComputedStyle(c).visibility));
+      .every((c) => getComputedStyle(c).visibility === v), v, { timeout: 2000 })
+    .then(() => true, () => false);
   const heights = () => page.evaluate(() =>
     window.__emits.filter(([n]) => n === "netscope:popoverheight").map(([, h]) => h));
 
   await page.click("#alerts-btn");
-  await page.waitForTimeout(300); // the .15s cross-fade
-  assert.ok((await mainView()).every((v) => v === "hidden"), "main view shows through the settings");
+  assert.ok(await mainViewIs("hidden"), "main view shows through the settings");
   const asked = await heights();
   assert.equal(asked.length, 1);
   assert.ok(asked[0] > 270, `asked for ${asked[0]}px, no taller than the popover`);
@@ -179,14 +182,15 @@ test("settings hide the main view and ask for their height; closing gives it bac
   assert.ok(fits > 0, "test setup: settings already fit, so the height check proves nothing");
 
   await page.click("#set-close");
-  await page.waitForTimeout(300);
-  assert.ok((await mainView()).every((v) => v === "visible"), "main view did not come back");
+  assert.ok(await mainViewIs("visible"), "main view did not come back");
   assert.deepEqual((await heights()).slice(-1), [0], "closing did not hand the height back");
 
   await page.click("#alerts-btn");
+  // Until the fade-out ends the main view still reads visible, which would
+  // pass the check below even if Escape did nothing.
+  assert.ok(await mainViewIs("hidden"), "settings did not reopen");
   await page.keyboard.press("Escape");
-  await page.waitForTimeout(300);
-  assert.ok((await mainView()).every((v) => v === "visible"), "Escape left the main view hidden");
+  assert.ok(await mainViewIs("visible"), "Escape left the main view hidden");
   assert.deepEqual((await heights()).slice(-1), [0], "Escape did not hand the height back");
   await page.close();
 });
