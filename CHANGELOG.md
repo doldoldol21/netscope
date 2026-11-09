@@ -7,6 +7,8 @@ Releases before 0.30.0 are described there only.
 
 ## Unreleased
 
+## 0.30.7 — 2026-11-09
+
 - The name peek opens beside the name instead of below it, so it no longer
   covers the next app in the list and moving down the list reaches it.
 
