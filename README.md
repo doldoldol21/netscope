@@ -15,7 +15,22 @@ daemon opens no network port.
 ![platform](https://img.shields.io/badge/macOS-11%2B-555)
 ![lang](https://img.shields.io/badge/built%20with-Go-00ADD8)
 
-<img src="assets/shot-dashboard.png" alt="netscope dashboard" />
+<p>
+  <a href="#install">Install</a> ·
+  <a href="#features">Features</a> ·
+  <a href="#how-it-works">How it works</a> ·
+  <a href="#privacy">Privacy</a> ·
+  <a href="#develop">Develop</a>
+</p>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/demo-dark.gif" />
+  <img src="assets/demo.gif" alt="netscope dashboard: live throughput, per-app and per-domain traffic" />
+</picture>
+
+<sub>Recorded in demo mode (<code>make demo</code>) — synthetic traffic, no real capture.</sub>
+
+<br /><br />
 
 <img src="assets/shot-popover.png" width="300" alt="netscope menu-bar popover" />
 &nbsp;&nbsp;
@@ -41,23 +56,62 @@ downloaded it).
 
 ## Features
 
-- **Menu bar** — live ↓↑ rate readout (choose style/color) and a popover with
-  today's total and top apps.
-- **Dashboard** — throughput chart (live/day/week/month), per-app and
-  per-domain rankings with search and sorting, per-app drill-down, live
-  connections, traffic by country (offline GeoIP — no external lookups).
-- **Alerts** — macOS notification when today's total, uploads, or a single app
-  crosses a limit you set.
-- **Monthly data plan** — track a tethered phone's allowance per billing cycle
-  (used, left, projected).
-- **Self-updating** — checks GitHub Releases and updates in one click, no
-  admin password: downloads are SHA-256 verified, and the root capture helper
-  replaces itself only with a daemon whose hash the release publishes.
-  Updated some other way (`brew upgrade`, `install.sh`), the running app
-  notices its bundle was replaced and relaunches into it.
-- **CLI** — `netscope`, `netscope apps --range week`,
-  `netscope export … > out.csv`, `netscope --version`.
-- **Localized** — follows your system language (English, 한국어, 日本語).
+<table>
+<tr>
+<td width="50%" valign="top">
+
+**Menu bar**<br />
+Live ↓↑ rate readout (choose style/color) and a popover with today's total
+and top apps.
+
+</td>
+<td width="50%" valign="top">
+
+**Dashboard**<br />
+Throughput chart (live/day/week/month), per-app and per-domain rankings with
+search and sorting, per-app drill-down, live connections, traffic by country
+(offline GeoIP — no external lookups).
+
+</td>
+</tr>
+<tr>
+<td valign="top">
+
+**Alerts**<br />
+macOS notification when today's total, uploads, or a single app crosses a
+limit you set.
+
+</td>
+<td valign="top">
+
+**Monthly data plan**<br />
+Track a tethered phone's allowance per billing cycle (used, left, projected).
+
+</td>
+</tr>
+<tr>
+<td valign="top">
+
+**Self-updating**<br />
+Checks GitHub Releases and updates in one click, no admin password: downloads
+are SHA-256 verified, and the root capture helper replaces itself only with a
+daemon whose hash the release publishes. Updated some other way
+(`brew upgrade`, `install.sh`), the running app notices its bundle was
+replaced and relaunches into it.
+
+</td>
+<td valign="top">
+
+**CLI**<br />
+`netscope`, `netscope apps --range week`, `netscope export … > out.csv`,
+`netscope --version`.
+
+**Localized**<br />
+Follows your system language (English, 한국어, 日本語).
+
+</td>
+</tr>
+</table>
 
 ## How it works
 
@@ -76,6 +130,9 @@ are `0600` in a `0700` directory), so other local accounts can't read it either.
 Bytes and hostnames only — payloads are never decrypted, nothing captured is
 uploaded, and the country lookup uses an embedded offline database, so no address
 is ever sent to a geolocation service.
+
+<details>
+<summary><b>What does leave your Mac</b> — reverse DNS and update checks, and how to turn them off</summary>
 
 Two things do go out, both ordinary network requests rather than capture data:
 
@@ -106,6 +163,8 @@ sudo launchctl bootstrap system /Library/LaunchDaemons/io.netscope.daemon.plist
 Reinstalling the capture helper rewrites that plist, so flags added by hand need
 re-applying afterwards.
 
+</details>
+
 ## Develop
 
 Requires Go 1.26+ and Xcode Command Line Tools.
@@ -119,6 +178,9 @@ make package    # dist/: app, zip, checksums, installer
 
 ## Uninstall
 
+<details>
+<summary>Remove the app, the capture helper, and its data</summary>
+
 ```sh
 sudo launchctl bootout system/io.netscope.daemon 2>/dev/null
 sudo rm -f /Library/LaunchDaemons/io.netscope.daemon.plist
@@ -126,6 +188,8 @@ sudo rm -f /Library/PrivilegedHelperTools/io.netscope.daemon
 rm -rf /Applications/netscope.app ~/Library/LaunchAgents/io.netscope.app.plist
 sudo rm -rf /var/db/netscope /var/run/netscope
 ```
+
+</details>
 
 ## Credits & license
 
